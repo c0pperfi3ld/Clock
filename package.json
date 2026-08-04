@@ -1,0 +1,13 @@
+{
+  "name": "clock-widget",
+  "version": "1.0.0",
+  "description": "Premium floating analog clock widget with alarms and visual aids",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "dependencies": {
+    "electron": "^35.0.0"
+  }
+}
