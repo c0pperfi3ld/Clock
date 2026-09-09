@@ -30,6 +30,7 @@
   };
 
   let style='handsonly_ghost', theme='midnight', handType='tapered', opacity=100, sessions=[], blockOpacity=0.25;
+  let reminders = []; // [{id, time:"HH:MM", label, recurring, lastFiredDate}]
   let blockAnim = { style: 'pulse', speed: 1.0 };
   let tooltipAnim = 'bounce';
   let tooltipSize = 1.0;
@@ -43,10 +44,12 @@
   if (saved.blockAnim) blockAnim=saved.blockAnim;
   if (saved.tooltipAnim) tooltipAnim=saved.tooltipAnim;
   if (saved.tooltipSize) tooltipSize=saved.tooltipSize;
+  if (Array.isArray(saved.reminders)) reminders=saved.reminders;
 
   function applyOpacity() { canvas.style.opacity=opacity/100; }
   applyOpacity();
   function save() { api.saveSettings({clockStyle:style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize}); }
+  function saveReminders() { api.saveSettings({reminders}); }
 
   api.onSetStyle(s => { style=s; save(); });
   api.onSetTheme(t => { theme=t; save(); });
@@ -362,6 +365,7 @@
   // Canvas-drawn settings gear
   let gearOpacity = 0;
   let lastMouseMove = 0;
+  let lastMouseX = null, lastMouseY = null;
   let gearX = 0, gearY = 0, gearR = 14;
 
   // Track label animation birth times and click regions
@@ -372,15 +376,73 @@
 
   window.addEventListener('mousemove', e => {
     lastMouseMove = Date.now();
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
   });
 
   // Click on label to edit, click × to delete task
+  // ── Reminder helpers ──
+  // 24-hour mapping: 12 o'clock (top) = 00:00, 6 o'clock (bottom) = 12:00
+  function timeToAngle(t) {
+    const [h, m] = t.split(':').map(Number);
+    return ((h + m/60) / 24) * PI2;
+  }
+  function angleToTime(a) {
+    let norm = a; if (norm < 0) norm += PI2;
+    const totalMins = Math.round((norm / PI2) * 24 * 60 / 5) * 5;
+    const hrs = Math.floor(totalMins / 60) % 24;
+    const mins = totalMins % 60;
+    return `${String(hrs).padStart(2,'0')}:${String(mins).padStart(2,'0')}`;
+  }
+  function reminderAngle(clientX, clientY, cx, cy) {
+    const dx = clientX - cx, dy = clientY - cy;
+    let a = Math.atan2(dy, dx) + Math.PI/2; // 0 at top
+    if (a < 0) a += PI2; if (a >= PI2) a -= PI2;
+    return a;
+  }
+
+  // Right-click on the clock face → spawn a reminder at that time
+  canvas.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    const w = window.innerWidth, h = window.innerHeight;
+    const cx = w/2, cy = h/2, r = Math.min(cx, cy) - 4;
+    const dx = e.clientX - cx, dy = e.clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    // Only spawn on the dial area (not way outside the clock)
+    if (dist > r + 30) return;
+    const a = reminderAngle(e.clientX, e.clientY, cx, cy);
+    const time = angleToTime(a);
+    if (!reminders) reminders = [];
+    const newRem = {
+      id: Date.now() + '-' + Math.random().toString(36).slice(2,7),
+      time, label: '', recurring: false
+    };
+    reminders.push(newRem);
+    saveReminders();
+    startEditReminderLabel(newRem.id);
+  });
+
   canvas.addEventListener('click', e => {
      const mx = e.clientX, my = e.clientY;
      // Dismiss any active reminder alert first
      if (reminderAlert) {
         reminderAlert = null;
         return;
+     }
+     // Reminder pip interactions (delete × takes priority over select)
+     for (const box of reminderHitBoxes) {
+        if (box.delR > 0 && Math.hypot(mx - box.delX, my - box.delY) < box.delR + 4) {
+           if (reminders[box.idx]) {
+              reminders.splice(box.idx, 1);
+              saveReminders();
+              stopEditReminderLabel();
+              return;
+           }
+        }
+        if (Math.hypot(mx - box.x, my - box.y) < box.r + 4) {
+           if (reminders[box.idx]) startEditReminderLabel(reminders[box.idx].id);
+           return;
+        }
      }
      for (const box of labelHitBoxes) {
         // Check delete button
@@ -813,6 +875,137 @@
     X.textAlign = 'center';
     X.textBaseline = 'middle';
     X.fillText(text, cx, by + pr);
+    X.restore();
+  }
+
+  // ── Reminder Pips on the clock face ──
+  // Each reminder renders as a small filled circle just inside the dial at the
+  // time-angle. Hover state enlarges it and shows a tooltip. Click selects it
+  // (revealing a delete × + click-to-rename). Right-click spawns a new one.
+  let reminderHitBoxes = []; // [{x, y, r, idx, delX, delY, delR}]
+  let editingReminderId = null;
+  let reminderEditInput = null;
+
+  function stopEditReminderLabel() {
+    editingReminderId = null;
+    if (reminderEditInput && reminderEditInput.parentNode) reminderEditInput.parentNode.removeChild(reminderEditInput);
+    reminderEditInput = null;
+  }
+
+  function startEditReminderLabel(id) {
+    stopEditReminderLabel();
+    const r = reminders.find(x => x.id === id);
+    if (!r) return;
+    editingReminderId = id;
+    reminderEditInput = document.createElement('input');
+    reminderEditInput.type = 'text';
+    reminderEditInput.value = r.label || '';
+    reminderEditInput.placeholder = 'Reminder label...';
+    reminderEditInput.maxLength = 32;
+    Object.assign(reminderEditInput.style, {
+      position: 'absolute', zIndex: '9999',
+      background: 'rgba(20,20,30,0.92)', color: '#fff',
+      border: '1px solid rgba(251,191,36,0.5)', borderRadius: '6px',
+      padding: '4px 8px', fontSize: '11px', fontFamily: 'sans-serif',
+      outline: 'none', minWidth: '140px', textAlign: 'center'
+    });
+    document.body.appendChild(reminderEditInput);
+    // Position near the click (just call right after start, so it lands on the body)
+    const w = window.innerWidth, h = window.innerHeight;
+    const rcx = w/2, rcy = h/2, rad = Math.min(rcx, rcy) - 4;
+    const a = timeToAngle(r.time);
+    const px = rcx + Math.cos(a - Math.PI/2) * (rad - 18);
+    const py = rcy + Math.sin(a - Math.PI/2) * (rad - 18);
+    reminderEditInput.style.left = (px - 70) + 'px';
+    reminderEditInput.style.top  = (py - 30) + 'px';
+    reminderEditInput.focus();
+    reminderEditInput.select();
+    reminderEditInput.addEventListener('input', () => {
+      const rem = reminders.find(x => x.id === id);
+      if (rem) { rem.label = reminderEditInput.value; saveReminders(); }
+    });
+    reminderEditInput.addEventListener('blur', () => setTimeout(stopEditReminderLabel, 150));
+    reminderEditInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { reminderEditInput.blur(); }
+      if (e.key === 'Escape') { stopEditReminderLabel(); }
+    });
+  }
+
+  function drawReminderPips(cx, cy, r) {
+    reminderHitBoxes = [];
+    if (!reminders || reminders.length === 0) return;
+    const now = performance.now();
+    const hover = lastMouseX !== null && lastMouseY !== null;
+    const pipR = 5;
+    const selR = 8;
+    const tol = 14; // hit tolerance
+    X.save();
+    for (let i = 0; i < reminders.length; i++) {
+      const rem = reminders[i];
+      if (!rem || !rem.time) continue;
+      const a = timeToAngle(rem.time) - Math.PI/2; // canvas y is down
+      const x = cx + Math.cos(a) * (r - 14);
+      const y = cy + Math.sin(a) * (r - 14);
+      const isHover = hover && Math.hypot(lastMouseX - x, lastMouseY - y) < tol;
+      const isEditing = editingReminderId === rem.id;
+      const isFiredToday = rem.lastFiredDate && rem.lastFiredDate >= new Date().toISOString().slice(0,10);
+      // Pulse on hover or recently fired
+      let pulse = 0;
+      if (isHover) pulse = 0.3 * Math.sin(now / 100);
+      if (isFiredToday) pulse += 0.4 * Math.sin(now / 250);
+      // Outer halo
+      X.beginPath();
+      X.arc(x, y, selR + 2 + pulse, 0, PI2);
+      X.fillStyle = isHover || isEditing ? 'rgba(251,191,36,0.18)' : 'rgba(251,191,36,0.08)';
+      X.fill();
+      // Pip body
+      X.beginPath();
+      X.arc(x, y, isHover || isEditing ? selR : pipR, 0, PI2);
+      X.fillStyle = isFiredToday ? 'rgba(167,139,250,0.85)' : 'rgba(251,191,36,0.95)';
+      X.shadowColor = 'rgba(251,191,36,0.7)';
+      X.shadowBlur = isHover ? 12 : 6;
+      X.fill();
+      X.shadowBlur = 0;
+      X.shadowColor = 'transparent';
+      // Inner dot (clock-icon-like)
+      X.beginPath();
+      X.arc(x, y, (isHover || isEditing ? 3 : 2), 0, PI2);
+      X.fillStyle = 'rgba(0,0,0,0.6)';
+      X.fill();
+      // Time label (always visible) — small pill outside the pip
+      const labelText = rem.time + (rem.label ? ' · ' + rem.label : '');
+      X.font = '600 9px sans-serif';
+      const tw = X.measureText(labelText).width;
+      const lx = x + 10, ly = y - 6;
+      X.beginPath();
+      X.moveTo(lx + 4, ly - 6);
+      X.lineTo(lx + tw + 8, ly - 6);
+      X.arc(lx + tw + 8, ly, 6, -Math.PI/2, Math.PI/2);
+      X.lineTo(lx + 4, ly + 6);
+      X.arc(lx + 4, ly, 6, Math.PI/2, -Math.PI/2);
+      X.closePath();
+      X.fillStyle = isHover || isEditing ? 'rgba(251,191,36,0.92)' : 'rgba(20,20,30,0.85)';
+      X.fill();
+      X.fillStyle = isHover || isEditing ? '#000' : '#fde68a';
+      X.textAlign = 'left'; X.textBaseline = 'middle';
+      X.fillText(labelText, lx + 6, ly);
+      // Delete × (only when hovered/selected)
+      let delX = 0, delY = 0, delR = 0;
+      if (isHover || isEditing) {
+        delX = lx + tw + 8 + 10;
+        delY = ly;
+        delR = 8;
+        X.beginPath();
+        X.arc(delX, delY, delR, 0, PI2);
+        X.fillStyle = 'rgba(239,68,68,0.18)';
+        X.fill();
+        X.font = '700 11px sans-serif';
+        X.textAlign = 'center';
+        X.fillStyle = 'rgba(239,68,68,0.9)';
+        X.fillText('×', delX, delY + 1);
+      }
+      reminderHitBoxes.push({ x, y, r: selR, idx: i, delX, delY, delR });
+    }
     X.restore();
   }
 
@@ -1677,6 +1870,7 @@
     drawTaskLabels(cx, cy, r);
     drawInteractiveKnob(cx, cy, r);
     drawGearIcon(cx, cy, r);
+    drawReminderPips(cx, cy, r);
     drawReminderAlert(cx, cy, r);
     requestAnimationFrame(draw);
   }
