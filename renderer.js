@@ -68,7 +68,7 @@
     if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
     const step = e.deltaY < 0 ? 0.1 : -0.1;
-    tooltipSize = Math.max(0.4, Math.min(2.5, (tooltipSize || 1.0) + step));
+    tooltipSize = Math.max(0.3, Math.min(5.0, (tooltipSize || 1.0) + step));
     save();
     tooltipResizePulse = performance.now();
   }, { passive: false });
@@ -514,6 +514,11 @@
 
   // List interactions (event delegation)
   todoList.addEventListener('click', e => {
+    // If the click landed on the color input itself, let the native picker open.
+    // Do NOT swallow the event with closest('[data-action]') in that case.
+    if (e.target.tagName === 'INPUT' && e.target.type === 'color') {
+      return; // native color picker will open
+    }
     const el = e.target.closest('[data-action]');
     if (!el) return;
     const action = el.dataset.action;
@@ -847,33 +852,7 @@
           X.shadowBlur = 0;
           X.shadowColor = 'transparent';
        }
-       
-       // Connector line
-       X.globalAlpha = animAlpha * (isPlaceholder ? 0.55 : 0.35);
-       X.beginPath();
-       X.moveTo(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r);
-       X.lineTo(bgX + (isRight ? 0 : bgW), labelY + animOffY);
-       X.strokeStyle = isPlaceholder ? 'rgba(167,139,250,0.9)' : sess.color;
-       X.lineWidth = isPlaceholder ? 1 : 0.8;
-       X.setLineDash([3, 3]);
-       X.stroke();
-       X.setLineDash([]);
-       
-       // Color dot
-       X.globalAlpha = animAlpha;
-       if (!isPlaceholder) {
-           X.beginPath();
-           X.arc(bgX + pad, labelY + animOffY, 3 * sizeScale, 0, Math.PI*2);
-           X.fillStyle = sess.color;
-           X.fill();
-       } else {
-           // Placeholder: small "+" hint dot
-           X.beginPath();
-           X.arc(bgX + pad, labelY + animOffY, 2 * sizeScale, 0, Math.PI*2);
-           X.fillStyle = 'rgba(167,139,250,0.95)';
-           X.fill();
-       }
-       
+
        // Text
        X.textAlign = 'left';
        X.textBaseline = 'middle';
