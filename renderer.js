@@ -155,39 +155,45 @@
   canvas.addEventListener('mousedown', e => { 
     if(e.button !== 0) return;
     
+    // Convert to canvas-local coordinates
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    
     // Check gear icon click first
-    if (isClickOnGear(e.clientX, e.clientY)) {
-       const saved = api.loadSettings() || {};
+    if (isClickOnGear(mx, my)) {
        api.showPanel({style,theme,handType,opacity,sessions});
        return;
     }
     
     const { cx, cy, r } = clockBounds();
+    const dx = mx - cx, dy = my - cy;
+    const dist = Math.hypot(dx, dy);
 
-    // Check if clicking on an active edit knob
+    // ── If in edit mode, check knobs / delete / dismiss ──
     if (interactiveMode && interactiveMode.startsWith('edit-')) {
        const idx = parseInt(interactiveMode.split('-')[1]);
        const sess = sessions[idx];
        if (sess) {
-           // First check delete block button
+           // Delete block button (only in -both mode)
            if (interactiveMode.endsWith('-both')) {
                const midTime = (sess.start + sess.end) / 2;
                const midA = getAngleForDate(new Date(midTime));
-               const delX = cx + Math.cos(midA) * (r - 35);
-               const delY = cy + Math.sin(midA) * (r - 35);
-               if (Math.hypot(e.clientX - delX, e.clientY - delY) < 18) {
+               const delBtnX = cx + Math.cos(midA) * (r - 35);
+               const delBtnY = cy + Math.sin(midA) * (r - 35);
+               if (Math.hypot(mx - delBtnX, my - delBtnY) < 18) {
                    sessions.splice(idx, 1);
                    save();
                    interactiveMode = null;
                    if (pWrapS) pWrapS.style.display = 'none';
                    if (pWrapE) pWrapE.style.display = 'none';
-                   // Also clean up labels just in case
                    editingLabelIdx = -1;
                    if (editInput && editInput.parentNode) editInput.parentNode.removeChild(editInput);
                    return;
                }
            }
            
+           // Start/End knob grab
            const dStart = new Date(sess.start);
            const dEnd = new Date(sess.end);
            const aStart = getAngleForDate(dStart);
@@ -198,29 +204,31 @@
            const kxE = cx + Math.cos(aEnd) * (r - 12);
            const kyE = cy + Math.sin(aEnd) * (r - 12);
            
-           if (Math.hypot(e.clientX - kxS, e.clientY - kyS) < 30) {
+           if (Math.hypot(mx - kxS, my - kyS) < 30) {
                draggingKnob = true; dragIsPM = dStart.getHours() >= 12; dragLastHrs12 = dStart.getHours() % 12;
                interactiveMode = `edit-${idx}-start`; interactiveDate = dStart; return;
            }
-           if (Math.hypot(e.clientX - kxE, e.clientY - kyE) < 30) {
+           if (Math.hypot(mx - kxE, my - kyE) < 30) {
                draggingKnob = true; dragIsPM = dEnd.getHours() >= 12; dragLastHrs12 = dEnd.getHours() % 12;
                interactiveMode = `edit-${idx}-end`; interactiveDate = dEnd; return;
            }
        }
+       
+       // Click missed all edit controls → exit edit mode, then continue to wedge/create check
+       interactiveMode = null;
+       if (pWrapS) pWrapS.style.display = 'none';
+       if (pWrapE) pWrapE.style.display = 'none';
     } else if (interactiveMode && interactiveDate) {
        // Old single-knob create logic
        const angle = getAngleForDate(interactiveDate);
        const kx = cx + Math.cos(angle) * (r - 12);
        const ky = cy + Math.sin(angle) * (r - 12);
-       if (Math.hypot(e.clientX - kx, e.clientY - ky) < 30) {
+       if (Math.hypot(mx - kx, my - ky) < 30) {
           draggingKnob = true; dragIsPM = interactiveDate.getHours() >= 12; dragLastHrs12 = interactiveDate.getHours() % 12; return;
        }
     }
     
-    // If not dragging knob, check if clicked ON a wedge
-    let dx = e.clientX - cx, dy = e.clientY - cy;
-    const dist = Math.hypot(dx, dy);
-    
+    // ── Check if clicked ON a wedge or empty outer ring ──
     if (dist <= r) {
         let angle = Math.atan2(dy, dx) + (Math.PI / 2);
         if (angle < 0) angle += PI2; if (angle >= PI2) angle -= PI2;
@@ -248,39 +256,32 @@
         
         if (foundIdx !== -1) {
            interactiveMode = `edit-${foundIdx}-both`;
-           return; // Found a block, show handles, don't drag window
+           return;
         } else if (dist > r - 60) {
            // Clicked empty space on the outer ring -> spawn new block
            const now = new Date();
            let totalMins = Math.round((angle / PI2) * 12 * 60);
-           totalMins = Math.round(totalMins / 5) * 5; // round to 5 mins
+           totalMins = Math.round(totalMins / 5) * 5;
            
            let hrs12 = Math.floor(totalMins / 60);
            let mins = totalMins % 60;
+           if (hrs12 >= 12) hrs12 -= 12;
            
-           if (hrs12 >= 12) hrs12 -= 12; // Modulo 12
-           
-           // Pick the nearest future occurrence of this 12-hour time.
-           // If both today and tomorrow (in the same half) are in the past,
-           // roll to the opposite half on the same day, then tomorrow.
            const cand1 = new Date(now);
            cand1.setHours(hrs12, mins, 0, 0);
            const cand2 = new Date(cand1); cand2.setHours(hrs12 + 12, mins, 0, 0);
            let start = (cand1.getTime() > now.getTime()) ? cand1 : cand2;
            if (start.getTime() <= now.getTime()) {
-              // Both halves already passed today — push to the same hour tomorrow
               start = new Date(cand1);
               start.setDate(start.getDate() + 1);
            }
            
            const end = new Date(start);
-           end.setHours(start.getHours() + 1); // 1 hour default
+           end.setHours(start.getHours() + 1);
            
            if (!sessions) sessions = [];
            
-           // Generate dynamic complementary color based on number of blocks
            let hue = (210 + sessions.length * 137.5) % 360;
-           
            const hslToHex = (h, s, l) => {
              l /= 100;
              const a = s * Math.min(l, 1 - l) / 100;
@@ -292,26 +293,22 @@
              return `#${f(0)}${f(8)}${f(4)}`;
            };
            
-           const dynamicColor = hslToHex(hue, 85, 60);
-           const dynamicElColor = hslToHex(hue, 95, 20); // Darker for elapsed
-           
            sessions.push({
                start: start.getTime(),
                end: end.getTime(),
-               color: dynamicColor,
-               elapsedColor: dynamicElColor,
+               color: hslToHex(hue, 85, 60),
+               elapsedColor: hslToHex(hue, 95, 20),
                type: 'custom',
-               task: '' // Empty task creates a placeholder
+               task: ''
            });
            
-           const newIdx = sessions.length - 1;
-           save(); // Persist to settings
-           
-           interactiveMode = `edit-${newIdx}-both`;
+           save();
+           interactiveMode = `edit-${sessions.length - 1}-both`;
            return;
         }
     }
     
+    // Nothing interactive hit → drag window
     interactiveMode = null;
     dragging=true; 
     api.dragStart(); 
@@ -321,8 +318,11 @@
     if(dragging) api.dragMove(); 
     else if (draggingKnob && interactiveMode && interactiveMode !== 'none') {
        if (interactiveMode.endsWith('-both')) return; // Just displaying both, not dragging
+       const rect = canvas.getBoundingClientRect();
+       const mx = e.clientX - rect.left;
+       const my = e.clientY - rect.top;
        const { cx, cy } = clockBounds();
-       let angle = Math.atan2(e.clientY - cy, e.clientX - cx);
+       let angle = Math.atan2(my - cy, mx - cx);
        if (angle < 0) angle += PI2;
        
        let clockAngle = angle + (Math.PI / 2);
@@ -353,10 +353,10 @@
               const d = new Date(sess[key]);
               d.setHours(newHrs, mins, 0, 0);
               sess[key] = d.getTime();
-              // Prevent crossover
-              if (key === 'start' && sess.start >= sess.end) sess.end = sess.start + 60000;
-              if (key === 'end' && sess.end <= sess.start) sess.start = sess.end - 60000;
-              save();
+               // Prevent crossover with minimum 5-minute duration
+               if (key === 'start' && sess.start >= sess.end - 5 * 60000) sess.end = sess.start + 5 * 60000;
+               if (key === 'end' && sess.end <= sess.start + 5 * 60000) sess.start = sess.end - 5 * 60000;
+               save();
               
               // We must update the panel inputs too!
               const outTimeStr = `${newHrs.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}`;
@@ -566,7 +566,8 @@
 
   // Click on label to edit, click × to delete task
   canvas.addEventListener('click', e => {
-     const mx = e.clientX, my = e.clientY;
+     const rect = canvas.getBoundingClientRect();
+     const mx = e.clientX - rect.left, my = e.clientY - rect.top;
      for (const box of labelHitBoxes) {
         // Check delete button
         if (Math.hypot(mx - box.delX, my - box.delY) < box.delR + 4) {
@@ -654,8 +655,8 @@
     const delSize = Math.max(3.5, Math.round(fontPx * 0.4));
     const delExtra = delSize * 2 + 3;
     const bgH = Math.ceil(fontPx + 3);
-    const pillR = Math.min(3, Math.ceil(bgH / 2));
-    const gap = 5;
+    const pillR = Math.min(bgH / 2, 6);
+    const gap = Math.max(18, Math.round(12 * sizeScale));
 
     for (let i = 0; i < sessions.length; i++) {
        const sess = sessions[i];
@@ -664,12 +665,6 @@
        if (editingLabelIdx === i) continue;
 
        const isPlaceholder = !sess.task;
-       // If this is a placeholder (no task yet), hide the tooltip when the
-       // mouse is hovering near the dial — keep the face clean for interaction.
-       if (isPlaceholder && lastMouseX !== null && lastMouseY !== null) {
-          const mdx = lastMouseX - cx, mdy = lastMouseY - cy;
-          if (Math.hypot(mdx, mdy) < r + 30) continue;
-       }
        const drawText = isPlaceholder ? '＋ Add Task' : sess.task;
 
        if (!labelBirthTimes[i]) labelBirthTimes[i] = now;
@@ -682,34 +677,37 @@
        const thisDelExtra = isPlaceholder ? 0 : delExtra;
        const bgW = Math.ceil(tw + padX * 2 + thisDelExtra);
 
-       // ── Always outside the clock ──
-       // Calculate vector pointing outward from clock center at block midpoint
+       // ── Always strictly outside the clock ──
        const cosA = Math.cos(angle);
        const sinA = Math.sin(angle);
-       const outX = cx + cosA * (r + gap);
-       const outY = cy + sinA * (r + gap);
 
-       // Align box so it grows radially outward away from the clock face
-       let bgX, bgY;
-       if (cosA > 0.25) {
-          bgX = outX;
-       } else if (cosA < -0.25) {
-          bgX = outX - bgW;
-       } else {
-          bgX = outX - bgW / 2;
-       }
+       // Radial projection to ensure every corner of the pill box is strictly > r outside the clock
+       const halfW = bgW / 2;
+       const halfH = bgH / 2;
+       // Projected radial extent of the box along vector (cosA, sinA)
+       const boxProj = Math.abs(halfW * cosA) + Math.abs(halfH * sinA);
+       const centerDist = r + gap + boxProj;
+       
+       let centerBoxX = cx + cosA * centerDist;
+       let centerBoxY = cy + sinA * centerDist;
 
-       if (sinA > 0.25) {
-          bgY = outY;
-       } else if (sinA < -0.25) {
-          bgY = outY - bgH;
-       } else {
-          bgY = outY - bgH / 2;
-       }
+       let bgX = centerBoxX - halfW;
+       let bgY = centerBoxY - halfH;
 
-       // Keep within canvas bounds
+       // Keep within canvas bounds while guaranteeing the tooltip remains strictly outside the dial
        bgX = Math.max(2, Math.min(W - bgW - 2, bgX));
        bgY = Math.max(2, Math.min(H - bgH - 2, bgY));
+
+       // Enforce minimum radial separation so bounding box corners never touch or clip inside the dial circle
+       const curCenterX = bgX + halfW - cx;
+       const curCenterY = bgY + halfH - cy;
+       const curDist = Math.hypot(curCenterX, curCenterY);
+       const minDist = r + gap + boxProj;
+       if (curDist < minDist && curDist > 0.001) {
+          const push = minDist / curDist;
+          bgX = cx + curCenterX * push - halfW;
+          bgY = cy + curCenterY * push - halfH;
+       }
        
        // ── CONTINUOUS ANIMATIONS ──
        const animStyle = tooltipAnim || 'bounce';
@@ -738,11 +736,13 @@
               case 'fade': // Gentle opacity pulse
                  animAlpha = 0.6 + tSine * 0.4;
                  break;
-              case 'bounce': // Smooth vertical jumping
-                 animOffY = -Math.abs(tSine) * 8;
+              case 'bounce': // Smooth radial outward jumping away from clock
+                 animOffX = cosA * Math.abs(tSine) * 6;
+                 animOffY = sinA * Math.abs(tSine) * 6;
                  break;
-              case 'slide': // Gentle float up/down
-                 animOffY = tSine * 4;
+              case 'slide': // Gentle radial float away/towards
+                 animOffX = cosA * (tSine * 3);
+                 animOffY = sinA * (tSine * 3);
                  break;
               case 'flip': // 3D-like flip over X axis
                  animScaleY = tCos;
@@ -818,18 +818,16 @@
        X.globalAlpha = animAlpha * 0.85;
        X.save();
        
-       const pivotX = bgX + bgW / 2;
-       const pivotY = bgY + bgH / 2 + animOffY;
-       X.translate(pivotX + animOffX, pivotY);
+       const centerX = bgX + bgW / 2;
+       const centerY = bgY + bgH / 2;
+       X.translate(centerX + animOffX, centerY + animOffY);
        X.scale(animScaleX, animScaleY);
        if (animRot) X.rotate(animRot);
-       X.translate(-pivotX, -pivotY + animOffY);
-       
-       const drawBgY = bgY + animOffY;
+       X.translate(-centerX, -centerY);
        
        // Pill background — snug, zero excess padding
         X.beginPath();
-        X.roundRect(bgX, drawBgY, bgW, bgH, pillR);
+        X.roundRect(bgX, bgY, bgW, bgH, pillR);
         X.closePath();
        X.fillStyle = isPlaceholder ? 'rgba(20,20,35,0.95)' : 'rgba(10,10,20,0.85)';
        X.fill();
@@ -857,13 +855,13 @@
           const chars = Math.floor(tAge * drawText.length);
           finalString = drawText.substring(0, Math.max(1, chars));
        }
-       X.fillText(finalString, bgX + padX, drawBgY + bgH / 2);
+       X.fillText(finalString, bgX + padX, bgY + bgH / 2);
        
        // × button — snug at right edge
        let delCx = 0, delCy = 0;
        if (!isPlaceholder) {
            delCx = bgX + bgW - padX - delSize;
-           delCy = drawBgY + bgH / 2;
+           delCy = bgY + bgH / 2;
            X.globalAlpha = animAlpha * 0.5;
            X.beginPath();
            X.arc(delCx, delCy, delSize, 0, Math.PI*2);
@@ -965,11 +963,7 @@
     const by = Math.max(4, cy - r + 8);
     X.beginPath();
     const pr = bh / 2;
-    X.moveTo(bx + pr, by);
-    X.lineTo(bx + bw - pr, by);
-    X.arc(bx + bw - pr, by + pr, pr, -Math.PI/2, Math.PI/2);
-    X.lineTo(bx + pr, by + bh);
-    X.arc(bx + pr, by + pr, pr, Math.PI/2, -Math.PI/2);
+    X.roundRect(bx, by, bw, bh, pr);
     X.closePath();
     X.fillStyle = 'rgba(167,139,250,0.92)';
     X.shadowColor = 'rgba(167,139,250,0.5)';
