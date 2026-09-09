@@ -83,6 +83,21 @@
     }
     .slider-row .val { font-size:0.65rem; color:rgba(255,255,255,0.45); min-width:28px; text-align:right; }
 
+    /* ── A− / A+ size buttons (used in the prominent Text Size row) ── */
+    .size-btn {
+      width:30px; height:30px;
+      border-radius:8px;
+      background:rgba(167,139,250,0.12);
+      border:1px solid rgba(167,139,250,0.3);
+      color:#c4b5fd;
+      font-family:inherit; font-size:0.7rem; font-weight:700;
+      cursor:pointer; flex-shrink:0;
+      display:flex; align-items:center; justify-content:center;
+      transition:all 0.15s;
+    }
+    .size-btn:hover { background:rgba(167,139,250,0.25); color:#fff; transform:scale(1.05); }
+    .size-btn:active { transform:scale(0.92); }
+
     /* ── Checkbox Row ── */
     .chk-row {
       display:flex; align-items:center; gap:8px; padding:6px 12px; cursor:pointer;
@@ -172,7 +187,8 @@
     const HANDS = [
       ['tapered','Tapered Lancet'],['sword','Sword / Breguet'],['dauphine','Dauphine Diamond'],
       ['leaf','Leaf / Feuille'],['baton','Baton Straight'],['skeletonH','Skeleton Hollow'],
-      ['arrow','Arrow'],['spade','Spade'],['cathedral','Gothic Cathedral'],['needle_minimal','Ultra Needle']
+      ['arrow','Arrow'],['spade','Spade'],['cathedral','Gothic Cathedral'],
+      ['needle','Needle'],['spike','Spike'],['alpha','Alpha']
     ];
 
     const THEMES = [
@@ -288,7 +304,7 @@
             <div class="dot"></div>${label}</div>`;
         });
       }
-      html += '<div class="sep"></div><div class="sec-label"><span>Hand Style</span><span class="badge">10</span></div>';
+      html += '<div class="sep"></div><div class="sec-label"><span>Hand Style</span><span class="badge">12</span></div>';
       HANDS.forEach(([id, label]) => {
         html += `<div class="opt${current.handType===id?' active':''}" data-action="hands" data-val="${id}">
           <div class="dot"></div>${label}</div>`;
@@ -302,6 +318,18 @@
 
       // ── TAB: CONFIG ──
       html += `<div class="tab-content ${activeTab==='tab-settings'?'active':''}" id="tab-settings">`;
+
+      // ── Text Size (prominent at top — the most-tweaked setting) ──
+      const ttSize = current.tooltipSize || 1.0;
+      html += '<div class="sec-label"><span>Text Size</span><span class="badge" id="badge-text-size">' + ttSize.toFixed(1) + 'x</span></div>';
+      html += `<div class="slider-row" style="padding:8px 14px 10px;">
+        <button class="size-btn" data-size-step="-0.1" title="Smaller">A−</button>
+        <input type="range" min="0.4" max="2.5" step="0.05" value="${ttSize}" id="sl-tooltip-size" style="flex:1; margin:0 8px;">
+        <button class="size-btn" data-size-step="+0.1" title="Larger">A+</button>
+        <span class="val" id="val-tooltip-size">${ttSize.toFixed(1)}x</span>
+      </div>`;
+      html += '<div class="sep"></div>';
+
       const curAnim = current.blockAnim || { style: 'pulse', speed: 1.0 };
       html += '<div class="sec-label"><span>Block Animation</span></div>';
       const ANIMS = [
@@ -330,9 +358,6 @@
          html += `<div class="opt${tooltipAnim===id?' active':''}" data-action="tooltip-anim" data-val="${id}">
            <div class="dot"></div>${label}</div>`;
       });
-      html += `<div class="slider-row"><label>Size</label>
-        <input type="range" min="0.5" max="2.0" step="0.1" value="${current.tooltipSize || 1.0}" id="sl-tooltip-size">
-        <span class="val" id="val-tooltip-size">${(current.tooltipSize || 1.0).toFixed(1)}x</span></div>`;
 
       html += '<div class="sep"></div>';
       html += `<div class="slider-row"><label>Block Opacity</label>
@@ -404,14 +429,26 @@
       }
       
       const slTooltipSize = document.getElementById('sl-tooltip-size');
-      if (slTooltipSize) {
-         slTooltipSize.addEventListener('input', e => {
-           current.tooltipSize = parseFloat(e.target.value);
-           document.getElementById('val-tooltip-size').textContent = current.tooltipSize.toFixed(1) + 'x';
-           if (api.setTooltipSize) api.setTooltipSize(current.tooltipSize);
-           else api.saveSettings({ tooltipSize: current.tooltipSize });
-         });
+      function applyTextSize(v) {
+        v = Math.max(0.4, Math.min(2.5, v));
+        current.tooltipSize = v;
+        if (slTooltipSize) slTooltipSize.value = v;
+        const valEl = document.getElementById('val-tooltip-size');
+        if (valEl) valEl.textContent = v.toFixed(1) + 'x';
+        const badgeEl = document.getElementById('badge-text-size');
+        if (badgeEl) badgeEl.textContent = v.toFixed(1) + 'x';
+        if (api.setTooltipSize) api.setTooltipSize(v);
+        else api.saveSettings({ tooltipSize: v });
       }
+      if (slTooltipSize) {
+         slTooltipSize.addEventListener('input', e => applyTextSize(parseFloat(e.target.value)));
+      }
+      body.querySelectorAll('[data-size-step]').forEach(btn => {
+         btn.addEventListener('click', () => {
+            const step = parseFloat(btn.dataset.sizeStep);
+            applyTextSize((current.tooltipSize || 1.0) + step);
+         });
+      });
 
       document.getElementById('chk-ontop').addEventListener('click', e => {
         const cb = e.currentTarget.querySelector('input');
