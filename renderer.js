@@ -245,11 +245,18 @@
            
            if (hrs12 >= 12) hrs12 -= 12; // Modulo 12
            
-           let isPM = now.getHours() >= 12;
-           let hrs24 = hrs12 + (isPM ? 12 : 0);
-           
-           const start = new Date(now);
-           start.setHours(hrs24, mins, 0, 0);
+           // Pick the nearest future occurrence of this 12-hour time.
+           // If both today and tomorrow (in the same half) are in the past,
+           // roll to the opposite half on the same day, then tomorrow.
+           const cand1 = new Date(now);
+           cand1.setHours(hrs12, mins, 0, 0);
+           const cand2 = new Date(cand1); cand2.setHours(hrs12 + 12, mins, 0, 0);
+           let start = (cand1.getTime() > now.getTime()) ? cand1 : cand2;
+           if (start.getTime() <= now.getTime()) {
+              // Both halves already passed today — push to the same hour tomorrow
+              start = new Date(cand1);
+              start.setDate(start.getDate() + 1);
+           }
            
            const end = new Date(start);
            end.setHours(start.getHours() + 1); // 1 hour default
@@ -522,7 +529,8 @@
     
     for (let i = 0; i < sessions.length; i++) {
        const sess = sessions[i];
-       if (sess.end < now) continue;
+       // 5-minute grace period so freshly-created blocks always show their label
+       if (sess.end < now - 5 * 60 * 1000) continue;
        if (editingLabelIdx === i) continue;
        
        const isPlaceholder = !sess.task;
@@ -568,7 +576,7 @@
        
        // ── CONTINUOUS ANIMATIONS ──
        const animStyle = tooltipAnim || 'bounce';
-       let animAlpha = isPlaceholder ? 0.4 : 1;
+       let animAlpha = isPlaceholder ? 0.85 : 1;
        let animScaleX = 1, animScaleY = 1, animOffX = 0, animOffY = 0, animRot = 0;
        
        const cycleDur = 2000; 
@@ -577,6 +585,16 @@
        const tCos = Math.cos(tCycle * Math.PI * 2);
        
        let shadowIntensity = 0;
+       
+       if (isPlaceholder) {
+          // Gentle attention pulse so the "+ Add Task" hint is unmistakable.
+          // 3.2s cycle: brighter alpha + tiny scale up + soft glow.
+          const tP = (now % 3200) / 3200;
+          const pulseSine = Math.sin(tP * Math.PI * 2);
+          animAlpha = 0.75 + 0.2 * (pulseSine * 0.5 + 0.5);  // 0.75..0.95
+          animScaleX = animScaleY = 1.0 + 0.04 * (pulseSine * 0.5 + 0.5);
+          shadowIntensity = 0.6 + 0.4 * (pulseSine * 0.5 + 0.5);
+       }
        
        if (!isPlaceholder) {
            switch (animStyle) {
@@ -682,28 +700,28 @@
        X.lineTo(bgX + pillR, drawBgY + bgH);
        X.arc(bgX + pillR, drawBgY + pillR, pillR, Math.PI/2, -Math.PI/2);
        X.closePath();
-       X.fillStyle = 'rgba(10,10,20,0.8)';
+       X.fillStyle = isPlaceholder ? 'rgba(20,20,35,0.95)' : 'rgba(10,10,20,0.8)';
        X.fill();
-       X.strokeStyle = isPlaceholder ? 'rgba(255,255,255,0.3)' : sess.color;
-       X.lineWidth = 1;
+       X.strokeStyle = isPlaceholder ? 'rgba(167,139,250,0.7)' : sess.color;
+       X.lineWidth = isPlaceholder ? 1.2 : 1;
        X.stroke();
        
-       // Glow
-       if (shadowIntensity > 0 && !isPlaceholder) {
-          X.shadowColor = sess.color;
-          X.shadowBlur = shadowIntensity * (animStyle === 'neon-pulse' ? 25 : 15);
+       // Glow (applies to both placeholder pulse and named-block animations)
+       if (shadowIntensity > 0) {
+          X.shadowColor = isPlaceholder ? 'rgba(167,139,250,0.8)' : sess.color;
+          X.shadowBlur = shadowIntensity * (isPlaceholder ? 14 : (animStyle === 'neon-pulse' ? 25 : 15));
           X.fill();
           X.shadowBlur = 0;
           X.shadowColor = 'transparent';
        }
        
        // Connector line
-       X.globalAlpha = animAlpha * (isPlaceholder ? 0.2 : 0.35);
+       X.globalAlpha = animAlpha * (isPlaceholder ? 0.55 : 0.35);
        X.beginPath();
        X.moveTo(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r);
        X.lineTo(bgX + (isRight ? 0 : bgW), labelY + animOffY);
-       X.strokeStyle = isPlaceholder ? '#888' : sess.color;
-       X.lineWidth = 0.8;
+       X.strokeStyle = isPlaceholder ? 'rgba(167,139,250,0.9)' : sess.color;
+       X.lineWidth = isPlaceholder ? 1 : 0.8;
        X.setLineDash([3, 3]);
        X.stroke();
        X.setLineDash([]);
@@ -715,12 +733,18 @@
            X.arc(bgX + pad, labelY + animOffY, 3 * sizeScale, 0, Math.PI*2);
            X.fillStyle = sess.color;
            X.fill();
+       } else {
+           // Placeholder: small "+" hint dot
+           X.beginPath();
+           X.arc(bgX + pad, labelY + animOffY, 2 * sizeScale, 0, Math.PI*2);
+           X.fillStyle = 'rgba(167,139,250,0.95)';
+           X.fill();
        }
        
        // Text
        X.textAlign = 'left';
        X.textBaseline = 'middle';
-       X.fillStyle = isPlaceholder ? '#aaa' : '#fff';
+       X.fillStyle = isPlaceholder ? '#e9d5ff' : '#fff';
        
        let finalString = drawText;
        if (animStyle === 'typewriter' && !isPlaceholder) {
