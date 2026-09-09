@@ -55,6 +55,69 @@
     .tab-content.active { display:block; animation: fade-in 0.2s ease-out; }
     @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
+    .opt:active { transform: scale(0.98); }
+    
+    /* Modern Block Cards */
+    .modern-block-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 6px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .modern-block-card:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: translateY(-1px);
+    }
+    .modern-block-card.is-active {
+      background: rgba(167, 139, 250, 0.1);
+      border-color: rgba(167, 139, 250, 0.3);
+      box-shadow: 0 4px 12px rgba(167, 139, 250, 0.15);
+    }
+    .modern-block-card.is-past {
+      opacity: 0.4;
+      filter: grayscale(80%);
+    }
+    .modern-time-input {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid transparent;
+      color: #e2e8f0;
+      border-radius: 4px;
+      padding: 2px 4px;
+      font-size: 0.7rem;
+      font-family: monospace;
+      width: 60px;
+      text-align: center;
+      transition: border-color 0.2s;
+    }
+    .modern-time-input:focus {
+      outline: none;
+      border-color: rgba(167, 139, 250, 0.6);
+      background: rgba(0, 0, 0, 0.5);
+    }
+    .modern-task-input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      color: white;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      padding: 6px 8px;
+      transition: all 0.2s;
+    }
+    .modern-task-input:focus {
+      outline: none;
+      border-color: rgba(167, 139, 250, 0.5);
+      background: rgba(0, 0, 0, 0.4);
+    }
+    
+    .chk-row { display: flex; align-items: center; padding: 10px 12px; font-size: 0.8rem; border-radius: 6px; cursor: pointer; transition: background 0.2s; }
+
     /* ── Option Items ── */
     .opt {
       display:flex; align-items:center; gap:8px; padding:5px 12px; cursor:pointer;
@@ -185,10 +248,11 @@
     };
 
     const HANDS = [
-      ['tapered','Tapered Lancet'],['sword','Sword / Breguet'],['dauphine','Dauphine Diamond'],
-      ['leaf','Leaf / Feuille'],['baton','Baton Straight'],['skeletonH','Skeleton Hollow'],
-      ['arrow','Arrow'],['spade','Spade'],['cathedral','Gothic Cathedral'],
-      ['needle','Needle'],['spike','Spike'],['alpha','Alpha']
+      ['tapered','Tapered'],['baton','Baton'],['breguet','Breguet'],
+      ['skeleton','Skeleton'],['sword','Sword'],['spade','Spade'],
+      ['syringe','Syringe'],['snowflake','Snowflake'],['dauphine','Dauphine'],
+      ['leaf','Leaf'],['chronometer','Chronometer'],['luminous','Luminous'],
+      ['arrow','Broad Arrow'],['minimalist_dot','Minimalist Dot'],['art_deco','Art Deco']
     ];
 
     const THEMES = [
@@ -259,27 +323,31 @@
           let tIcon = sess.type === 'work' ? '🍅' : (sess.type === 'break' ? '☕' : '🟦');
           let elColor = sess.elapsedColor || sess.color;
           
-          html += `<div class="opt" style="flex-direction:column; align-items:stretch; gap:4px; ${isPast?' opacity:0.5;':''}${isActive?' background:rgba(167,139,250,0.08);':''}">
+          html += `<div class="modern-block-card ${isActive?'is-active':''} ${isPast?'is-past':''}">
             <div style="display:flex;justify-content:space-between;align-items:center;">
-              <div style="display:flex;align-items:center;gap:6px;">
-                <div style="width:10px;height:10px;border-radius:2px;background:${sess.color};flex-shrink:0;"></div>
-                <span style="font-size:0.75rem;">${tIcon} ${stateIcon}</span>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div style="width:12px;height:12px;border-radius:3px;background:${sess.color};box-shadow:0 0 8px ${sess.color}40;flex-shrink:0;"></div>
+                <span style="font-size:0.85rem;">${tIcon} ${stateIcon}</span>
               </div>
               <div style="display:flex;gap:4px;align-items:center;">
-                <input type="time" class="bl-time" data-idx="${i}" data-key="start" value="${sStr}" style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.1);color:#fff;border-radius:2px;width:65px;font-size:0.7rem;text-align:center;">
-                <span style="opacity:0.5;">→</span>
-                <input type="time" class="bl-time" data-idx="${i}" data-key="end" value="${eStr}" style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.1);color:#fff;border-radius:2px;width:65px;font-size:0.7rem;text-align:center;">
+                <input type="time" class="bl-time modern-time-input" data-idx="${i}" data-key="start" value="${sStr}">
+                <span style="opacity:0.4; font-size: 0.7rem;">→</span>
+                <input type="time" class="bl-time modern-time-input" data-idx="${i}" data-key="end" value="${eStr}">
               </div>
             </div>
-            <div style="margin-top:2px;">
-              <input type="text" class="block-task-edit" data-idx="${i}" value="${sess.task || ''}" placeholder="Task name..." style="width:100%; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:white; border-radius:4px; font-size:0.65rem; padding:3px;">
+            <div>
+              <input type="text" class="block-task-edit modern-task-input" data-idx="${i}" value="${sess.task || ''}" placeholder="What are you doing?">
             </div>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
-               <div style="display:flex; gap:8px; font-size:0.6rem; color:rgba(255,255,255,0.5);">
-                 <label style="display:flex;align-items:center;gap:4px;">Rem <input type="color" value="${sess.color}" data-idx="${i}" data-key="color" class="block-color-edit" style="width:16px;height:16px;padding:0;border:none;background:none;cursor:pointer;"></label>
-                 <label style="display:flex;align-items:center;gap:4px;">Elp <input type="color" value="${elColor}" data-idx="${i}" data-key="elapsedColor" class="block-color-edit" style="width:16px;height:16px;padding:0;border:none;background:none;cursor:pointer;"></label>
+            <div style="display:flex; justify-content:space-between; align-items:center; padding-top: 4px;">
+               <div style="display:flex; gap:12px; font-size:0.65rem; color:rgba(255,255,255,0.6); font-weight: 500;">
+                 <label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:4px;">
+                   Rem <input type="color" value="${sess.color}" data-idx="${i}" data-key="color" class="block-color-edit" style="width:14px;height:14px;padding:0;border:none;background:none;cursor:pointer;">
+                 </label>
+                 <label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:4px;">
+                   Elp <input type="color" value="${elColor}" data-idx="${i}" data-key="elapsedColor" class="block-color-edit" style="width:14px;height:14px;padding:0;border:none;background:none;cursor:pointer;">
+                 </label>
                </div>
-               <button data-idx="${i}" class="block-del" style="background:none;border:none;color:rgba(239,68,68,0.7);cursor:pointer;font-size:0.75rem;" title="Delete">✕ Delete</button>
+               <button data-idx="${i}" class="block-del" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);color:#ef4444;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:0.65rem;transition:all 0.2s;font-weight:600;" onmouseover="this.style.background='rgba(239,68,68,0.2)'" onmouseout="this.style.background='rgba(239,68,68,0.1)'" title="Delete Block">✕ Delete</button>
             </div>
           </div>`;
         });
@@ -304,7 +372,7 @@
             <div class="dot"></div>${label}</div>`;
         });
       }
-      html += '<div class="sep"></div><div class="sec-label"><span>Hand Style</span><span class="badge">12</span></div>';
+      html += '<div class="sep"></div><div class="sec-label"><span>Hand Style</span><span class="badge">15</span></div>';
       HANDS.forEach(([id, label]) => {
         html += `<div class="opt${current.handType===id?' active':''}" data-action="hands" data-val="${id}">
           <div class="dot"></div>${label}</div>`;
