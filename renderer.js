@@ -177,6 +177,9 @@
        api.showPanel({style,theme,handType,opacity,sessions,reminders:saved.reminders||[]});
        return;
     }
+    // Tooltip font size A− / A+ buttons
+    if (isClickOnTtA(e.clientX, e.clientY)) { bumpTooltipSize(-0.1); return; }
+    if (isClickOnTtP(e.clientX, e.clientY)) { bumpTooltipSize(+0.1); return; }
     
     const { cx, cy, r } = clockBounds();
 
@@ -1045,8 +1048,78 @@
     X.restore();
   }
 
-  function isClickOnGear(mx, my) {
-    return gearOpacity > 0.1 && Math.hypot(mx - gearX, my - gearY) < gearR + 4;
+  // ── Tooltip size controls (A− / A+ buttons, hover-revealed) ──
+  let ttA_X = 0, ttA_Y = 0;
+  const ttA_R = 11;
+  const ttA_GAP = 30;
+  function isClickOnTtA(mx, my) {
+    if (gearOpacity < 0.1) return false;
+    return Math.hypot(mx - ttA_X, my - ttA_Y) < ttA_R + 3;
+  }
+  function isClickOnTtP(mx, my) {
+    if (gearOpacity < 0.1) return false;
+    return Math.hypot(mx - (ttA_X + ttA_GAP), my - ttA_Y) < ttA_R + 3;
+  }
+
+  function drawTooltipSizeControls(cx, cy, r) {
+    // Position: bottom-center of the dial, well below the gear icon
+    ttA_X = cx - 14;
+    ttA_Y = cy + r * 0.72;
+    const xPlus = ttA_X + ttA_GAP;
+    const op = gearOpacity;
+    if (op < 0.02) return;
+    X.save();
+    X.globalAlpha = op;
+    // A− button
+    X.beginPath();
+    X.arc(ttA_X, ttA_Y, ttA_R, 0, PI2);
+    X.fillStyle = 'rgba(255,255,255,0.08)';
+    X.fill();
+    X.strokeStyle = 'rgba(255,255,255,0.18)';
+    X.lineWidth = 1;
+    X.stroke();
+    // "A" letter
+    X.fillStyle = 'rgba(255,255,255,0.7)';
+    X.font = '700 10px Inter, system-ui, sans-serif';
+    X.textAlign = 'center';
+    X.textBaseline = 'middle';
+    X.fillText('A', ttA_X, ttA_Y - 2);
+    // minus
+    X.strokeStyle = 'rgba(255,255,255,0.85)';
+    X.lineWidth = 1.5;
+    X.beginPath();
+    X.moveTo(ttA_X - 4, ttA_Y + 4);
+    X.lineTo(ttA_X + 4, ttA_Y + 4);
+    X.stroke();
+    // A+ button
+    X.beginPath();
+    X.arc(xPlus, ttA_Y, ttA_R, 0, PI2);
+    X.fillStyle = 'rgba(255,255,255,0.08)';
+    X.fill();
+    X.strokeStyle = 'rgba(255,255,255,0.18)';
+    X.lineWidth = 1;
+    X.stroke();
+    X.fillStyle = 'rgba(255,255,255,0.7)';
+    X.font = '700 10px Inter, system-ui, sans-serif';
+    X.fillText('A', xPlus, ttA_Y - 2);
+    X.strokeStyle = 'rgba(255,255,255,0.85)';
+    X.lineWidth = 1.5;
+    X.beginPath();
+    X.moveTo(xPlus - 4, ttA_Y + 4);
+    X.lineTo(xPlus + 4, ttA_Y + 4);
+    X.stroke();
+    // plus
+    X.beginPath();
+    X.moveTo(xPlus, ttA_Y + 1);
+    X.lineTo(xPlus, ttA_Y + 7);
+    X.stroke();
+    X.restore();
+  }
+
+  function bumpTooltipSize(delta) {
+    tooltipSize = Math.max(0.4, Math.min(2.5, (tooltipSize || 1.0) + delta));
+    save();
+    tooltipResizePulse = performance.now();
   }
 
   // ── Reminder Alert Visual ──
@@ -2135,6 +2208,7 @@
     drawGearIcon(cx, cy, r);
     drawReminderPips(cx, cy, r);
     drawReminderAlert(cx, cy, r);
+    drawTooltipSizeControls(cx, cy, r);
     drawTooltipSizeIndicator(cx, cy, r);
     requestAnimationFrame(draw);
   }
