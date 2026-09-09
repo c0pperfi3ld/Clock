@@ -122,7 +122,7 @@
     const wrap = document.getElementById('clock-wrapper');
     const w = wrap.clientWidth, h = wrap.clientHeight;
     const cx = w/2, cy = h/2;
-    const margin = Math.round(Math.max(34, 24 * (tooltipSize || 1.0)));
+    const margin = 36;
     const r = Math.max(50, Math.min(cx, cy) - margin);
     return { cx, cy, r, w, h };
   }
@@ -828,13 +828,9 @@
        const drawBgY = bgY + animOffY;
        
        // Pill background — snug, zero excess padding
-       X.beginPath();
-       X.moveTo(bgX + pillR, drawBgY);
-       X.lineTo(bgX + bgW - pillR, drawBgY);
-       X.arc(bgX + bgW - pillR, drawBgY + pillR, pillR, -Math.PI/2, Math.PI/2);
-       X.lineTo(bgX + pillR, drawBgY + bgH);
-       X.arc(bgX + pillR, drawBgY + pillR, pillR, Math.PI/2, -Math.PI/2);
-       X.closePath();
+        X.beginPath();
+        X.roundRect(bgX, drawBgY, bgW, bgH, pillR);
+        X.closePath();
        X.fillStyle = isPlaceholder ? 'rgba(20,20,35,0.95)' : 'rgba(10,10,20,0.85)';
        X.fill();
        X.strokeStyle = isPlaceholder ? 'rgba(167,139,250,0.7)' : sess.color;
