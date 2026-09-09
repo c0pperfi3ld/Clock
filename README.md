@@ -2,13 +2,14 @@
 
 # ⏱ ChronoCore
 
-**A borderless, canvas-rendered desktop clock widget.**
-52 dials · 9 hands · 10 themes · 25 animations · infinite combinations.
+**A borderless, canvas-rendered desktop clock widget — tasks, time blocks & Pomodoros included.**
 
-![Electron](https://img.shields.io/badge/Electron-35-47848F?style=flat-square&logo=electron&logoColor=white)
-![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-8b5cf6?style=flat-square)
-![License](https://img.shields.io/badge/MIT-10b981?style=flat-square)
-![Node](https://img.shields.io/badge/Node-16%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)
+52 dials · 16 hands · 10 themes · 26 tooltip motions · 13 todo loops · 7 orbit rings · 8 block FX
+
+![Electron](https://img.shields.io/badge/Electron-35-47848F?style=for-the-badge&logo=electron&logoColor=white)
+![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-8b5cf6?style=for-the-badge)
+![License](https://img.shields.io/badge/License-MIT-10b981?style=for-the-badge)
+![Node](https://img.shields.io/badge/Node-16%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
 
 </div>
 
@@ -16,14 +17,15 @@
 
 ## ✨ Why ChronoCore
 
-| | |
+| Priority | Feature |
 |---|---|
-| 🔴 **Zero DOM for the clock face** | 60 FPS raw Canvas 2D · DPR-aware · sub-pixel precision |
-| 🟡 **52 × 9 × 10 × 25 design genome** | ~5.8M unique combinations from pure data |
-| 🟢 **Invisible borderless window** | Custom IPC drag · 1:1 aspect · always-on-top |
-| 🟢 **Zero-friction canvas UX** | Click-to-spawn · drag-to-resize · click-×-to-delete |
-| 🟡 **Golden Angle color engine** | 137.5° hue spacing = perfect complementary palettes |
-| 🟢 **Pomodoro + time blocks** | Elapsed/remaining dual-color wedges · auto-cleanup |
+| 🔴 **Unclippable task labels** | HTML overlay floats *outside* the rotating orbit ring — long titles never clip, even at the window edge |
+| 🔴 **Live task cards** | Every todo loops its selected animation forever, phase-offset so cards feel alive |
+| 🟡 **52 × 16 × 10 design genome** | Dials, hands & themes combine into millions of unique faces |
+| 🟡 **Rotating orbit ring** | 7 ring styles, 0–5× clockwise speed (Alt+scroll), pauseable |
+| 🟢 **Zero-DOM clock face** | 60 FPS Canvas 2D · DPR-aware · borderless always-on-top window |
+| 🟢 **Golden Angle color engine** | 137.5° hue spacing — every new block lands on the most distinct hue |
+| 🟢 **Pomodoro + time blocks** | Elapsed/remaining dual-color wedges · click-to-spawn · drag-to-resize |
 
 ---
 
@@ -36,32 +38,83 @@ npm install
 npm start
 ```
 
-> DevTools auto-opens with `npm run dev`
+> `npm run dev` opens DevTools for debugging.
 
 ---
 
 ## 🎨 Design Catalog
 
 ### 52 Dial Styles
-| Group | Count | Examples |
+
+| Group | Count | Styles |
 |---|---|---|
-| **Hands-only (13)** | minimal, ghost, mist, prism, wireframe, shadow, ember, glass, starlight, pulsar, cyberpunk, zenith, glow |
-| **With dial (25)** | classic, minimal, roman, neon, skeleton, chrono, bauhaus, swiss, pilot, diver, artdeco, sundial, dashboard, dotmatrix, floatingnum, astronomy, submariner, industrial, papercraft, retrodigital, zen, hologram, copper, monochrome, regatta |
-| **Unique motion (14)** | orbit, concentric, radar, gradientarc, hourglass, sonar, sine, dna, pendulum, compass, eclipse_motion, matrix_rain, equalizer, vortex |
+| **Hands-only** | 13 | minimal · ghost · mist · prism · wireframe · shadow · ember · glass · starlight · pulsar · cyberpunk · zenith · glow |
+| **With dial** | 25 | classic · minimal · roman · neon · skeleton · chrono · bauhaus · swiss · pilot · diver · artdeco · sundial · dashboard · dotmatrix · floatingnum · astronomy · submariner · industrial · papercraft · retrodigital · zen · hologram · copper · monochrome · regatta |
+| **Unique motion** | 14 | orbit · concentric · radar · gradientarc · hourglass · sonar · sine · dna · pendulum · compass · eclipse_motion · matrix_rain · equalizer · vortex |
 
-### 9 Hand Types — *tapered · sword · dauphine · leaf · baton · skeletonH · arrow · spade · cathedral*
+### 16 Hand Types
 
-### 10 Themes — *midnight · obsidian · charcoal · slate · eclipse · void · graphite · onyx · shadow · abyss*
+*tapered · sword · dauphine · leaf · baton · skeletonH · arrow · spade · cathedral · needle · spike · alpha · chronometer · luminous · minimalist_dot · art_deco*
 
-### 18 Tooltip Animations — *fade · bounce · slide · flip · typewriter · glow-in · scale-pop · swing · wave · jitter · orbit · breathing · elastic · wobble · neon-pulse · shiver · heartbeat · float-tilt*
+### 10 Themes
 
-### 7 Block Animations — *pulse · glow · breathe · shimmer · rainbow-glow · rainbow-pulse · disco*
+*midnight · obsidian · charcoal · slate · eclipse · void · graphite · onyx · shadow · abyss*
 
 ---
 
-## 🖼 Visual System
+## 🎭 Animation Catalog
 
-### Golden Angle Color Generation
+### 26 Tooltip Motions — the whole box moves, not just the text
+
+| # | Motion | # | Motion | # | Motion |
+|---|---|---|---|---|---|
+| 1 | 🎾 Bounce | 10 | ⚡ Jitter | 19 | 🌀 Zoom Spin |
+| 2 | 🌫️ Fade | 11 | 💫 Orbit | 20 | 📺 Glitch |
+| 3 | 📤 Slide Up | 12 | 🫁 Breathing | 21 | 💡 Flicker |
+| 4 | 🔄 Flip | 13 | 🪀 Elastic | 22 | 🌊 Drift |
+| 5 | ⌨️ Typewriter | 14 | 😵‍💫 Wobble | 23 | ⏳ Pendulum |
+| 6 | ✨ Glow In | 15 | 🚨 Neon Pulse | 24 | 🐍 Snake |
+| 7 | 💥 Scale Pop | 16 | 🥶 Shiver | 25 | 👁️ Blink |
+| 8 | 🎪 Swing | 17 | 💓 Heartbeat | 26 | 🎉 Ta-Da |
+| 9 | 🌊 Wave | 18 | 🛸 Float Tilt | | |
+
+> Labels are DOM nodes in an `overflow:visible` overlay. Each box is *guaranteed* outside the dotted ring (`orbit + gap + projected half-size + per-motion pad`), with per-label font shrink + dial auto-fit as the last resort at true window edges.
+
+### 13 Todo Loops — cards animate forever, not just on entrance
+
+*⏸️ Static · 🌊 Float · 💓 Pulse Glow · 🎪 Sway · 🫁 Breathe · ✨ Shimmer · 🏀 Bob · 🪱 Wiggle · ↔️ Drift X · 💗 Heartbeat · 🚨 Neon Glow · 🫧 Jelly · 🌅 Glow Drift*
+
+### 7 Orbit Ring Styles — clockwise, 0–5× speed
+
+*⚪ Dotted Spin · ⭕ Double Orbit · ✨ Glow Pulse · ☄️ Comet · 🌈 Rainbow · ✨ Sparkle · 🌊 Tide*
+
+### 8 Block Animations — with speed control
+
+*⏸ None · 💓 Pulse · ✨ Glow · 🫁 Breathe · ⚡ Shimmer · 🌈 RB Glow · 🌈 RB Pulse · 🪩 Disco*
+
+---
+
+## 🖼 How It Works
+
+### IPC Pipeline
+
+```mermaid
+flowchart LR
+    P[panel.html<br/>3 tabs] -- panel-set-* --> M[main.js<br/>IPC bridge]
+    M -- forward --> R[renderer.js<br/>60 FPS engine]
+    M <--> S[(userData<br/>clock-settings.json)]
+    R -- show-panel state --> P
+```
+
+### Per-Frame Render
+
+```mermaid
+flowchart LR
+    C[clear] --> D[dial + hands] --> B[time blocks] --> O[orbit ring] --> L[HTML labels] --> K[knobs + gear] --> F[rAF]
+```
+
+### Golden Angle Colors
+
 ```
 h_n = (n × 137.508°) mod 360°
 
@@ -69,21 +122,6 @@ h_n = (n × 137.508°) mod 360°
    h₁ =  137°  ●
    h₂ =  275°  ●
    h₃ =   52°  ●     ← wraps to most-distant slot
-   h₄ =  190°  ●
-   ...
-```
-Every new block lands on the **most perceptually distinct** hue available.
-
-### IPC Pipeline
-```
-panel.html ──ipc──► main.js ──ipc──► renderer.js (60 FPS Canvas)
-                     │
-                     └──► userData/clock-settings.json
-```
-
-### Per-Frame Render
-```
-clear → dial → blocks → handles → hands → labels → tooltips → rAF
 ```
 
 ---
@@ -92,12 +130,15 @@ clear → dial → blocks → handles → hands → labels → tooltips → rAF
 
 | Action | How |
 |---|---|
-| Move clock | Click empty dial · drag |
-| Add block | Click outer ring |
+| Move clock | Drag empty dial |
+| Add block | Click outer ring · pick colors in ⚙ panel |
 | Edit block | Click wedge · drag red/blue handles |
-| Delete block | Click × on label |
-| Open settings | Click ⚙ (top-right) |
-| Generate Pomodoro | Blocks tab → set work/break/cycles → Generate |
+| Rename task | Click its floating label |
+| Delete task | Click × on the label |
+| Todo list | `+` button or type + Enter · checkbox · flag cycles priority · dot sets color |
+| Text size | Config → Text Size slider, `A−/A+`, or Ctrl+scroll (0.3–5×) |
+| Orbit speed | Config slider or Alt+scroll (0 = paused) |
+| Settings | Click ⚙ top-right · Clocks / Blocks / Config tabs |
 
 ---
 
@@ -105,36 +146,38 @@ clear → dial → blocks → handles → hands → labels → tooltips → rAF
 
 ```
 Clock/
-├── main.js              ← window mgmt + IPC bridge
-├── preload.js           ← clock window IPC surface
-├── preload_panel.js     ← panel IPC surface
-├── index.html           ← clock window (canvas only)
-├── panel.html           ← settings panel (3 tabs)
-├── index.css            ← minimal CSS
-├── renderer.js          ← 1600+ line Canvas engine
+├── main.js              ← window mgmt + IPC bridge + settings store
+├── preload.js           ← clock-window IPC surface
+├── preload_panel.js     ← settings-panel IPC surface
+├── index.html           ← clock window (canvas + label overlay + todo panel)
+├── panel.html           ← settings panel (Clocks / Blocks / Config)
+├── index.css            ← layout + all keyframe animations
+├── renderer.js          ← Canvas engine + DOM labels + todos
 ├── error-logger.js      ← frontend error capture
 └── package.json         ← 1 dependency: electron@^35
 ```
 
-**IPC channels** — `drag-start` · `drag-move` · `drag-end` · `show-panel` · `panel-set-{style,theme,hands,opacity,sessions,block-opacity,block-anim,tooltip-anim,tooltip-size}` · `focus-time` · `blur-time` · `clock-update-time` · `panel-set-ontop` · `panel-close` · `close-app` · `save-settings` · `load-settings`
+**IPC channels** — `drag-start` · `drag-move` · `drag-end` · `show-panel` · `panel-set-{style,theme,hands,opacity,sessions,block-opacity,block-anim,tooltip-anim,tooltip-size,orbit-speed,orbit-style,todo-anim}` · `focus-time` · `blur-time` · `clock-update-time` · `panel-set-ontop` · `panel-close` · `close-app` · `save-settings` · `load-settings`
 
 ---
 
 ## 🔧 Customization
 
 ```js
-// Add a new dial
+// New dial
 STYLES.myCustom = (ctx, cx, cy, r) => {
   ctx.strokeStyle = '#ff00ff';
   ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
 };
 
-// Add a theme
-THEMES.sunset = { accent:'#ff6b6b', sec:'#ffd93d', glow:'rgba(255,107,107,0.5)' };
+// New theme
+THEMES.sunset = { accent: '#ff6b6b', sec: '#ffd93d', glow: 'rgba(255,107,107,0.5)' };
 
-// Add a block animation
+// New block animation
 case 'my-effect': return { opMul: ..., rOff: ..., blur: ..., colorOverride: '...' };
+
+// New tooltip motion: add MOTION_CLASS entry + .m-* keyframes in index.css
 ```
 
 ---
@@ -152,9 +195,11 @@ case 'my-effect': return { opMul: ..., rOff: ..., blur: ..., colorOverride: '...
 ## 📊 Stats
 
 ```
-Lines:       ~1700    Bundle:     ~50 MB
-Deps:        1        Memory:     ~80 MB runtime
-Cold start:  <1.2s    Frame rate: 60 FPS
+Dials:       52       Tooltip motions:  26
+Hands:       16       Todo loops:       13
+Themes:      10       Orbit styles:      7
+Deps:        1        Block FX:           8
+Cold start:  <1.2s    Frame rate:   60 FPS
 ```
 
 ---
