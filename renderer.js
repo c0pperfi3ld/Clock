@@ -655,6 +655,12 @@
        if (editingLabelIdx === i) continue;
 
        const isPlaceholder = !sess.task;
+       // If this is a placeholder (no task yet), hide the tooltip when the
+       // mouse is hovering near the dial — keep the face clean for interaction.
+       if (isPlaceholder && lastMouseX !== null && lastMouseY !== null) {
+          const mdx = lastMouseX - cx, mdy = lastMouseY - cy;
+          if (Math.hypot(mdx, mdy) < r + 30) continue;
+       }
        let drawText = isPlaceholder ? '＋ Add Task' : sess.task;
 
        if (!labelBirthTimes[i]) labelBirthTimes[i] = now;
@@ -679,7 +685,7 @@
        const delSize = 5 * sizeScale;
        const delExtra = isPlaceholder ? 0 : delSize * 2 + 6;
        // Position clearly outside the dial so the text area never overlaps the face
-       const txC = cx + Math.cos(angle) * (r + 14);
+       const txC = cx + Math.cos(angle) * (r + 24);
        // Available width depends on side + side clearance
        const availW = isRight ? (W - MARGIN - (txC + pad + delExtra)) : (txC - MARGIN - pad);
        let tw = X.measureText(drawText).width;
