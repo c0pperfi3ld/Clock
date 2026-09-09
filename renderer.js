@@ -1032,99 +1032,6 @@
     drawHandSet(cx,cy,r,ha,ma,sa,t.accent,'rgba(255,255,255,0.7)',t.sec,true);
   }
 
-  function drawLeafHands(cx,cy,r,ha,ma,sa,hC,mC,sC,isDark) {
-    X.lineCap='round';X.lineJoin='round';
-    X.save();X.translate(cx,cy);X.rotate(ha);
-    X.beginPath();X.moveTo(0,r*0.1);X.quadraticCurveTo(r*0.08,-r*0.25,0,-r*0.55);X.quadraticCurveTo(-r*0.08,-r*0.25,0,r*0.1);
-    X.fillStyle=hC;X.fill();X.restore();
-    X.save();X.translate(cx,cy);X.rotate(ma);
-    X.beginPath();X.moveTo(0,r*0.1);X.quadraticCurveTo(r*0.06,-r*0.4,0,-r*0.8);X.quadraticCurveTo(-r*0.06,-r*0.4,0,r*0.1);
-    X.fillStyle=mC;X.fill();X.restore();
-    drawSec(cx,cy,r,sa,sC,isDark,0.85);
-  }
-
-  function drawChronometerHands(cx,cy,r,ha,ma,sa,hC,mC,sC,isDark) {
-    X.lineCap='round';X.lineJoin='miter';
-    // Vintage Chronometer: precision needles with round counter-balances
-    X.save();X.translate(cx,cy);X.rotate(ha);
-    X.beginPath();X.moveTo(-r*0.02, r*0.15);X.lineTo(r*0.02, r*0.15);
-    X.lineTo(r*0.01, -r*0.4);X.lineTo(0, -r*0.5);X.lineTo(-r*0.01, -r*0.4);X.closePath();
-    X.fillStyle=hC;X.fill();
-    X.beginPath();X.arc(0, r*0.15, r*0.06, 0, PI2);X.lineWidth=2;X.strokeStyle=hC;X.stroke();X.restore();
-    
-    X.save();X.translate(cx,cy);X.rotate(ma);
-    X.beginPath();X.moveTo(-r*0.015, r*0.15);X.lineTo(r*0.015, r*0.15);
-    X.lineTo(r*0.008, -r*0.7);X.lineTo(0, -r*0.85);X.lineTo(-r*0.008, -r*0.7);X.closePath();
-    X.fillStyle=mC;X.fill();
-    X.beginPath();X.arc(0, r*0.15, r*0.05, 0, PI2);X.lineWidth=2;X.strokeStyle=mC;X.stroke();X.restore();
-    drawSec(cx,cy,r,sa,sC,isDark,0.9);
-  }
-
-  function drawLuminousHands(cx,cy,r,ha,ma,sa,hC,mC,sC,isDark) {
-    X.lineCap='butt';X.lineJoin='round';
-    X.save();X.translate(cx,cy);X.rotate(ha);
-    X.beginPath();X.rect(-r*0.04, -r*0.5, r*0.08, r*0.6);X.fillStyle=hC;X.fill();
-    X.beginPath();X.rect(-r*0.015, -r*0.45, r*0.03, r*0.4);X.fillStyle=isDark?'#fff':'#000';X.fill();X.restore();
-    
-    X.save();X.translate(cx,cy);X.rotate(ma);
-    X.beginPath();X.rect(-r*0.03, -r*0.8, r*0.06, r*0.9);X.fillStyle=mC;X.fill();
-    X.beginPath();X.rect(-r*0.01, -r*0.75, r*0.02, r*0.65);X.fillStyle=isDark?'#fff':'#000';X.fill();X.restore();
-    drawSec(cx,cy,r,sa,sC,isDark,0.85);
-  }
-
-  function drawArrowHands(cx,cy,r,ha,ma,sa,hC,mC,sC,isDark) {
-    X.lineCap='round';X.lineJoin='round';
-    X.save();X.translate(cx,cy);X.rotate(ha);
-    X.beginPath();X.moveTo(-r*0.03, 0);X.lineTo(r*0.03, 0);X.lineTo(r*0.02, -r*0.3);
-    X.lineTo(r*0.08, -r*0.3);X.lineTo(0, -r*0.5);X.lineTo(-r*0.08, -r*0.3);
-    X.lineTo(-r*0.02, -r*0.3);X.closePath();
-    X.fillStyle=hC;X.fill();X.restore();
-    
-    X.save();X.translate(cx,cy);X.rotate(ma);
-    X.beginPath();X.moveTo(-r*0.02, 0);X.lineTo(r*0.02, 0);X.lineTo(r*0.015, -r*0.6);
-    X.lineTo(r*0.06, -r*0.6);X.lineTo(0, -r*0.85);X.lineTo(-r*0.06, -r*0.6);
-    X.lineTo(-r*0.015, -r*0.6);X.closePath();
-    X.fillStyle=mC;X.fill();X.restore();
-    drawSec(cx,cy,r,sa,sC,isDark,0.9);
-  }
-
-  function drawMinimalistDotHands(cx,cy,r,ha,ma,sa,hC,mC,sC,isDark) {
-    X.lineCap='round';
-    X.save();X.translate(cx,cy);X.rotate(ha);
-    X.beginPath();X.moveTo(0, r*0.1);X.lineTo(0, -r*0.4);X.lineWidth=r*0.03;X.strokeStyle=hC;X.stroke();
-    X.beginPath();X.arc(0, -r*0.45, r*0.05, 0, PI2);X.fillStyle=hC;X.fill();X.restore();
-    
-    X.save();X.translate(cx,cy);X.rotate(ma);
-    X.beginPath();X.moveTo(0, r*0.1);X.lineTo(0, -r*0.7);X.lineWidth=r*0.02;X.strokeStyle=mC;X.stroke();
-    X.beginPath();X.arc(0, -r*0.75, r*0.04, 0, PI2);X.fillStyle=mC;X.fill();X.restore();
-    drawSec(cx,cy,r,sa,sC,isDark,0.85);
-  }
-
-  function drawArtDecoHands(cx,cy,r,ha,ma,sa,hC,mC,sC,isDark) {
-    X.lineCap='butt';X.lineJoin='miter';
-    X.save();X.translate(cx,cy);X.rotate(ha);
-    X.beginPath();X.moveTo(-r*0.04, r*0.1);X.lineTo(r*0.04, r*0.1);
-    X.lineTo(r*0.04, -r*0.2);X.lineTo(r*0.02, -r*0.2);X.lineTo(r*0.02, -r*0.4);
-    X.lineTo(0, -r*0.5);X.lineTo(-r*0.02, -r*0.4);X.lineTo(-r*0.02, -r*0.2);
-    X.lineTo(-r*0.04, -r*0.2);X.closePath();
-    X.fillStyle=hC;X.fill();X.restore();
-    
-    X.save();X.translate(cx,cy);X.rotate(ma);
-    X.beginPath();X.moveTo(-r*0.03, r*0.1);X.lineTo(r*0.03, r*0.1);
-    X.lineTo(r*0.03, -r*0.4);X.lineTo(r*0.015, -r*0.4);X.lineTo(r*0.015, -r*0.7);
-    X.lineTo(0, -r*0.85);X.lineTo(-r*0.015, -r*0.7);X.lineTo(-r*0.015, -r*0.4);
-    X.lineTo(-r*0.03, -r*0.4);X.closePath();
-    X.fillStyle=mC;X.fill();X.restore();
-    drawSec(cx,cy,r,sa,sC,isDark,0.9);
-  }
-
-  const HANDS = {
-    tapered:drawTaperedHands, baton:drawBatonHands, breguet:drawBreguetHands,
-    skeleton:drawSkeletonHands, sword:drawSwordHands, spade:drawSpadeHands,
-    syringe:drawSyringeHands, snowflake:drawSnowflakeHands, dauphine:drawDauphineHands,
-    leaf:drawLeafHands, chronometer:drawChronometerHands, luminous:drawLuminousHands,
-    arrow:drawArrowHands, minimalist_dot:drawMinimalistDotHands, art_deco:drawArtDecoHands
-  };
 
   function drawGhostShadow(cx,cy,r,hrF,minF,secF,t) {
     const [ha,ma,sa]=angles(hrF,minF,secF);
@@ -1361,6 +1268,70 @@
           X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=4;
           X.beginPath();X.moveTo(0,len*0.18);X.lineTo(-len*0.015,len*0.02);X.lineTo(-len*0.005,-len*0.5);X.lineTo(0,-len);X.lineTo(len*0.005,-len*0.5);X.lineTo(len*0.015,len*0.02);X.closePath();
           X.fillStyle=col;X.fill();X.restore();
+        }
+      },
+      chronometer: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.4)';X.shadowBlur=5;
+          X.beginPath();X.moveTo(-len*0.035,len*0.15);X.lineTo(len*0.035,len*0.15);
+          X.lineTo(len*0.018,-len*0.75);X.lineTo(0,-len);X.lineTo(-len*0.018,-len*0.75);X.closePath();
+          X.fillStyle=col;X.fill();
+          X.beginPath();X.arc(0,len*0.15,len*0.08,0,PI2);X.lineWidth=1.5;X.strokeStyle=col;X.stroke();
+          X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=4;
+          X.beginPath();X.moveTo(-len*0.025,len*0.15);X.lineTo(len*0.025,len*0.15);
+          X.lineTo(len*0.012,-len*0.8);X.lineTo(0,-len);X.lineTo(-len*0.012,-len*0.8);X.closePath();
+          X.fillStyle=col;X.fill();
+          X.beginPath();X.arc(0,len*0.15,len*0.065,0,PI2);X.lineWidth=1.5;X.strokeStyle=col;X.stroke();
+          X.restore();
+        }
+      },
+      luminous: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.4)';X.shadowBlur=5;
+          X.beginPath();X.roundRect(-len*0.05,-len,len*0.1,len*1.12,len*0.02);X.fillStyle=col;X.fill();
+          X.beginPath();X.roundRect(-len*0.02,-len*0.9,len*0.04,len*0.7,len*0.01);X.fillStyle='rgba(255,255,255,0.9)';X.fill();
+          X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=4;
+          X.beginPath();X.roundRect(-len*0.038,-len,len*0.076,len*1.12,len*0.015);X.fillStyle=col;X.fill();
+          X.beginPath();X.roundRect(-len*0.015,-len*0.92,len*0.03,len*0.75,len*0.008);X.fillStyle='rgba(255,255,255,0.9)';X.fill();
+          X.restore();
+        }
+      },
+      minimalist_dot: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=5;
+          X.beginPath();X.moveTo(0,len*0.1);X.lineTo(0,-len*0.82);X.lineWidth=Math.max(2,len*0.04);X.strokeStyle=col;X.lineCap='round';X.stroke();
+          X.beginPath();X.arc(0,-len,Math.max(3,len*0.09),0,PI2);X.fillStyle=col;X.fill();
+          X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.3)';X.shadowBlur=4;
+          X.beginPath();X.moveTo(0,len*0.1);X.lineTo(0,-len*0.86);X.lineWidth=Math.max(1.5,len*0.026);X.strokeStyle=col;X.lineCap='round';X.stroke();
+          X.beginPath();X.arc(0,-len,Math.max(2.5,len*0.07),0,PI2);X.fillStyle=col;X.fill();
+          X.restore();
+        }
+      },
+      art_deco: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.4)';X.shadowBlur=5;
+          const w=len*0.055;
+          X.beginPath();X.moveTo(-w,len*0.1);X.lineTo(w,len*0.1);X.lineTo(w,-len*0.3);X.lineTo(w*0.6,-len*0.3);
+          X.lineTo(w*0.6,-len*0.65);X.lineTo(w*0.3,-len*0.65);X.lineTo(0,-len);
+          X.lineTo(-w*0.3,-len*0.65);X.lineTo(-w*0.6,-len*0.65);X.lineTo(-w*0.6,-len*0.3);X.lineTo(-w,-len*0.3);
+          X.closePath();X.fillStyle=col;X.fill();X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=4;
+          const w=len*0.04;
+          X.beginPath();X.moveTo(-w,len*0.1);X.lineTo(w,len*0.1);X.lineTo(w,-len*0.35);X.lineTo(w*0.6,-len*0.35);
+          X.lineTo(w*0.6,-len*0.7);X.lineTo(w*0.25,-len*0.7);X.lineTo(0,-len);
+          X.lineTo(-w*0.25,-len*0.7);X.lineTo(-w*0.6,-len*0.7);X.lineTo(-w*0.6,-len*0.35);X.lineTo(-w,-len*0.35);
+          X.closePath();X.fillStyle=col;X.fill();X.restore();
         }
       }
     };

@@ -248,11 +248,12 @@
     };
 
     const HANDS = [
-      ['tapered','Tapered'],['baton','Baton'],['breguet','Breguet'],
-      ['skeleton','Skeleton'],['sword','Sword'],['spade','Spade'],
-      ['syringe','Syringe'],['snowflake','Snowflake'],['dauphine','Dauphine'],
-      ['leaf','Leaf'],['chronometer','Chronometer'],['luminous','Luminous'],
-      ['arrow','Broad Arrow'],['minimalist_dot','Minimalist Dot'],['art_deco','Art Deco']
+      ['tapered','Tapered Lancet'],['sword','Sword / Breguet'],['dauphine','Dauphine Diamond'],
+      ['leaf','Leaf / Feuille'],['baton','Baton Straight'],['skeletonH','Skeleton Hollow'],
+      ['arrow','Arrow'],['spade','Spade'],['cathedral','Gothic Cathedral'],
+      ['needle','Needle'],['spike','Spike'],['alpha','Alpha'],
+      ['chronometer','Chronometer Vintage'],['luminous','Modern Luminous'],
+      ['minimalist_dot','Minimalist Dot'],['art_deco','Art Deco Geometric']
     ];
 
     const THEMES = [
@@ -372,7 +373,7 @@
             <div class="dot"></div>${label}</div>`;
         });
       }
-      html += '<div class="sep"></div><div class="sec-label"><span>Hand Style</span><span class="badge">15</span></div>';
+      html += '<div class="sep"></div><div class="sec-label"><span>Hand Style</span><span class="badge">16</span></div>';
       HANDS.forEach(([id, label]) => {
         html += `<div class="opt${current.handType===id?' active':''}" data-action="hands" data-val="${id}">
           <div class="dot"></div>${label}</div>`;
