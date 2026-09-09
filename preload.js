@@ -11,5 +11,13 @@ contextBridge.exposeInMainWorld('clockAPI', {
   onSetTheme: (cb) => ipcRenderer.on('set-theme', (_, v) => cb(v)),
   onSetOpacity: (cb) => ipcRenderer.on('set-opacity', (_, v) => cb(v)),
   onSetHands: (cb) => ipcRenderer.on('set-hands', (_, v) => cb(v)),
-  onWindowResized: (cb) => ipcRenderer.on('window-resized', (_, s) => cb(s))
+  onSetSessions: (cb) => ipcRenderer.on('set-sessions', (_, v) => cb(v)),
+  onSetBlockOpacity: (cb) => ipcRenderer.on('set-block-opacity', (_, v) => cb(v)),
+  onSetBlockAnim: (cb) => ipcRenderer.on('set-block-anim', (_, v) => cb(v)),
+  onSetTooltipAnim: (cb) => ipcRenderer.on('set-tooltip-anim', (_, v) => cb(v)),
+  onSetTooltipSize: (cb) => ipcRenderer.on('set-tooltip-size', (_, v) => cb(v)),
+  onWindowResized: (cb) => ipcRenderer.on('window-resized', (_, s) => cb(s)),
+  updateTimeInput: (data) => ipcRenderer.send('clock-update-time', data),
+  onFocusTime: (cb) => ipcRenderer.on('focus-time', (_, data) => cb(data)),
+  onBlurTime: (cb) => ipcRenderer.on('blur-time', () => cb())
 });

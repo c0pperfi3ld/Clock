@@ -8,6 +8,10 @@
   const api = window.clockAPI;
   const canvas = document.getElementById('clock');
   const X = canvas.getContext('2d');
+  
+  window.addEventListener('error', e => {
+     api.saveSettings({ _lastError: e.error ? e.error.stack : e.message });
+  });
 
   const PI2 = Math.PI * 2;
   const DEG2RAD = Math.PI / 180;
@@ -25,23 +29,63 @@
     abyss:     { accent:'#06b6d4', sec:'#10b981', glow:'rgba(6,182,212,0.5)' }
   };
 
-  let style='handsonly_ghost', theme='midnight', handType='tapered', opacity=100;
+  let style='handsonly_ghost', theme='midnight', handType='tapered', opacity=100, sessions=[], blockOpacity=0.25;
+  let blockAnim = { style: 'pulse', speed: 1.0 };
+  let tooltipAnim = 'bounce';
+  let tooltipSize = 1.0;
   const saved = api.loadSettings();
   if (saved.clockStyle) style=saved.clockStyle;
   if (saved.theme) theme=saved.theme;
   if (saved.handType) handType=saved.handType;
   if (typeof saved.opacity==='number') opacity=saved.opacity;
+  if (saved.sessions) sessions=saved.sessions;
+  if (typeof saved.blockOpacity==='number') blockOpacity=saved.blockOpacity;
+  if (saved.blockAnim) blockAnim=saved.blockAnim;
+  if (saved.tooltipAnim) tooltipAnim=saved.tooltipAnim;
+  if (saved.tooltipSize) tooltipSize=saved.tooltipSize;
 
   function applyOpacity() { canvas.style.opacity=opacity/100; }
   applyOpacity();
-  function save() { api.saveSettings({clockStyle:style,theme,handType,opacity}); }
+  function save() { api.saveSettings({clockStyle:style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize}); }
 
   api.onSetStyle(s => { style=s; save(); });
   api.onSetTheme(t => { theme=t; save(); });
   api.onSetOpacity(o => { opacity=o; applyOpacity(); save(); });
   api.onSetHands(h => { handType=h; save(); });
+  api.onSetSessions(s => { sessions=s; save(); });
+  api.onSetBlockOpacity(o => { blockOpacity=o; save(); });
+  api.onSetBlockAnim(a => { blockAnim=a; save(); });
+  api.onSetTooltipAnim(a => { tooltipAnim=a; save(); });
+  if (api.onSetTooltipSize) api.onSetTooltipSize(s => { tooltipSize=s; save(); });
 
   const dpr = window.devicePixelRatio||1;
+  const pWrapS = document.getElementById('picker-wrap-start');
+  const pWrapE = document.getElementById('picker-wrap-end');
+  const pInputS = document.getElementById('color-start');
+  const pInputE = document.getElementById('color-end');
+
+  // Sync color changes back to session
+  if (pInputS) pInputS.addEventListener('input', e => {
+     if (interactiveMode && interactiveMode.startsWith('edit-')) {
+         const idx = parseInt(interactiveMode.split('-')[1]);
+         if (sessions[idx]) {
+            sessions[idx].color = e.target.value;
+            api.onSetSessions(sessions);
+            save();
+         }
+     }
+  });
+  if (pInputE) pInputE.addEventListener('input', e => {
+     if (interactiveMode && interactiveMode.startsWith('edit-')) {
+         const idx = parseInt(interactiveMode.split('-')[1]);
+         if (sessions[idx]) {
+            sessions[idx].elapsedColor = e.target.value;
+            api.onSetSessions(sessions);
+            save();
+         }
+     }
+  });
+
   function resize() {
     const w=window.innerWidth, h=window.innerHeight;
     canvas.width=w*dpr; canvas.height=h*dpr;
@@ -53,10 +97,647 @@
   api.onWindowResized(resize);
 
   let dragging=false;
-  canvas.addEventListener('mousedown', e => { if(e.button===0){dragging=true;api.dragStart();} });
-  window.addEventListener('mousemove', () => { if(dragging)api.dragMove(); });
-  window.addEventListener('mouseup', () => { if(dragging){dragging=false;api.dragEnd();} });
-  canvas.addEventListener('contextmenu', e => { e.preventDefault(); api.showPanel({style,theme,handType,opacity}); });
+  
+  let interactiveMode = null;
+  let interactiveDate = null;
+  let draggingKnob = false;
+  let dragIsPM = false;
+  let dragLastHrs12 = null;
+
+  api.onFocusTime(data => {
+    interactiveMode = data.type;
+    const [h, m] = data.timeStr.split(':');
+    const d = new Date();
+    d.setHours(parseInt(h) || 0, parseInt(m) || 0, 0, 0);
+    interactiveDate = d;
+  });
+
+  api.onBlurTime(() => {
+    if (!draggingKnob) interactiveMode = null;
+  });
+
+  function getAngleForDate(d) {
+    const msIn12h = (d.getHours() % 12) * 3600000 + d.getMinutes() * 60000;
+    return (msIn12h / 43200000) * PI2 - (Math.PI / 2);
+  }
+
+  canvas.addEventListener('mousedown', e => { 
+    if(e.button !== 0) return;
+    
+    // Check gear icon click first
+    if (isClickOnGear(e.clientX, e.clientY)) {
+       api.showPanel({style,theme,handType,opacity});
+       return;
+    }
+    
+    const w = window.innerWidth, h = window.innerHeight;
+    const cx = w/2, cy = h/2, r = Math.min(cx, cy) - 4;
+    
+    // Check if clicking on an active edit knob
+    if (interactiveMode && interactiveMode.startsWith('edit-')) {
+       const idx = parseInt(interactiveMode.split('-')[1]);
+       const sess = sessions[idx];
+       if (sess) {
+           // First check delete block button
+           if (interactiveMode.endsWith('-both')) {
+               const midTime = (sess.start + sess.end) / 2;
+               const midA = getAngleForDate(new Date(midTime));
+               const delX = cx + Math.cos(midA) * (r - 35);
+               const delY = cy + Math.sin(midA) * (r - 35);
+               if (Math.hypot(e.clientX - delX, e.clientY - delY) < 18) {
+                   sessions.splice(idx, 1);
+                   save();
+                   interactiveMode = null;
+                   if (pWrapS) pWrapS.style.display = 'none';
+                   if (pWrapE) pWrapE.style.display = 'none';
+                   // Also clean up labels just in case
+                   editingLabelIdx = -1;
+                   if (editInput && editInput.parentNode) editInput.parentNode.removeChild(editInput);
+                   return;
+               }
+           }
+           
+           const dStart = new Date(sess.start);
+           const dEnd = new Date(sess.end);
+           const aStart = getAngleForDate(dStart);
+           const aEnd = getAngleForDate(dEnd);
+           
+           const kxS = cx + Math.cos(aStart) * (r - 12);
+           const kyS = cy + Math.sin(aStart) * (r - 12);
+           const kxE = cx + Math.cos(aEnd) * (r - 12);
+           const kyE = cy + Math.sin(aEnd) * (r - 12);
+           
+           if (Math.hypot(e.clientX - kxS, e.clientY - kyS) < 30) {
+               draggingKnob = true; dragIsPM = dStart.getHours() >= 12; dragLastHrs12 = dStart.getHours() % 12;
+               interactiveMode = `edit-${idx}-start`; interactiveDate = dStart; return;
+           }
+           if (Math.hypot(e.clientX - kxE, e.clientY - kyE) < 30) {
+               draggingKnob = true; dragIsPM = dEnd.getHours() >= 12; dragLastHrs12 = dEnd.getHours() % 12;
+               interactiveMode = `edit-${idx}-end`; interactiveDate = dEnd; return;
+           }
+       }
+    } else if (interactiveMode && interactiveDate) {
+       // Old single-knob create logic
+       const angle = getAngleForDate(interactiveDate);
+       const kx = cx + Math.cos(angle) * (r - 12);
+       const ky = cy + Math.sin(angle) * (r - 12);
+       if (Math.hypot(e.clientX - kx, e.clientY - ky) < 30) {
+          draggingKnob = true; dragIsPM = interactiveDate.getHours() >= 12; dragLastHrs12 = interactiveDate.getHours() % 12; return;
+       }
+    }
+    
+    // If not dragging knob, check if clicked ON a wedge
+    let dx = e.clientX - cx, dy = e.clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    
+    if (dist <= r) {
+        let angle = Math.atan2(dy, dx) + (Math.PI / 2);
+        if (angle < 0) angle += PI2; if (angle >= PI2) angle -= PI2;
+        const MS_IN_12H = 43200000;
+        
+        let foundIdx = -1;
+        if (sessions && sessions.length > 0) {
+            for (let i = 0; i < sessions.length; i++) {
+               const sess = sessions[i];
+               const sDate = new Date(sess.start);
+               const startMsIn12h = (sDate.getHours() % 12) * 3600000 + sDate.getMinutes() * 60000;
+               const startAngle = (startMsIn12h / MS_IN_12H) * PI2;
+               const sweepAngle = Math.min(PI2, ((sess.end - sess.start) / MS_IN_12H) * PI2);
+               const endAngle = startAngle + sweepAngle;
+               
+               let inWedge = false;
+               if (endAngle > PI2) {
+                   inWedge = (angle >= startAngle && angle <= PI2) || (angle >= 0 && angle <= endAngle - PI2);
+               } else {
+                   inWedge = (angle >= startAngle && angle <= endAngle);
+               }
+               if (inWedge) { foundIdx = i; break; }
+            }
+        }
+        
+        if (foundIdx !== -1) {
+           interactiveMode = `edit-${foundIdx}-both`;
+           return; // Found a block, show handles, don't drag window
+        } else if (dist > r - 60) {
+           // Clicked empty space on the outer ring -> spawn new block
+           const now = new Date();
+           let totalMins = Math.round((angle / PI2) * 12 * 60);
+           totalMins = Math.round(totalMins / 5) * 5; // round to 5 mins
+           
+           let hrs12 = Math.floor(totalMins / 60);
+           let mins = totalMins % 60;
+           
+           if (hrs12 >= 12) hrs12 -= 12; // Modulo 12
+           
+           let isPM = now.getHours() >= 12;
+           let hrs24 = hrs12 + (isPM ? 12 : 0);
+           
+           const start = new Date(now);
+           start.setHours(hrs24, mins, 0, 0);
+           
+           const end = new Date(start);
+           end.setHours(start.getHours() + 1); // 1 hour default
+           
+           if (!sessions) sessions = [];
+           
+           // Generate dynamic complementary color based on number of blocks
+           let hue = (210 + sessions.length * 137.5) % 360;
+           
+           const hslToHex = (h, s, l) => {
+             l /= 100;
+             const a = s * Math.min(l, 1 - l) / 100;
+             const f = n => {
+               const k = (n + h / 30) % 12;
+               const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+               return Math.round(255 * color).toString(16).padStart(2, '0');
+             };
+             return `#${f(0)}${f(8)}${f(4)}`;
+           };
+           
+           const dynamicColor = hslToHex(hue, 85, 60);
+           const dynamicElColor = hslToHex(hue, 95, 20); // Darker for elapsed
+           
+           sessions.push({
+               start: start.getTime(),
+               end: end.getTime(),
+               color: dynamicColor,
+               elapsedColor: dynamicElColor,
+               type: 'custom',
+               task: '' // Empty task creates a placeholder
+           });
+           
+           const newIdx = sessions.length - 1;
+           save(); // Persist to settings
+           
+           interactiveMode = `edit-${newIdx}-both`;
+           return;
+        }
+    }
+    
+    interactiveMode = null;
+    dragging=true; 
+    api.dragStart(); 
+  });
+
+  window.addEventListener('mousemove', e => { 
+    if(dragging) api.dragMove(); 
+    else if (draggingKnob && interactiveMode && interactiveMode !== 'none') {
+       if (interactiveMode.endsWith('-both')) return; // Just displaying both, not dragging
+       const w = window.innerWidth, h = window.innerHeight;
+       const cx = w/2, cy = h/2;
+       let angle = Math.atan2(e.clientY - cy, e.clientX - cx);
+       if (angle < 0) angle += PI2;
+       
+       let clockAngle = angle + (Math.PI / 2);
+       if (clockAngle < 0) clockAngle += PI2;
+       if (clockAngle >= PI2) clockAngle -= PI2;
+       
+       let totalMins = Math.round((clockAngle / PI2) * 12 * 60);
+       let hrs12 = Math.floor(totalMins / 60);
+       let mins = totalMins % 60;
+       
+       mins = Math.round(mins / 5) * 5;
+       if (mins === 60) { mins = 0; hrs12++; }
+       if (hrs12 >= 12) hrs12 -= 12;
+       
+       if (dragLastHrs12 === 11 && hrs12 === 0) dragIsPM = !dragIsPM;
+       else if (dragLastHrs12 === 0 && hrs12 === 11) dragIsPM = !dragIsPM;
+       dragLastHrs12 = hrs12;
+       
+       let newHrs = hrs12;
+       if (dragIsPM) newHrs += 12;
+       if (newHrs === 24) newHrs = 0;
+       
+       if (interactiveMode.startsWith('edit-')) {
+           const idx = parseInt(interactiveMode.split('-')[1]);
+           const key = interactiveMode.split('-')[2]; // 'start' or 'end'
+           const sess = sessions[idx];
+           if (sess) {
+              const d = new Date(sess[key]);
+              d.setHours(newHrs, mins, 0, 0);
+              sess[key] = d.getTime();
+              // Prevent crossover
+              if (key === 'start' && sess.start >= sess.end) sess.end = sess.start + 60000;
+              if (key === 'end' && sess.end <= sess.start) sess.start = sess.end - 60000;
+              save();
+              
+              // We must update the panel inputs too!
+              const outTimeStr = `${newHrs.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}`;
+              api.updateTimeInput({type: interactiveMode, timeStr: outTimeStr});
+              interactiveDate = d; // update for draw
+           }
+       } else {
+           interactiveDate.setHours(newHrs, mins, 0, 0);
+           const timeStr = `${newHrs.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}`;
+           api.updateTimeInput({type: interactiveMode, timeStr});
+       }
+    }
+  });
+
+  window.addEventListener('mouseup', () => { 
+    if(dragging){dragging=false;api.dragEnd();} 
+    if(draggingKnob) {
+      draggingKnob = false;
+      if (interactiveMode && interactiveMode.startsWith('edit-')) {
+         const idx = interactiveMode.split('-')[1];
+         interactiveMode = `edit-${idx}-both`; // Return to showing both handles
+      } else {
+         interactiveMode = null;
+      }
+    }
+  });
+  // Canvas-drawn settings gear
+  let gearOpacity = 0;
+  let lastMouseMove = 0;
+  let gearX = 0, gearY = 0, gearR = 14;
+
+  // Track label animation birth times and click regions
+  let labelBirthTimes = {};  // sessionIdx -> timestamp
+  let labelHitBoxes = [];    // [{x, y, w, h, idx, delX, delY, delR}]
+  let editingLabelIdx = -1;
+  let editInput = null;
+
+  window.addEventListener('mousemove', e => {
+    lastMouseMove = Date.now();
+  });
+
+  // Click on label to edit, click × to delete task
+  canvas.addEventListener('click', e => {
+     const mx = e.clientX, my = e.clientY;
+     for (const box of labelHitBoxes) {
+        // Check delete button
+        if (Math.hypot(mx - box.delX, my - box.delY) < box.delR + 4) {
+           if (sessions[box.idx]) {
+              sessions[box.idx].task = '';
+              save();
+           }
+           return;
+        }
+        // Check label body
+        if (mx >= box.x && mx <= box.x + box.w && my >= box.y && my <= box.y + box.h) {
+           startEditLabel(box.idx, box);
+           return;
+        }
+     }
+  });
+
+  function startEditLabel(idx, box) {
+     if (editingLabelIdx === idx && editInput) return;
+     stopEditLabel();
+     editingLabelIdx = idx;
+     
+     editInput = document.createElement('input');
+     editInput.type = 'text';
+     editInput.value = sessions[idx].task || '';
+     editInput.placeholder = 'Task name...';
+     Object.assign(editInput.style, {
+        position: 'absolute',
+        left: box.x + 'px',
+        top: box.y + 'px',
+        width: Math.max(box.w, 80) + 'px',
+        height: box.h + 'px',
+        background: 'rgba(10,10,20,0.95)',
+        border: '1px solid ' + (sessions[idx].color || '#3b82f6'),
+        borderRadius: '10px',
+        color: '#fff',
+        fontSize: '10px',
+        fontWeight: '600',
+        fontFamily: 'Inter, system-ui, sans-serif',
+        padding: '0 8px',
+        outline: 'none',
+        zIndex: '500',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+        pointerEvents: 'auto'
+     });
+     editInput.addEventListener('input', () => {
+        if (sessions[idx]) {
+           sessions[idx].task = editInput.value;
+           save();
+        }
+     });
+     editInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === 'Escape') stopEditLabel();
+     });
+     editInput.addEventListener('blur', () => setTimeout(stopEditLabel, 100));
+     editInput.addEventListener('mousedown', e => e.stopPropagation());
+     document.getElementById('clock-wrapper').appendChild(editInput);
+     editInput.focus();
+     editInput.select();
+  }
+
+  function stopEditLabel() {
+     editingLabelIdx = -1;
+     if (editInput && editInput.parentNode) editInput.parentNode.removeChild(editInput);
+     editInput = null;
+  }
+
+  function drawTaskLabels(cx, cy, r) {
+    const now = Date.now();
+    const labelR = r + 16;
+    const maxR = Math.min(cx, cy) - 2;
+    const useR = Math.min(labelR, maxR);
+    
+    labelHitBoxes = [];
+    X.save();
+    
+    for (let i = 0; i < sessions.length; i++) {
+       const sess = sessions[i];
+       if (sess.end < now) continue;
+       if (editingLabelIdx === i) continue;
+       
+       const isPlaceholder = !sess.task;
+       const drawText = isPlaceholder ? '＋ Add Task' : sess.task;
+       
+       if (!labelBirthTimes[i]) labelBirthTimes[i] = now;
+       const age = now - labelBirthTimes[i];
+       
+       const midTime = (sess.start + sess.end) / 2;
+       const angle = getAngleForDate(new Date(midTime));
+       
+       let tx = cx + Math.cos(angle) * useR;
+       let ty = cy + Math.sin(angle) * useR;
+       const isRight = Math.cos(angle) > 0;
+       
+       // Apply tooltipSize modifier
+       const sizeScale = tooltipSize || 1.0;
+       X.font = `600 ${10 * sizeScale}px Inter, system-ui, sans-serif`;
+       const tw = X.measureText(drawText).width;
+       const th = 12 * sizeScale;
+       const pad = 6 * sizeScale;
+       const delSize = 6 * sizeScale;
+       
+       let labelX = tx, labelY = ty, align = 'center';
+       
+       if (isRight && tx + tw/2 + pad + delSize*2 + 4 > cx * 2 - 4) {
+          align = 'right'; labelX = cx * 2 - pad - delSize*2 - 8;
+       } else if (!isRight && tx - tw/2 - pad < 4) {
+          align = 'left'; labelX = pad + 4;
+       }
+       labelY = Math.max(th + pad, Math.min(cy * 2 - pad, labelY));
+       
+       let bgX;
+       if (align === 'center') bgX = labelX - tw/2 - pad;
+       else if (align === 'right') bgX = labelX - tw - pad;
+       else bgX = labelX - pad;
+       
+       // Don't draw delete button on placeholder
+       const bgW = tw + pad * 2 + (isPlaceholder ? 0 : delSize * 2 + 6);
+       const bgH = th + pad * 1.5;
+       const bgY = labelY - th/2 - pad * 0.75;
+       const pillR = bgH / 2;
+       
+       // ── CONTINUOUS ANIMATIONS ──
+       const animStyle = tooltipAnim || 'bounce';
+       let animAlpha = isPlaceholder ? 0.4 : 1;
+       let animScaleX = 1, animScaleY = 1, animOffX = 0, animOffY = 0, animRot = 0;
+       
+       const cycleDur = 2000; 
+       const tCycle = (now % cycleDur) / cycleDur; // 0.0 to 1.0
+       const tSine = Math.sin(tCycle * Math.PI * 2);
+       const tCos = Math.cos(tCycle * Math.PI * 2);
+       
+       let shadowIntensity = 0;
+       
+       if (!isPlaceholder) {
+           switch (animStyle) {
+              case 'fade': // Gentle opacity pulse
+                 animAlpha = 0.6 + tSine * 0.4;
+                 break;
+              case 'bounce': // Smooth vertical jumping
+                 animOffY = -Math.abs(tSine) * 8;
+                 break;
+              case 'slide': // Gentle float up/down
+                 animOffY = tSine * 4;
+                 break;
+              case 'flip': // 3D-like flip over X axis
+                 animScaleY = tCos;
+                 animAlpha = Math.max(0.3, Math.abs(tCos));
+                 break;
+              case 'typewriter': // Retained as one-time
+                 break;
+              case 'glow-in': // Continuous pulsing glow
+                 shadowIntensity = 0.5 + tSine * 0.5;
+                 break;
+              case 'scale-pop': // Single sharp pop
+                 if (tCycle < 0.15) {
+                    const p = tCycle / 0.15;
+                    animScaleX = animScaleY = 1.0 + Math.sin(p * Math.PI) * 0.2;
+                 }
+                 break;
+              case 'swing': // Pendulum swing
+                 animRot = tSine * 12 * Math.PI / 180;
+                 break;
+              // --- NEW ---
+              case 'wave': // Squish and stretch
+                 animScaleX = 1.0 + tSine * 0.08;
+                 animScaleY = 1.0 + tCos * 0.08;
+                 break;
+              case 'jitter': // Subtle glitch effect
+                 if (Math.random() > 0.8) {
+                    animOffX = (Math.random() - 0.5) * 4;
+                    animOffY = (Math.random() - 0.5) * 4;
+                    animAlpha = 0.7 + Math.random() * 0.3;
+                 }
+                 break;
+              case 'orbit': // Small circular motion
+                 animOffX = tCos * 3;
+                 animOffY = tSine * 3;
+                 break;
+              case 'breathing': // Very slow deep inhale/exhale
+                 animScaleX = animScaleY = 1.0 + Math.sin((now % 4000)/4000 * Math.PI * 2) * 0.06;
+                 animAlpha = 0.7 + Math.sin((now % 4000)/4000 * Math.PI * 2) * 0.3;
+                 break;
+              case 'elastic': // Snaps out and springs back
+                 if (tCycle < 0.3) {
+                    // Damped sine wave
+                    const p = tCycle / 0.3;
+                    animScaleX = animScaleY = 1.0 + Math.sin(p * Math.PI * 5) * Math.pow(1 - p, 2) * 0.3;
+                 }
+                 break;
+              case 'wobble': // Rotates back and forth sharply
+                 if (tCycle < 0.5) {
+                    animRot = Math.sin(tCycle * 2 * Math.PI * 3) * (1 - tCycle * 2) * 15 * Math.PI / 180;
+                 }
+                 break;
+              case 'neon-pulse': // High intensity sharp flashes
+                 if (tCycle < 0.1 || (tCycle > 0.15 && tCycle < 0.2)) {
+                    shadowIntensity = 1.0;
+                    animScaleX = animScaleY = 1.05;
+                 } else {
+                    shadowIntensity = 0.1;
+                 }
+                 break;
+              case 'shiver': // Rapid tiny shakes
+                 animRot = Math.sin(now / 20) * 2 * Math.PI / 180;
+                 animOffX = Math.cos(now / 15) * 1;
+                 break;
+              case 'heartbeat': // Double-beat
+                 if (tCycle < 0.1) animScaleX = animScaleY = 1.0 + Math.sin(tCycle * 10 * Math.PI) * 0.15;
+                 else if (tCycle > 0.15 && tCycle < 0.25) animScaleX = animScaleY = 1.0 + Math.sin((tCycle - 0.15) * 10 * Math.PI) * 0.15;
+                 break;
+              case 'float-tilt': // Diagonal float with tilt
+                 animOffY = tSine * 6;
+                 animRot = Math.sin(tCycle * Math.PI * 2 - Math.PI/4) * 5 * Math.PI / 180;
+                 break;
+           }
+       }
+       
+       X.globalAlpha = animAlpha * 0.85;
+       X.save();
+       
+       const pivotX = bgX + bgW / 2;
+       const pivotY = bgY + bgH / 2 + animOffY;
+       X.translate(pivotX + animOffX, pivotY);
+       X.scale(animScaleX, animScaleY);
+       if (animRot) X.rotate(animRot);
+       X.translate(-pivotX, -pivotY + animOffY);
+       
+       const drawBgY = bgY;
+       
+       // Pill background
+       X.beginPath();
+       X.moveTo(bgX + pillR, drawBgY);
+       X.lineTo(bgX + bgW - pillR, drawBgY);
+       X.arc(bgX + bgW - pillR, drawBgY + pillR, pillR, -Math.PI/2, Math.PI/2);
+       X.lineTo(bgX + pillR, drawBgY + bgH);
+       X.arc(bgX + pillR, drawBgY + pillR, pillR, Math.PI/2, -Math.PI/2);
+       X.closePath();
+       X.fillStyle = 'rgba(10,10,20,0.8)';
+       X.fill();
+       X.strokeStyle = isPlaceholder ? 'rgba(255,255,255,0.3)' : sess.color;
+       X.lineWidth = 1;
+       X.stroke();
+       
+       // Glow
+       if (shadowIntensity > 0 && !isPlaceholder) {
+          X.shadowColor = sess.color;
+          X.shadowBlur = shadowIntensity * (animStyle === 'neon-pulse' ? 25 : 15);
+          X.fill();
+          X.shadowBlur = 0;
+          X.shadowColor = 'transparent';
+       }
+       
+       // Connector line
+       X.globalAlpha = animAlpha * (isPlaceholder ? 0.2 : 0.35);
+       X.beginPath();
+       X.moveTo(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r);
+       X.lineTo(bgX + (isRight ? 0 : bgW), labelY + animOffY);
+       X.strokeStyle = isPlaceholder ? '#888' : sess.color;
+       X.lineWidth = 0.8;
+       X.setLineDash([3, 3]);
+       X.stroke();
+       X.setLineDash([]);
+       
+       // Color dot
+       X.globalAlpha = animAlpha;
+       if (!isPlaceholder) {
+           X.beginPath();
+           X.arc(bgX + pad, labelY + animOffY, 3 * sizeScale, 0, Math.PI*2);
+           X.fillStyle = sess.color;
+           X.fill();
+       }
+       
+       // Text
+       X.textAlign = 'left';
+       X.textBaseline = 'middle';
+       X.fillStyle = isPlaceholder ? '#aaa' : '#fff';
+       
+       let finalString = drawText;
+       if (animStyle === 'typewriter' && !isPlaceholder) {
+          const tAge = Math.min(1, age / 1000);
+          const chars = Math.floor(tAge * drawText.length);
+          finalString = drawText.substring(0, Math.max(1, chars));
+       }
+       X.fillText(finalString, bgX + pad + (isPlaceholder ? 0 : 8 * sizeScale), labelY + animOffY);
+       
+       // × button
+       let delCx = 0, delCy = 0;
+       if (!isPlaceholder) {
+           delCx = bgX + bgW - pad - (2 * sizeScale);
+           delCy = labelY + animOffY;
+           X.globalAlpha = animAlpha * 0.5;
+           X.beginPath();
+           X.arc(delCx, delCy, delSize, 0, Math.PI*2);
+           X.fillStyle = 'rgba(239,68,68,0.15)';
+           X.fill();
+           X.font = `700 ${9 * sizeScale}px sans-serif`;
+           X.textAlign = 'center';
+           X.fillStyle = 'rgba(239,68,68,0.7)';
+           X.fillText('×', delCx, delCy + (1 * sizeScale));
+       }
+       
+       X.restore();
+       
+       labelHitBoxes.push({
+          x: bgX, y: bgY, w: bgW, h: bgH, idx: i,
+          delX: delCx, delY: delCy, delR: isPlaceholder ? 0 : delSize
+       });
+    }
+    
+    for (const key in labelBirthTimes) {
+       if (!sessions[key]) delete labelBirthTimes[key];
+    }
+    
+    X.restore();
+  }
+
+  function drawGearIcon(cx, cy, r) {
+    // Position: top-right of clock circle
+    gearX = cx + r * 0.65;
+    gearY = cy - r * 0.65;
+    
+    const elapsed = Date.now() - lastMouseMove;
+    const targetOp = elapsed < 1800 ? 0.7 : 0;
+    gearOpacity += (targetOp - gearOpacity) * 0.1;
+    if (gearOpacity < 0.02) return;
+
+    X.save();
+    X.globalAlpha = gearOpacity;
+    
+    // Background circle
+    X.beginPath();
+    X.arc(gearX, gearY, gearR, 0, PI2);
+    X.fillStyle = 'rgba(255,255,255,0.1)';
+    X.fill();
+    X.strokeStyle = 'rgba(255,255,255,0.2)';
+    X.lineWidth = 1;
+    X.stroke();
+
+    // Gear teeth
+    const teethCount = 8;
+    const outerR = gearR * 0.75;
+    const innerR = gearR * 0.55;
+    X.beginPath();
+    for (let i = 0; i < teethCount; i++) {
+      const a1 = (i / teethCount) * PI2;
+      const a2 = ((i + 0.35) / teethCount) * PI2;
+      const a3 = ((i + 0.5) / teethCount) * PI2;
+      const a4 = ((i + 0.85) / teethCount) * PI2;
+      if (i === 0) X.moveTo(gearX + Math.cos(a1) * outerR, gearY + Math.sin(a1) * outerR);
+      X.lineTo(gearX + Math.cos(a2) * outerR, gearY + Math.sin(a2) * outerR);
+      X.lineTo(gearX + Math.cos(a2) * innerR, gearY + Math.sin(a2) * innerR);
+      X.lineTo(gearX + Math.cos(a3) * innerR, gearY + Math.sin(a3) * innerR);
+      X.lineTo(gearX + Math.cos(a4) * innerR, gearY + Math.sin(a4) * innerR);
+      X.lineTo(gearX + Math.cos(a4) * outerR, gearY + Math.sin(a4) * outerR);
+      const a5 = ((i + 1) / teethCount) * PI2;
+      X.lineTo(gearX + Math.cos(a5) * outerR, gearY + Math.sin(a5) * outerR);
+    }
+    X.closePath();
+    X.fillStyle = 'rgba(255,255,255,0.85)';
+    X.fill();
+
+    // Center hole
+    X.beginPath();
+    X.arc(gearX, gearY, gearR * 0.22, 0, PI2);
+    X.fillStyle = 'rgba(0,0,0,0.6)';
+    X.fill();
+    
+    X.restore();
+  }
+
+  function isClickOnGear(mx, my) {
+    return gearOpacity > 0.1 && Math.hypot(mx - gearX, my - gearY) < gearR + 4;
+  }
 
   /* ================================================================
    *  MODULAR HAND DRAWING SYSTEM — 10 Types
@@ -709,6 +1390,203 @@
     matrix_rain:drawMatrixRain, equalizer:drawEqualizer, vortex:drawVortex
   };
 
+  function getAnimModifier(nowTime) {
+    const s = blockAnim.style || 'none';
+    const spd = blockAnim.speed || 1.0;
+    const t = (nowTime / 1000) * spd;
+    
+    const rainbowColor = (speedMult) => `hsl(${(t * speedMult * 60) % 360}, 100%, 60%)`;
+
+    switch(s) {
+      case 'pulse': return { opMul: 0.7 + 0.3 * Math.sin(t * 3), rOff: 0, blur: 0 };
+      case 'glow':  return { opMul: 1, rOff: 0, blur: 6 + 6 * Math.sin(t * 2) };
+      case 'breathe': return { opMul: 0.8 + 0.2 * Math.sin(t * 1.5), rOff: 3 * Math.sin(t * 1.5), blur: 0 };
+      case 'shimmer': return { opMul: 0.75 + 0.25 * Math.sin(t * 5), rOff: 0, blur: 2 + 2 * Math.sin(t * 7) };
+      case 'rainbow-glow': return { opMul: 1, rOff: 0, blur: 8 + 4 * Math.sin(t * 2), colorOverride: rainbowColor(1) };
+      case 'rainbow-pulse': return { opMul: 0.7 + 0.3 * Math.sin(t * 3), rOff: 0, blur: 0, colorOverride: rainbowColor(2) };
+      case 'disco': return { opMul: 0.8 + 0.2 * Math.sin(t * 12), rOff: 3 * Math.sin(t * 15), blur: 5, colorOverride: rainbowColor(6) };
+      default: return { opMul: 1, rOff: 0, blur: 0 };
+    }
+  }
+
+  function drawSessionsOverlay(cx, cy, r) {
+    if (!sessions || sessions.length === 0) return;
+    const nowTime = Date.now();
+    let needsCleanup = false;
+    const anim = getAnimModifier(nowTime);
+    
+    X.save();
+    const MS_IN_12H = 43200000;
+    
+    sessions.forEach(sess => {
+       if (nowTime - sess.end > MS_IN_12H) { 
+           needsCleanup = true; 
+           return; 
+       }
+       
+       let sDate = new Date(sess.start);
+       let startMsIn12h = (sDate.getHours() % 12) * 3600000 + sDate.getMinutes() * 60000 + sDate.getSeconds() * 1000 + sDate.getMilliseconds();
+       let startAngle = (startMsIn12h / MS_IN_12H) * PI2 - (Math.PI / 2);
+       
+       let durationMs = sess.end - sess.start;
+       let sweepAngle = (durationMs / MS_IN_12H) * PI2;
+       if (sweepAngle > PI2) sweepAngle = PI2;
+       let endAngle = startAngle + sweepAngle;
+       
+       let elapsedMs = 0;
+       if (nowTime > sess.start) {
+           elapsedMs = Math.min(nowTime - sess.start, durationMs);
+       }
+       let elapsedAngle = (elapsedMs / MS_IN_12H) * PI2;
+       let currentAngle = startAngle + elapsedAngle;
+       let drawR = r + anim.rOff;
+       let activeColor = anim.colorOverride || sess.color;
+
+       // 1) Elapsed Portion (faded, no animation)
+       if (elapsedMs > 0) {
+           let elColor = sess.elapsedColor || sess.color;
+           let hasCustomEl = !!sess.elapsedColor;
+           X.globalAlpha = hasCustomEl ? blockOpacity * 0.7 : blockOpacity * 0.25;
+           X.shadowBlur = 0; X.shadowColor = 'transparent';
+           X.beginPath();
+           X.moveTo(cx, cy);
+           X.arc(cx, cy, r, startAngle, currentAngle);
+           X.closePath();
+           X.fillStyle = elColor;
+           X.fill();
+           
+           X.globalAlpha = blockOpacity * 0.4;
+           X.beginPath();
+           X.arc(cx, cy, r - 1, startAngle, currentAngle);
+           X.strokeStyle = elColor;
+           X.lineWidth = 1.5;
+           X.stroke();
+       }
+       
+       // 2) Remaining Portion (vibrant + animated)
+       if (elapsedMs < durationMs) {
+           X.shadowBlur = anim.blur;
+           X.shadowColor = activeColor;
+           X.globalAlpha = blockOpacity * anim.opMul; 
+           X.beginPath();
+           X.moveTo(cx, cy);
+           X.arc(cx, cy, drawR, currentAngle, endAngle);
+           X.closePath();
+           X.fillStyle = activeColor;
+           X.fill();
+           
+           X.globalAlpha = Math.min(1, blockOpacity * anim.opMul + 0.4);
+           X.beginPath();
+           X.arc(cx, cy, drawR - 1, currentAngle, endAngle);
+           X.strokeStyle = activeColor;
+           X.lineWidth = 1.5;
+           X.stroke();
+           X.shadowBlur = 0; X.shadowColor = 'transparent';
+       }
+    });
+    X.restore();
+    
+    if (needsCleanup) {
+       sessions = sessions.filter(s => nowTime - s.end <= MS_IN_12H);
+       save();
+    }
+  }
+
+  function drawInteractiveKnob(cx, cy, r) {
+    if (!interactiveMode) {
+       if (pWrapS) pWrapS.style.display = 'none';
+       if (pWrapE) pWrapE.style.display = 'none';
+       return;
+    }
+    
+    if (interactiveMode.endsWith('-both')) {
+       const idx = parseInt(interactiveMode.split('-')[1]);
+       const sess = sessions[idx];
+       if (!sess) return;
+       
+       const dS = new Date(sess.start);
+       const aS = getAngleForDate(dS);
+       const kxS = cx + Math.cos(aS) * (r - 12);
+       const kyS = cy + Math.sin(aS) * (r - 12);
+       
+       const dE = new Date(sess.end);
+       const aE = getAngleForDate(dE);
+       const kxE = cx + Math.cos(aE) * (r - 12);
+       const kyE = cy + Math.sin(aE) * (r - 12);
+       
+       X.save();
+       // Start Handle
+       X.beginPath(); X.arc(kxS, kyS, 20, 0, PI2); X.fillStyle = 'rgba(59,130,246,0.3)'; X.fill();
+       X.beginPath(); X.arc(kxS, kyS, 8, 0, PI2); X.fillStyle = '#fff'; X.shadowColor = '#000'; X.shadowBlur = 8; X.fill();
+       X.lineWidth = 2; X.strokeStyle = '#3b82f6'; X.stroke(); X.shadowBlur = 0;
+       
+       // End Handle
+       X.beginPath(); X.arc(kxE, kyE, 20, 0, PI2); X.fillStyle = 'rgba(239,68,68,0.3)'; X.fill();
+       X.beginPath(); X.arc(kxE, kyE, 8, 0, PI2); X.fillStyle = '#fff'; X.shadowColor = '#000'; X.shadowBlur = 8; X.fill();
+       X.lineWidth = 2; X.strokeStyle = '#ef4444'; X.stroke(); X.shadowBlur = 0;
+       
+       // Delete Block Button (Trash)
+       const midTime = (sess.start + sess.end) / 2;
+       const midA = getAngleForDate(new Date(midTime));
+       const delX = cx + Math.cos(midA) * (r - 35);
+       const delY = cy + Math.sin(midA) * (r - 35);
+       
+       X.beginPath(); X.arc(delX, delY, 12, 0, PI2);
+       X.fillStyle = 'rgba(10,10,20,0.8)'; X.fill();
+       X.lineWidth = 1; X.strokeStyle = 'rgba(239,68,68,0.8)'; X.stroke();
+       X.font = '10px sans-serif'; X.textAlign = 'center'; X.textBaseline = 'middle';
+       X.fillStyle = '#ef4444';
+       X.fillText('🗑️', delX, delY + 1);
+       
+       X.restore();
+       
+       // Position DOM Pickers inside the ring
+       if (pWrapS && pInputS) {
+           pWrapS.style.display = 'block';
+           const pxS = cx + Math.cos(aS) * (r - 38);
+           const pyS = cy + Math.sin(aS) * (r - 38);
+           pWrapS.style.left = (pxS - 11) + 'px';
+           pWrapS.style.top = (pyS - 11) + 'px';
+           if (!pWrapS.matches(':focus-within')) pInputS.value = sess.color;
+       }
+       if (pWrapE && pInputE) {
+           pWrapE.style.display = 'block';
+           const pxE = cx + Math.cos(aE) * (r - 38);
+           const pyE = cy + Math.sin(aE) * (r - 38);
+           pWrapE.style.left = (pxE - 11) + 'px';
+           pWrapE.style.top = (pyE - 11) + 'px';
+           if (!pWrapE.matches(':focus-within')) pInputE.value = sess.elapsedColor || sess.color;
+       }
+    } else if (interactiveDate) {
+       // Hide pickers while actively dragging to reduce visual noise
+       if (pWrapS) pWrapS.style.display = 'none';
+       if (pWrapE) pWrapE.style.display = 'none';
+
+       const angle = getAngleForDate(interactiveDate);
+       const kx = cx + Math.cos(angle) * (r - 12);
+       const ky = cy + Math.sin(angle) * (r - 12);
+       const isStart = interactiveMode.endsWith('start');
+
+       X.save();
+       X.beginPath();
+       X.arc(kx, ky, 20, 0, PI2);
+       X.fillStyle = isStart ? 'rgba(59,130,246,0.3)' : 'rgba(239,68,68,0.3)';
+       X.fill();
+
+       X.beginPath();
+       X.arc(kx, ky, 8, 0, PI2);
+       X.fillStyle = '#fff';
+       X.shadowColor = '#000';
+       X.shadowBlur = 8;
+       X.fill();
+       
+       X.lineWidth = 2;
+       X.strokeStyle = isStart ? '#3b82f6' : '#ef4444';
+       X.stroke();
+       X.restore();
+    }
+  }
+
   function draw() {
     const w=window.innerWidth,h=window.innerHeight;
     const cx=w/2,cy=h/2,r=Math.min(cx,cy)-4;
@@ -718,6 +1596,10 @@
     const t=THEMES[theme]||THEMES.midnight;
     X.clearRect(0,0,w,h);
     (STYLES[style]||drawGhostPure)(cx,cy,r,hrF,minF,secF,t);
+    drawSessionsOverlay(cx, cy, r);
+    drawTaskLabels(cx, cy, r);
+    drawInteractiveKnob(cx, cy, r);
+    drawGearIcon(cx, cy, r);
     requestAnimationFrame(draw);
   }
 

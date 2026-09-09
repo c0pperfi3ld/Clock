@@ -37,7 +37,7 @@
 
     /* ── Section Header ── */
     .sec-label {
-      padding:8px 12px 4px; font-size:0.62rem; font-weight:700; text-transform:uppercase;
+      padding:10px 12px 6px; font-size:0.65rem; font-weight:700; text-transform:uppercase;
       letter-spacing:0.1em; color:#a78bfa; display:flex; align-items:center; justify-content:space-between;
     }
     .badge {
@@ -45,6 +45,15 @@
       padding:1px 6px; border-radius:10px; font-weight:600;
     }
     .sep { height:1px; background:rgba(255,255,255,0.06); margin:6px 0; }
+    
+    /* ── Tabs ── */
+    .tabs { display:flex; border-bottom:1px solid rgba(255,255,255,0.06); }
+    .tab-btn { flex:1; padding:10px 0; background:none; border:none; color:rgba(255,255,255,0.5); font-size:0.75rem; cursor:pointer; border-bottom:2px solid transparent; font-weight:600; transition:0.2s; text-transform:uppercase; letter-spacing:0.05em; }
+    .tab-btn:hover { color:rgba(255,255,255,0.8); background:rgba(255,255,255,0.02); }
+    .tab-btn.active { color:#a78bfa; border-bottom-color:#a78bfa; }
+    .tab-content { display:none; }
+    .tab-content.active { display:block; animation: fade-in 0.2s ease-out; }
+    @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
     /* ── Option Items ── */
     .opt {
@@ -81,6 +90,28 @@
     }
     .chk-row:hover { background:rgba(255,255,255,0.07); }
     .chk-row input { accent-color:#a78bfa; }
+    
+    /* ── Pomodoro / Time Blocks ── */
+    .block-form { padding: 4px 12px 12px; }
+    .input-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+    .input-row label { font-size: 0.65rem; color: rgba(255,255,255,0.6); }
+    .input-row input[type="number"] {
+      width: 45px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1);
+      color: #fff; border-radius: 4px; font-size: 0.7rem; padding: 2px 4px; outline: none;
+    }
+    .input-row input[type="color"] {
+      width: 24px; height: 24px; border: none; padding: 0; background: none; cursor: pointer; border-radius:4px;
+    }
+    .input-row input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+    .input-row input[type="color"]::-webkit-color-swatch { border: 1px solid rgba(255,255,255,0.2); border-radius:4px; }
+    .block-form button {
+      width: 100%; padding: 6px; background: rgba(167,139,250,0.15); border: 1px solid rgba(167,139,250,0.3);
+      color: #c4b5fd; border-radius: 4px; cursor: pointer; font-size: 0.7rem; font-weight: 600; transition: all 0.15s;
+    }
+    .block-form button:hover { background: rgba(167,139,250,0.3); color: #fff; }
+    .block-form button.btn-red { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #fca5a5; margin-top: 6px; }
+    .block-form button.btn-red:hover { background: rgba(239,68,68,0.3); color: #fff; }
+
   </style>
 </head>
 <body>
@@ -98,7 +129,7 @@
     const api = window.panelAPI;
     const body = document.getElementById('body');
 
-    let current = { style:'classic', theme:'midnight', handType:'tapered', opacity:100 };
+    let current = { style:'classic', theme:'midnight', handType:'tapered', opacity:100, sessions:[] };
 
     api.onUpdateState(s => { Object.assign(current, s); render(); });
 
@@ -150,10 +181,106 @@
       ['graphite','🩵 Graphite'],['onyx','🟠 Onyx'],['shadow','💜 Shadow'],['abyss','🔹 Abyss']
     ];
 
-    function render() {
-      let html = '';
+    let activeTab = 'tab-clocks';
 
-      // Designs by Category
+    function render() {
+      let html = `
+        <div class="tabs">
+          <button class="tab-btn ${activeTab==='tab-clocks'?'active':''}" data-tab="tab-clocks">Clocks</button>
+          <button class="tab-btn ${activeTab==='tab-blocks'?'active':''}" data-tab="tab-blocks">Blocks</button>
+          <button class="tab-btn ${activeTab==='tab-settings'?'active':''}" data-tab="tab-settings">Config</button>
+        </div>
+      `;
+
+      // ── TAB: BLOCKS ──
+      html += `<div class="tab-content ${activeTab==='tab-blocks'?'active':''}" id="tab-blocks">`;
+      html += '<div class="sec-label"><span>Pomodoro Generator</span></div>';
+      html += `<div class="block-form">
+        <div class="input-row">
+          <input type="text" id="pomo-task" placeholder="Task name..." style="flex:1; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:white; border-radius:4px; font-size:0.7rem; padding:4px;">
+        </div>
+        <div class="input-row">
+          <label>Work (m)</label><input type="number" id="pomo-work" value="25" style="width:40px">
+          <label>Break</label><input type="number" id="pomo-break" value="5" style="width:40px">
+          <label>Cycles</label><input type="number" id="pomo-cycles" value="4" style="width:40px">
+        </div>
+        <div class="input-row">
+          <label>Remaining</label><input type="color" id="pomo-color" value="#ef4444" title="Remaining Color">
+          <label>Elapsed</label><input type="color" id="pomo-el-color" value="#450a0a" title="Elapsed Color">
+        </div>
+        <button id="btn-pomodoro">Start Pomodoro Now</button>
+        
+        <div class="sep" style="margin:10px 0;"></div>
+        
+        <div class="input-row">
+          <input type="text" id="custom-task" placeholder="Task name..." style="flex:1; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:white; border-radius:4px; font-size:0.7rem; padding:4px;">
+        </div>
+        <div class="input-row">
+          <label>Start</label><input type="time" id="custom-start" style="flex:1; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); color:white; border-radius:4px; font-size:0.7rem;">
+          <label>End</label><input type="time" id="custom-end" style="flex:1; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); color:white; border-radius:4px; font-size:0.7rem;">
+        </div>
+        <div class="input-row">
+          <label>Remaining</label><input type="color" id="custom-color" value="#3b82f6" title="Remaining Color">
+          <label>Elapsed</label><input type="color" id="custom-el-color" value="#172554" title="Elapsed Color">
+        </div>
+        <button id="btn-custom">Add Exact Block</button>
+      </div>`;
+
+      // --- ACTIVE BLOCKS LIST ---
+      const sArr = current.sessions || [];
+      if (sArr.length > 0) {
+        html += '<div class="sep"></div>';
+        html += `<div class="sec-label"><span>Active Blocks</span><span class="badge">${sArr.length}</span></div>`;
+        sArr.forEach((sess, i) => {
+          const sD = new Date(sess.start);
+          const eD = new Date(sess.end);
+          const sStr = `${sD.getHours().toString().padStart(2,'0')}:${sD.getMinutes().toString().padStart(2,'0')}`;
+          const eStr = `${eD.getHours().toString().padStart(2,'0')}:${eD.getMinutes().toString().padStart(2,'0')}`;
+          const isActive = Date.now() >= sess.start && Date.now() < sess.end;
+          const isPast = Date.now() >= sess.end;
+          const stateIcon = isPast ? '✓' : (isActive ? '▶' : '○');
+          
+          let tIcon = sess.type === 'work' ? '🍅' : (sess.type === 'break' ? '☕' : '🟦');
+          let elColor = sess.elapsedColor || sess.color;
+          
+          html += `<div class="opt" style="flex-direction:column; align-items:stretch; gap:4px; ${isPast?' opacity:0.5;':''}${isActive?' background:rgba(167,139,250,0.08);':''}">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <div style="width:10px;height:10px;border-radius:2px;background:${sess.color};flex-shrink:0;"></div>
+                <span style="font-size:0.75rem;">${tIcon} ${stateIcon}</span>
+              </div>
+              <div style="display:flex;gap:4px;align-items:center;">
+                <input type="time" class="bl-time" data-idx="${i}" data-key="start" value="${sStr}" style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.1);color:#fff;border-radius:2px;width:65px;font-size:0.7rem;text-align:center;">
+                <span style="opacity:0.5;">→</span>
+                <input type="time" class="bl-time" data-idx="${i}" data-key="end" value="${eStr}" style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.1);color:#fff;border-radius:2px;width:65px;font-size:0.7rem;text-align:center;">
+              </div>
+            </div>
+            <div style="margin-top:2px;">
+              <input type="text" class="block-task-edit" data-idx="${i}" value="${sess.task || ''}" placeholder="Task name..." style="width:100%; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:white; border-radius:4px; font-size:0.65rem; padding:3px;">
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
+               <div style="display:flex; gap:8px; font-size:0.6rem; color:rgba(255,255,255,0.5);">
+                 <label style="display:flex;align-items:center;gap:4px;">Rem <input type="color" value="${sess.color}" data-idx="${i}" data-key="color" class="block-color-edit" style="width:16px;height:16px;padding:0;border:none;background:none;cursor:pointer;"></label>
+                 <label style="display:flex;align-items:center;gap:4px;">Elp <input type="color" value="${elColor}" data-idx="${i}" data-key="elapsedColor" class="block-color-edit" style="width:16px;height:16px;padding:0;border:none;background:none;cursor:pointer;"></label>
+               </div>
+               <button data-idx="${i}" class="block-del" style="background:none;border:none;color:rgba(239,68,68,0.7);cursor:pointer;font-size:0.75rem;" title="Delete">✕ Delete</button>
+            </div>
+          </div>`;
+        });
+        
+        let hasPom = sArr.some(s => s.type === 'work' || s.type === 'break');
+        let hasCus = sArr.some(s => s.type === 'custom');
+        
+        html += '<div class="block-form" style="display:flex;gap:4px;margin-top:6px;">';
+        if (hasPom) html += '<button id="btn-clear-pom" class="btn-red" style="flex:1;">Clear Pomodoros</button>';
+        if (hasCus) html += '<button id="btn-clear-cus" class="btn-red" style="flex:1;">Clear Custom</button>';
+        html += '<button id="btn-clear-all" class="btn-red" style="flex:1;">Clear All</button>';
+        html += '</div>';
+      }
+      html += '</div>'; // End Blocks Tab
+
+      // ── TAB: CLOCKS ──
+      html += `<div class="tab-content ${activeTab==='tab-clocks'?'active':''}" id="tab-clocks">`;
       for (const [group, items] of Object.entries(DESIGNS)) {
         html += `<div class="sec-label"><span>${group}</span><span class="badge">${items.length}</span></div>`;
         items.forEach(([id, label]) => {
@@ -161,27 +288,75 @@
             <div class="dot"></div>${label}</div>`;
         });
       }
-
       html += '<div class="sep"></div><div class="sec-label"><span>Hand Style</span><span class="badge">10</span></div>';
       HANDS.forEach(([id, label]) => {
         html += `<div class="opt${current.handType===id?' active':''}" data-action="hands" data-val="${id}">
           <div class="dot"></div>${label}</div>`;
       });
-
       html += '<div class="sep"></div><div class="sec-label"><span>Color Theme</span><span class="badge">10</span></div>';
       THEMES.forEach(([id, label]) => {
         html += `<div class="opt${current.theme===id?' active':''}" data-action="theme" data-val="${id}">
           <div class="dot"></div>${label}</div>`;
       });
+      html += '</div>'; // End Clocks Tab
+
+      // ── TAB: CONFIG ──
+      html += `<div class="tab-content ${activeTab==='tab-settings'?'active':''}" id="tab-settings">`;
+      const curAnim = current.blockAnim || { style: 'pulse', speed: 1.0 };
+      html += '<div class="sec-label"><span>Block Animation</span></div>';
+      const ANIMS = [
+        ['none','⏸ None'],['pulse','💓 Pulse'],['glow','✨ Glow'],['breathe','🫁 Breathe'],['shimmer','⚡ Shimmer'],
+        ['rainbow-glow','🌈 RB Glow'],['rainbow-pulse','🌈 RB Pulse'],['disco','🪩 Disco']
+      ];
+      ANIMS.forEach(([id, label]) => {
+        html += `<div class="opt${curAnim.style===id?' active':''}" data-action="anim" data-val="${id}">
+          <div class="dot"></div>${label}</div>`;
+      });
+      html += `<div class="slider-row"><label>Speed</label>
+        <input type="range" min="0.2" max="3" step="0.1" value="${curAnim.speed}" id="sl-anim-speed">
+        <span class="val" id="val-anim-speed">${curAnim.speed}x</span></div>`;
 
       html += '<div class="sep"></div>';
-      html += `<div class="slider-row"><label>Opacity</label>
+      html += '<div class="sec-label"><span>Tooltip Animation</span></div>';
+      const tooltipAnim = current.tooltipAnim || 'bounce';
+      const TT_ANIMS = [
+        ['bounce', '🎾 Bounce'], ['fade', '🌫️ Fade'], ['slide', '📤 Slide Up'], ['flip', '🔄 Flip'],
+        ['typewriter', '⌨️ Typewriter'], ['glow-in', '✨ Glow In'], ['scale-pop', '💥 Scale Pop'], ['swing', '🎪 Swing'],
+        ['wave', '🌊 Wave'], ['jitter', '⚡ Jitter'], ['orbit', '💫 Orbit'], ['breathing', '🫁 Breathing'],
+        ['elastic', '🪀 Elastic'], ['wobble', '😵‍💫 Wobble'], ['neon-pulse', '🚨 Neon Pulse'], 
+        ['shiver', '🥶 Shiver'], ['heartbeat', '💓 Heartbeat'], ['float-tilt', '🛸 Float Tilt']
+      ];
+      TT_ANIMS.forEach(([id, label]) => {
+         html += `<div class="opt${tooltipAnim===id?' active':''}" data-action="tooltip-anim" data-val="${id}">
+           <div class="dot"></div>${label}</div>`;
+      });
+      html += `<div class="slider-row"><label>Size</label>
+        <input type="range" min="0.5" max="2.0" step="0.1" value="${current.tooltipSize || 1.0}" id="sl-tooltip-size">
+        <span class="val" id="val-tooltip-size">${(current.tooltipSize || 1.0).toFixed(1)}x</span></div>`;
+
+      html += '<div class="sep"></div>';
+      html += `<div class="slider-row"><label>Block Opacity</label>
+        <input type="range" id="sl-block-opacity" min="0" max="1" step="0.05" value="${current.blockOpacity !== undefined ? current.blockOpacity : 0.25}">
+        <span class="val" id="val-block-opacity">${Math.round((current.blockOpacity !== undefined ? current.blockOpacity : 0.25)*100)}%</span>
+      </div>`;
+
+      html += '<div class="sep"></div>';
+      html += `<div class="slider-row"><label>Window Op</label>
         <input type="range" min="20" max="100" step="5" value="${current.opacity}" id="sl-opacity">
         <span class="val" id="val-opacity">${current.opacity}%</span></div>`;
 
       html += `<div class="chk-row" id="chk-ontop"><input type="checkbox" checked> Always on Top</div>`;
+      html += '</div>'; // End Config Tab
 
       body.innerHTML = html;
+
+      // Bind Tab clicks
+      body.querySelectorAll('.tab-btn').forEach(el => {
+         el.addEventListener('click', e => {
+            activeTab = e.target.dataset.tab;
+            render();
+         });
+      });
 
       // Bind click handlers
       body.querySelectorAll('.opt').forEach(el => {
@@ -191,7 +366,17 @@
           if (action === 'style') { current.style = val; api.setStyle(val); }
           else if (action === 'hands') { current.handType = val; api.setHands(val); }
           else if (action === 'theme') { current.theme = val; api.setTheme(val); }
-          render(); // Re-render to update active indicators
+          else if (action === 'anim') {
+            if (!current.blockAnim) current.blockAnim = { style: 'pulse', speed: 1.0 };
+            current.blockAnim.style = val;
+            api.setBlockAnim(current.blockAnim);
+          }
+          if (action === 'tooltip-anim') {
+            current.tooltipAnim = val;
+            if (api.setTooltipAnim) api.setTooltipAnim(val);
+            else api.saveSettings({ tooltipAnim: val });
+          }
+          render();
         });
       });
 
@@ -200,11 +385,251 @@
         document.getElementById('val-opacity').textContent = current.opacity + '%';
         api.setOpacity(current.opacity);
       });
+      
+      document.getElementById('sl-block-opacity').addEventListener('input', e => {
+        current.blockOpacity = parseFloat(e.target.value);
+        document.getElementById('val-block-opacity').textContent = Math.round(current.blockOpacity * 100) + '%';
+        api.setBlockOpacity(current.blockOpacity);
+      });
+
+      const slAnimSpeed = document.getElementById('sl-anim-speed');
+      if (slAnimSpeed) {
+         slAnimSpeed.addEventListener('input', e => {
+           if (!current.blockAnim) current.blockAnim = { style: 'pulse', speed: 1.0 };
+           current.blockAnim.speed = parseFloat(e.target.value);
+           document.getElementById('val-anim-speed').textContent = current.blockAnim.speed.toFixed(1) + 'x';
+           api.setBlockAnim(current.blockAnim);
+           render();
+         });
+      }
+      
+      const slTooltipSize = document.getElementById('sl-tooltip-size');
+      if (slTooltipSize) {
+         slTooltipSize.addEventListener('input', e => {
+           current.tooltipSize = parseFloat(e.target.value);
+           document.getElementById('val-tooltip-size').textContent = current.tooltipSize.toFixed(1) + 'x';
+           if (api.setTooltipSize) api.setTooltipSize(current.tooltipSize);
+           else api.saveSettings({ tooltipSize: current.tooltipSize });
+         });
+      }
 
       document.getElementById('chk-ontop').addEventListener('click', e => {
         const cb = e.currentTarget.querySelector('input');
         if (e.target !== cb) cb.checked = !cb.checked;
         api.setOnTop(cb.checked);
+      });
+
+      // --- Block List Handlers ---
+      body.querySelectorAll('.block-color-edit').forEach(el => {
+        el.addEventListener('input', e => {
+          const idx = parseInt(e.target.dataset.idx);
+          const key = e.target.dataset.key; // 'color' or 'elapsedColor'
+          if (current.sessions && current.sessions[idx]) {
+            current.sessions[idx][key] = e.target.value;
+            api.setSessions(current.sessions);
+            // DO NOT call render() here on 'input' otherwise it steals focus from color picker!
+          }
+        });
+        el.addEventListener('change', e => {
+           render(); // Re-render only when picker closes
+        });
+      });
+      body.querySelectorAll('.block-task-edit').forEach(el => {
+        el.addEventListener('input', e => {
+          const idx = parseInt(e.target.dataset.idx);
+          if (current.sessions && current.sessions[idx]) {
+            current.sessions[idx].task = e.target.value;
+            api.setSessions(current.sessions);
+          }
+        });
+      });
+      body.querySelectorAll('.bl-time').forEach(el => {
+        el.addEventListener('change', e => {
+          const idx = parseInt(e.target.dataset.idx);
+          const key = e.target.dataset.key;
+          if (current.sessions && current.sessions[idx] && e.target.value) {
+            const [h, m] = e.target.value.split(':');
+            const d = new Date(current.sessions[idx][key]);
+            d.setHours(parseInt(h), parseInt(m), 0, 0);
+            current.sessions[idx][key] = d.getTime();
+            
+            // Auto correct bounds
+            if (key === 'start' && current.sessions[idx].start >= current.sessions[idx].end) {
+               current.sessions[idx].end = current.sessions[idx].start + 60000; // +1min
+            }
+            if (key === 'end' && current.sessions[idx].end <= current.sessions[idx].start) {
+               current.sessions[idx].start = current.sessions[idx].end - 60000;
+            }
+            
+            api.setSessions(current.sessions);
+            render();
+          }
+        });
+      });
+      body.querySelectorAll('.block-del').forEach(el => {
+        el.addEventListener('click', e => {
+          const idx = parseInt(e.target.dataset.idx);
+          if (current.sessions) {
+            current.sessions.splice(idx, 1);
+            api.setSessions(current.sessions);
+            render();
+          }
+        });
+      });
+      
+      if (document.getElementById('btn-clear-pom')) {
+        document.getElementById('btn-clear-pom').addEventListener('click', () => {
+          current.sessions = current.sessions.filter(s => s.type !== 'work' && s.type !== 'break');
+          api.setSessions(current.sessions);
+          render();
+        });
+      }
+      if (document.getElementById('btn-clear-cus')) {
+        document.getElementById('btn-clear-cus').addEventListener('click', () => {
+          current.sessions = current.sessions.filter(s => s.type !== 'custom');
+          api.setSessions(current.sessions);
+          render();
+        });
+      }
+      if (document.getElementById('btn-clear-all')) {
+        document.getElementById('btn-clear-all').addEventListener('click', () => {
+          current.sessions = [];
+          api.setSessions([]);
+          render();
+        });
+      }
+
+      // --- Interactive Time Inputs (Create) ---
+      const handleFocus = (e, id) => {
+        let val = e.target.value;
+        if (!val) {
+           const d = new Date();
+           val = `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+           e.target.value = val;
+        }
+        api.focusTimeInput(id, val);
+      };
+      
+      document.getElementById('custom-start').addEventListener('focus', e => handleFocus(e, 'create-start'));
+      document.getElementById('custom-end').addEventListener('focus', e => handleFocus(e, 'create-end'));
+      document.getElementById('custom-start').addEventListener('input', e => api.focusTimeInput('create-start', e.target.value));
+      document.getElementById('custom-end').addEventListener('input', e => api.focusTimeInput('create-end', e.target.value));
+      
+      document.getElementById('custom-start').addEventListener('blur', () => setTimeout(() => api.blurTimeInput(), 200));
+      document.getElementById('custom-end').addEventListener('blur', () => setTimeout(() => api.blurTimeInput(), 200));
+
+      // --- Interactive Time Inputs (Edit Active Blocks) ---
+      body.querySelectorAll('.bl-time').forEach(el => {
+        el.addEventListener('focus', e => {
+          const idx = e.target.dataset.idx;
+          const key = e.target.dataset.key;
+          api.focusTimeInput(`edit-${idx}-${key}`, e.target.value);
+        });
+        el.addEventListener('input', e => {
+          const idx = e.target.dataset.idx;
+          const key = e.target.dataset.key;
+          api.focusTimeInput(`edit-${idx}-${key}`, e.target.value);
+        });
+        el.addEventListener('blur', () => setTimeout(() => api.blurTimeInput(), 200));
+      });
+
+      api.onUpdateTime(data => {
+        if (data.type === 'create-start') {
+            document.getElementById('custom-start').value = data.timeStr;
+        } else if (data.type === 'create-end') {
+            document.getElementById('custom-end').value = data.timeStr;
+        } else if (data.type.startsWith('edit-')) {
+            const parts = data.type.split('-');
+            const idx = parseInt(parts[1]);
+            const key = parts[2];
+            
+            const el = document.querySelector(`.bl-time[data-idx="${idx}"][data-key="${key}"]`);
+            if (el) el.value = data.timeStr;
+            
+            if (current.sessions && current.sessions[idx]) {
+                const [h, m] = data.timeStr.split(':');
+                const d = new Date(current.sessions[idx][key]);
+                d.setHours(parseInt(h), parseInt(m), 0, 0);
+                current.sessions[idx][key] = d.getTime();
+                
+                // Bounds correction
+                if (key === 'start' && current.sessions[idx].start >= current.sessions[idx].end) {
+                   current.sessions[idx].end = current.sessions[idx].start + 60000;
+                   const endEl = document.querySelector(`.bl-time[data-idx="${idx}"][data-key="end"]`);
+                   if (endEl) {
+                      const ed = new Date(current.sessions[idx].end);
+                      endEl.value = `${ed.getHours().toString().padStart(2,'0')}:${ed.getMinutes().toString().padStart(2,'0')}`;
+                   }
+                }
+                if (key === 'end' && current.sessions[idx].end <= current.sessions[idx].start) {
+                   current.sessions[idx].start = current.sessions[idx].end - 60000;
+                   const startEl = document.querySelector(`.bl-time[data-idx="${idx}"][data-key="start"]`);
+                   if (startEl) {
+                      const sd = new Date(current.sessions[idx].start);
+                      startEl.value = `${sd.getHours().toString().padStart(2,'0')}:${sd.getMinutes().toString().padStart(2,'0')}`;
+                   }
+                }
+                
+                api.setSessions(current.sessions);
+            }
+        }
+      });
+
+      // --- Session Handlers ---
+      document.getElementById('btn-pomodoro').addEventListener('click', () => {
+        const task = document.getElementById('pomo-task').value.trim();
+        const work = parseInt(document.getElementById('pomo-work').value) || 25;
+        const breakM = parseInt(document.getElementById('pomo-break').value) || 5;
+        const cycles = parseInt(document.getElementById('pomo-cycles').value) || 4;
+        const color = document.getElementById('pomo-color').value || '#ef4444';
+        const elColor = document.getElementById('pomo-el-color').value || '#450a0a';
+        
+        const now = Date.now();
+        let currentTime = now;
+        const newSessions = [];
+        
+        for (let i = 0; i < cycles; i++) {
+          newSessions.push({ start: currentTime, end: currentTime + work * 60000, color: color, elapsedColor: elColor, type: 'work', task: task ? `${task} (Work)` : '' });
+          currentTime += work * 60000;
+          if (i < cycles - 1) {
+            newSessions.push({ start: currentTime, end: currentTime + breakM * 60000, color: '#22c55e', elapsedColor: '#064e3b', type: 'break', task: task ? `${task} (Break)` : '' });
+            currentTime += breakM * 60000;
+          }
+        }
+        
+        if (!current.sessions) current.sessions = [];
+        current.sessions.push(...newSessions);
+        api.setSessions(current.sessions);
+        render();
+      });
+
+      document.getElementById('btn-custom').addEventListener('click', () => {
+        const task = document.getElementById('custom-task').value.trim();
+        const sTime = document.getElementById('custom-start').value;
+        const eTime = document.getElementById('custom-end').value;
+        const color = document.getElementById('custom-color').value || '#3b82f6';
+        const elColor = document.getElementById('custom-el-color').value || '#172554';
+        
+        if (!sTime || !eTime) return;
+        
+        const now = new Date();
+        const start = new Date(now);
+        const end = new Date(now);
+        
+        const [sh, sm] = sTime.split(':');
+        const [eh, em] = eTime.split(':');
+        
+        start.setHours(parseInt(sh), parseInt(sm), 0, 0);
+        end.setHours(parseInt(eh), parseInt(em), 0, 0);
+        
+        if (end < start) {
+          end.setDate(end.getDate() + 1);
+        }
+        
+        if (!current.sessions) current.sessions = [];
+        current.sessions.push({ start: start.getTime(), end: end.getTime(), color: color, elapsedColor: elColor, type: 'custom', task: task });
+        api.setSessions(current.sessions);
+        render();
       });
     }
 

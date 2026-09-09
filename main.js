@@ -42,19 +42,25 @@ function showPanel(currentState) {
     return;
   }
 
-  // Position panel next to clock window
-  const clockBounds = win.getBounds();
-  const display = screen.getDisplayNearestPoint({ x: clockBounds.x, y: clockBounds.y });
-  const wa = display.workArea;
-  const pw = 260, ph = 560;
+  const settings = loadSettings();
+  let pw = 260, ph = 560;
+  let px, py;
 
-  let px = clockBounds.x + clockBounds.width + 12;
-  let py = clockBounds.y;
-  // If panel would go off-screen right, place it to the left
-  if (px + pw > wa.x + wa.width) px = clockBounds.x - pw - 12;
-  // Clamp vertically
-  if (py + ph > wa.y + wa.height) py = wa.y + wa.height - ph;
-  if (py < wa.y) py = wa.y;
+  if (settings.panelBounds) {
+    pw = settings.panelBounds.width;
+    ph = settings.panelBounds.height;
+    px = settings.panelBounds.x;
+    py = settings.panelBounds.y;
+  } else {
+    const clockBounds = win.getBounds();
+    const display = screen.getDisplayNearestPoint({ x: clockBounds.x, y: clockBounds.y });
+    const wa = display.workArea;
+    px = clockBounds.x + clockBounds.width + 12;
+    py = clockBounds.y;
+    if (px + pw > wa.x + wa.width) px = clockBounds.x - pw - 12;
+    if (py + ph > wa.y + wa.height) py = wa.y + wa.height - ph;
+    if (py < wa.y) py = wa.y;
+  }
 
   panel = new BrowserWindow({
     x: px, y: py, width: pw, height: ph,
@@ -68,6 +74,18 @@ function showPanel(currentState) {
   panel.webContents.on('did-finish-load', () => {
     panel.webContents.send('update-state', currentState);
   });
+  
+  const savePanelBounds = () => {
+    if (panel && !panel.isDestroyed()) {
+      const s = loadSettings();
+      s.panelBounds = panel.getBounds();
+      saveSettings(s);
+    }
+  };
+  
+  panel.on('resize', savePanelBounds);
+  panel.on('moved', savePanelBounds);
+  
   panel.on('closed', () => { panel = null; });
 }
 
@@ -99,6 +117,14 @@ ipcMain.on('panel-set-style', (_, v) => { if (win && !win.isDestroyed()) win.web
 ipcMain.on('panel-set-theme', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-theme', v); });
 ipcMain.on('panel-set-hands', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-hands', v); });
 ipcMain.on('panel-set-opacity', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-opacity', v); });
+ipcMain.on('panel-set-sessions', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-sessions', v); });
+ipcMain.on('panel-set-block-opacity', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-block-opacity', v); });
+ipcMain.on('panel-set-block-anim', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-block-anim', v); });
+ipcMain.on('panel-set-tooltip-anim', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-tooltip-anim', v); });
+ipcMain.on('panel-set-tooltip-size', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-tooltip-size', v); });
+ipcMain.on('panel-focus-time', (_, data) => { if (win && !win.isDestroyed()) win.webContents.send('focus-time', data); });
+ipcMain.on('panel-blur-time', () => { if (win && !win.isDestroyed()) win.webContents.send('blur-time'); });
+ipcMain.on('clock-update-time', (_, data) => { if (panel && !panel.isDestroyed()) panel.webContents.send('update-time', data); });
 ipcMain.on('panel-set-ontop', (_, v) => { if (win) win.setAlwaysOnTop(v); });
 ipcMain.on('panel-close', () => { if (panel && !panel.isDestroyed()) panel.close(); });
 ipcMain.on('close-app', () => app.quit());
