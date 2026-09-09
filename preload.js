@@ -16,7 +16,6 @@ contextBridge.exposeInMainWorld('clockAPI', {
   onSetBlockAnim: (cb) => ipcRenderer.on('set-block-anim', (_, v) => cb(v)),
   onSetTooltipAnim: (cb) => ipcRenderer.on('set-tooltip-anim', (_, v) => cb(v)),
   onSetTooltipSize: (cb) => ipcRenderer.on('set-tooltip-size', (_, v) => cb(v)),
-  onReminderFired: (cb) => ipcRenderer.on('reminder-fired', (_, data) => cb(data)),
   onWindowResized: (cb) => ipcRenderer.on('window-resized', (_, s) => cb(s)),
   updateTimeInput: (data) => ipcRenderer.send('clock-update-time', data),
   onFocusTime: (cb) => ipcRenderer.on('focus-time', (_, data) => cb(data)),
