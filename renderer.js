@@ -45,6 +45,10 @@
   if (saved.tooltipAnim) tooltipAnim=saved.tooltipAnim;
   if (saved.tooltipSize) tooltipSize=saved.tooltipSize;
   if (Array.isArray(saved.reminders)) reminders=saved.reminders;
+  let todos = []; // [{id, text, done, createdAt}]
+  let todoFilter = 'all';
+  if (Array.isArray(saved.todos)) todos = saved.todos;
+  function saveTodos() { api.saveSettings({todos}); }
 
   function applyOpacity() { canvas.style.opacity=opacity/100; }
   applyOpacity();
@@ -102,14 +106,28 @@
   });
 
   function resize() {
-    const w=window.innerWidth, h=window.innerHeight;
-    canvas.width=w*dpr; canvas.height=h*dpr;
-    canvas.style.width=w+'px'; canvas.style.height=h+'px';
+    // Canvas fills the clock wrapper (left square area). The todo panel lives
+    // in the right side of the window and is HTML-based, so it has its own
+    // layout. The renderer only needs to track the wrapper's size.
+    const wrap = document.getElementById('clock-wrapper');
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    canvas.width = w*dpr; canvas.height = h*dpr;
+    canvas.style.width = w+'px'; canvas.style.height = h+'px';
     X.setTransform(dpr,0,0,dpr,0,0);
   }
   resize();
   window.addEventListener('resize', resize);
   api.onWindowResized(resize);
+
+  // ── Clock dial bounds (cached, recomputed on resize) ──
+  // All drawing uses the wrapper's center, NOT the window center.
+  function clockBounds() {
+    const wrap = document.getElementById('clock-wrapper');
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    const cx = w/2, cy = h/2;
+    const r = Math.min(cx, cy) - 4;
+    return { cx, cy, r, w, h };
+  }
 
   let dragging=false;
   
@@ -146,9 +164,8 @@
        return;
     }
     
-    const w = window.innerWidth, h = window.innerHeight;
-    const cx = w/2, cy = h/2, r = Math.min(cx, cy) - 4;
-    
+    const { cx, cy, r } = clockBounds();
+
     // Check if clicking on an active edit knob
     if (interactiveMode && interactiveMode.startsWith('edit-')) {
        const idx = parseInt(interactiveMode.split('-')[1]);
@@ -306,8 +323,7 @@
     if(dragging) api.dragMove(); 
     else if (draggingKnob && interactiveMode && interactiveMode !== 'none') {
        if (interactiveMode.endsWith('-both')) return; // Just displaying both, not dragging
-       const w = window.innerWidth, h = window.innerHeight;
-       const cx = w/2, cy = h/2;
+       const { cx, cy } = clockBounds();
        let angle = Math.atan2(e.clientY - cy, e.clientX - cx);
        if (angle < 0) angle += PI2;
        
@@ -381,6 +397,149 @@
   let editingLabelIdx = -1;
   let editInput = null;
 
+  // ── Todo list (HTML panel) ──
+  const todoList = document.getElementById('todo-list');
+  const todoInput = document.getElementById('todo-input');
+  const todoForm = document.getElementById('todo-form');
+  const todoCount = document.getElementById('todo-count');
+  const todoClear = document.getElementById('todo-clear');
+  const todoEmpty = document.getElementById('todo-empty');
+
+  function renderTodos() {
+    const filtered = todos.filter(t => {
+      if (todoFilter === 'active') return !t.done;
+      if (todoFilter === 'done') return t.done;
+      return true;
+    });
+    todoList.innerHTML = '';
+    filtered.forEach((t, idx) => {
+      const realIdx = todos.indexOf(t);
+      const li = document.createElement('li');
+      li.className = 'todo-item' + (t.done ? ' done' : '');
+      li.style.animationDelay = (idx * 0.04) + 's';
+      li.dataset.id = t.id;
+      li.innerHTML = `
+        <div class="todo-check ${t.done ? 'checked' : ''}" data-action="toggle" data-id="${t.id}"></div>
+        <div class="todo-text" data-action="edit" data-id="${t.id}">${escapeHtml(t.text)}</div>
+        <button class="todo-del" data-action="del" data-id="${t.id}" title="Delete">×</button>
+      `;
+      todoList.appendChild(li);
+    });
+    const activeCount = todos.filter(t => !t.done).length;
+    todoCount.textContent = activeCount;
+    todoCount.classList.toggle('has-items', activeCount > 0);
+    todoEmpty.classList.toggle('show', todos.length === 0);
+  }
+
+  function escapeHtml(s) {
+    return (s || '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function addTodo(text) {
+    const t = (text || '').trim();
+    if (!t) return;
+    todos.unshift({ id: Date.now() + '-' + Math.random().toString(36).slice(2,7), text: t, done: false, createdAt: Date.now() });
+    saveTodos();
+    renderTodos();
+  }
+
+  function removeTodo(id) {
+    const li = todoList.querySelector(`.todo-item[data-id="${id}"]`);
+    if (li) {
+      li.classList.add('removing');
+      setTimeout(() => {
+        todos = todos.filter(t => t.id !== id);
+        saveTodos();
+        renderTodos();
+      }, 240);
+    } else {
+      todos = todos.filter(t => t.id !== id);
+      saveTodos();
+      renderTodos();
+    }
+  }
+
+  function toggleTodo(id) {
+    const t = todos.find(x => x.id === id);
+    if (!t) return;
+    t.done = !t.done;
+    saveTodos();
+    renderTodos();
+  }
+
+  function updateTodoText(id, text) {
+    const t = todos.find(x => x.id === id);
+    if (!t) return;
+    const v = (text || '').trim();
+    if (!v) { removeTodo(id); return; }
+    t.text = v;
+    saveTodos();
+  }
+
+  function clearCompleted() {
+    if (!todos.some(t => t.done)) return;
+    todos = todos.filter(t => !t.done);
+    saveTodos();
+    renderTodos();
+  }
+
+  // Form submit (Enter or + button)
+  todoForm.addEventListener('submit', e => {
+    e.preventDefault();
+    addTodo(todoInput.value);
+    todoInput.value = '';
+    todoInput.focus();
+  });
+
+  // List clicks (event delegation)
+  todoList.addEventListener('click', e => {
+    const el = e.target.closest('[data-action]');
+    if (!el) return;
+    const action = el.dataset.action;
+    const id = el.dataset.id;
+    if (action === 'toggle') { toggleTodo(id); return; }
+    if (action === 'del') { e.stopPropagation(); removeTodo(id); return; }
+    if (action === 'edit') {
+      // Make the text editable
+      el.setAttribute('contenteditable', 'true');
+      el.focus();
+      // Select all
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      const finish = () => {
+        el.removeAttribute('contenteditable');
+        el.removeEventListener('blur', finish);
+        el.removeEventListener('keydown', onKey);
+        updateTodoText(id, el.textContent);
+        renderTodos();
+      };
+      const onKey = (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); el.blur(); }
+        if (ev.key === 'Escape') { el.textContent = todos.find(t => t.id === id)?.text || ''; el.blur(); }
+      };
+      el.addEventListener('blur', finish);
+      el.addEventListener('keydown', onKey);
+    }
+  });
+
+  // Filter chips
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      todoFilter = btn.dataset.filter;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b === btn));
+      renderTodos();
+    });
+  });
+
+  // Clear completed
+  todoClear.addEventListener('click', clearCompleted);
+
+  // Initial render
+  renderTodos();
+
   window.addEventListener('mousemove', e => {
     lastMouseMove = Date.now();
     lastMouseX = e.clientX;
@@ -411,8 +570,7 @@
   // Right-click on the clock face → spawn a reminder at that time
   canvas.addEventListener('contextmenu', e => {
     e.preventDefault();
-    const w = window.innerWidth, h = window.innerHeight;
-    const cx = w/2, cy = h/2, r = Math.min(cx, cy) - 4;
+    const { cx, cy, r } = clockBounds();
     const dx = e.clientX - cx, dy = e.clientY - cy;
     const dist = Math.hypot(dx, dy);
     // Only spawn on the dial area (not way outside the clock)
@@ -523,53 +681,76 @@
     const labelR = r + 16;
     const maxR = Math.min(cx, cy) - 2;
     const useR = Math.min(labelR, maxR);
-    
+    // Wrapper bounds — labels must NEVER extend past the clock area's edge
+    const W = Math.max(40, cx * 2);
+    const H = Math.max(40, cy * 2);
+    const MARGIN = 4;
+
     labelHitBoxes = [];
     X.save();
-    
+
     for (let i = 0; i < sessions.length; i++) {
        const sess = sessions[i];
        // 5-minute grace period so freshly-created blocks always show their label
        if (sess.end < now - 5 * 60 * 1000) continue;
        if (editingLabelIdx === i) continue;
-       
+
        const isPlaceholder = !sess.task;
-       const drawText = isPlaceholder ? '＋ Add Task' : sess.task;
-       
+       let drawText = isPlaceholder ? '＋ Add Task' : sess.task;
+
        if (!labelBirthTimes[i]) labelBirthTimes[i] = now;
        const age = now - labelBirthTimes[i];
-       
+
        const midTime = (sess.start + sess.end) / 2;
        const angle = getAngleForDate(new Date(midTime));
-       
+
        let tx = cx + Math.cos(angle) * useR;
        let ty = cy + Math.sin(angle) * useR;
        const isRight = Math.cos(angle) > 0;
-       
-       // Apply tooltipSize modifier
+
+       // Apply tooltipSize modifier + auto-shrink if text would overflow wrapper
        const sizeScale = tooltipSize || 1.0;
-       X.font = `600 ${10 * sizeScale}px Inter, system-ui, sans-serif`;
-       const tw = X.measureText(drawText).width;
-       const th = 12 * sizeScale;
+       let fontPx = 10 * sizeScale;
+       X.font = `600 ${fontPx}px Inter, system-ui, sans-serif`;
        const pad = 6 * sizeScale;
        const delSize = 6 * sizeScale;
-       
-       let labelX = tx, labelY = ty, align = 'center';
-       
-       if (isRight && tx + tw/2 + pad + delSize*2 + 4 > cx * 2 - 4) {
-          align = 'right'; labelX = cx * 2 - pad - delSize*2 - 8;
-       } else if (!isRight && tx - tw/2 - pad < 4) {
-          align = 'left'; labelX = pad + 4;
+       const delExtra = isPlaceholder ? 0 : delSize * 2 + 6;
+       // Available width depends on side + side clearance
+       const availW = isRight ? (W - MARGIN - (tx + pad + delExtra)) : (tx - MARGIN - pad);
+       let tw = X.measureText(drawText).width;
+       // Shrink the font until the label fits, down to a hard floor of 7px
+       while (tw + delExtra + pad * 2 > availW && fontPx > 7) {
+          fontPx -= 0.5;
+          X.font = `600 ${fontPx}px Inter, system-ui, sans-serif`;
+          tw = X.measureText(drawText).width;
        }
-       labelY = Math.max(th + pad, Math.min(cy * 2 - pad, labelY));
-       
+       // If even at 7px it still doesn't fit, truncate with an ellipsis
+       if (tw + delExtra + pad * 2 > availW) {
+          const ell = '…';
+          while (drawText.length > 1 && X.measureText(drawText + ell).width + delExtra + pad * 2 > availW) {
+             drawText = drawText.slice(0, -1);
+          }
+          drawText = drawText + ell;
+          tw = X.measureText(drawText).width;
+       }
+       const th = 12 * sizeScale;
+
+       let labelX = tx, labelY = ty, align = 'center';
+
+       if (isRight && tx + tw/2 + pad + delExtra + 4 > W - MARGIN) {
+          align = 'right'; labelX = W - MARGIN - pad - delExtra - 4;
+       } else if (!isRight && tx - tw/2 - pad < MARGIN) {
+          align = 'left'; labelX = MARGIN + pad + 4;
+       }
+       labelY = Math.max(th + pad, Math.min(H - pad, labelY));
+
        let bgX;
        if (align === 'center') bgX = labelX - tw/2 - pad;
        else if (align === 'right') bgX = labelX - tw - pad;
        else bgX = labelX - pad;
-       
+
        // Don't draw delete button on placeholder
-       const bgW = tw + pad * 2 + (isPlaceholder ? 0 : delSize * 2 + 6);
+       const bgW = tw + pad * 2 + delExtra;
        const bgH = th + pad * 1.5;
        const bgY = labelY - th/2 - pad * 0.75;
        const pillR = bgH / 2;
@@ -935,8 +1116,7 @@
     });
     document.body.appendChild(reminderEditInput);
     // Position near the click (just call right after start, so it lands on the body)
-    const w = window.innerWidth, h = window.innerHeight;
-    const rcx = w/2, rcy = h/2, rad = Math.min(rcx, rcy) - 4;
+    const { cx: rcx, cy: rcy, r: rad } = clockBounds();
     const a = timeToAngle(r.time);
     const px = rcx + Math.cos(a - Math.PI/2) * (rad - 18);
     const py = rcy + Math.sin(a - Math.PI/2) * (rad - 18);
@@ -1882,8 +2062,7 @@
   }
 
   function draw() {
-    const w=window.innerWidth,h=window.innerHeight;
-    const cx=w/2,cy=h/2,r=Math.min(cx,cy)-4;
+    const { cx, cy, r, w, h } = clockBounds();
     const now=new Date();
     const sec=now.getSeconds(),ms=now.getMilliseconds();
     const secF=sec+ms/1000, minF=now.getMinutes()+secF/60, hrF=(now.getHours()%12)+minF/60;

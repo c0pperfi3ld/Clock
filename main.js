@@ -16,18 +16,19 @@ function saveSettings(data) {
 function createWindow() {
   const settings = loadSettings();
   const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
-  const size = 320;
-  const bounds = settings.windowBounds || { x: sw - size - 40, y: 40, width: size, height: size };
+  const defaultH = 360;
+  const defaultW = 620; // clock (360) + todo sidebar (260)
+  const bounds = settings.windowBounds || { x: sw - defaultW - 40, y: 40, width: defaultW, height: defaultH };
 
   win = new BrowserWindow({
     x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
-    minWidth: 120, minHeight: 120, frame: false, transparent: true,
+    minWidth: 360, minHeight: 260, frame: false, transparent: true,
     alwaysOnTop: true, resizable: true, skipTaskbar: false, hasShadow: false,
     backgroundColor: '#00000000',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false }
   });
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  win.setAspectRatio(1);
+  // No aspect-ratio lock: clock stays square on the left, todo panel fills the rest
   win.loadFile('index.html');
   win.on('resize', () => { if (win) win.webContents.send('window-resized', {}); });
   win.on('moved', () => { const s = loadSettings(); s.windowBounds = win.getBounds(); saveSettings(s); });
