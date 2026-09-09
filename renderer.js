@@ -76,6 +76,18 @@
     });
   }
 
+  // ── Tooltip font resize (Ctrl + scroll) ──
+  // Add a brief size-pulse animation on the dial as feedback.
+  let tooltipResizePulse = 0;
+  canvas.addEventListener('wheel', e => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const step = e.deltaY < 0 ? 0.1 : -0.1;
+    tooltipSize = Math.max(0.4, Math.min(2.5, (tooltipSize || 1.0) + step));
+    save();
+    tooltipResizePulse = performance.now();
+  }, { passive: false });
+
   const dpr = window.devicePixelRatio||1;
   const pWrapS = document.getElementById('picker-wrap-start');
   const pWrapE = document.getElementById('picker-wrap-end');
@@ -1096,6 +1108,41 @@
     X.restore();
   }
 
+  // ── Tooltip size indicator (brief flash after Ctrl+scroll) ──
+  function drawTooltipSizeIndicator(cx, cy, r) {
+    if (!tooltipResizePulse) return;
+    const elapsed = performance.now() - tooltipResizePulse;
+    if (elapsed > 1200) { tooltipResizePulse = 0; return; }
+    const fade = 1 - (elapsed / 1200);
+    const label = `Tooltip ${(tooltipSize || 1.0).toFixed(1)}×`;
+    X.save();
+    X.globalAlpha = fade;
+    X.font = '700 11px Inter, system-ui, sans-serif';
+    const tw = X.measureText(label).width;
+    const padX = 10, padY = 5;
+    const bw = tw + padX * 2, bh = 11 + padY * 2;
+    const bx = cx - bw / 2;
+    const by = cy - r - bh - 36; // above the reminder banner area
+    X.beginPath();
+    const pr = bh / 2;
+    X.moveTo(bx + pr, by);
+    X.lineTo(bx + bw - pr, by);
+    X.arc(bx + bw - pr, by + pr, pr, -Math.PI/2, Math.PI/2);
+    X.lineTo(bx + pr, by + bh);
+    X.arc(bx + pr, by + pr, pr, Math.PI/2, -Math.PI/2);
+    X.closePath();
+    X.fillStyle = 'rgba(167,139,250,0.9)';
+    X.shadowColor = 'rgba(167,139,250,0.6)';
+    X.shadowBlur = 12;
+    X.fill();
+    X.shadowBlur = 0;
+    X.fillStyle = '#fff';
+    X.textAlign = 'center';
+    X.textBaseline = 'middle';
+    X.fillText(label, cx, by + pr);
+    X.restore();
+  }
+
   // ── Reminder Pips on the clock face ──
   // Each reminder renders as a small filled circle just inside the dial at the
   // time-angle. Hover state enlarges it and shows a tooltip. Click selects it
@@ -2088,6 +2135,7 @@
     drawGearIcon(cx, cy, r);
     drawReminderPips(cx, cy, r);
     drawReminderAlert(cx, cy, r);
+    drawTooltipSizeIndicator(cx, cy, r);
     requestAnimationFrame(draw);
   }
 
