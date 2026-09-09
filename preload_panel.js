@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('panelAPI', {
   setBlockAnim: (v) => ipcRenderer.send('panel-set-block-anim', v),
   setTooltipAnim: (v) => ipcRenderer.send('panel-set-tooltip-anim', v),
   setTooltipSize: (v) => ipcRenderer.send('panel-set-tooltip-size', v),
+  setReminders: (v) => ipcRenderer.send('panel-set-reminders', v),
   focusTimeInput: (type, timeStr) => ipcRenderer.send('panel-focus-time', {type, timeStr}),
   blurTimeInput: () => ipcRenderer.send('panel-blur-time'),
   closePanel: () => ipcRenderer.send('panel-close'),

@@ -129,7 +129,7 @@
     const api = window.panelAPI;
     const body = document.getElementById('body');
 
-    let current = { style:'classic', theme:'midnight', handType:'tapered', opacity:100, sessions:[] };
+    let current = { style:'classic', theme:'midnight', handType:'tapered', opacity:100, sessions:[], reminders:[] };
 
     api.onUpdateState(s => { Object.assign(current, s); render(); });
 
@@ -225,6 +225,46 @@
         </div>
         <button id="btn-custom">Add Exact Block</button>
       </div>`;
+
+      // --- REMINDERS ---
+      html += '<div class="sep"></div>';
+      html += `<div class="sec-label"><span>Reminders</span><span class="badge" id="badge-reminders">${(current.reminders||[]).length}</span></div>`;
+      html += `<div class="block-form">
+        <div class="input-row">
+          <input type="time" id="rem-time" style="flex:1; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); color:white; border-radius:4px; font-size:0.7rem;">
+        </div>
+        <div class="input-row">
+          <input type="text" id="rem-label" placeholder="Reminder label..." style="flex:1; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:white; border-radius:4px; font-size:0.7rem; padding:4px;">
+        </div>
+        <div class="chk-row" id="chk-rem-recurring" style="padding:0 0 6px 0;">
+          <input type="checkbox" id="rem-recurring"> <span>Repeat daily</span>
+        </div>
+        <button id="btn-add-reminder">＋ Add Reminder</button>
+      </div>`;
+
+      // --- ACTIVE REMINDERS LIST ---
+      const rArr = current.reminders || [];
+      if (rArr.length > 0) {
+        html += '<div class="sep"></div>';
+        rArr.forEach((r, i) => {
+          const isFiredToday = r.lastFiredDate && r.lastFiredDate >= new Date().toISOString().slice(0,10);
+          html += `<div class="opt" style="flex-direction:column; align-items:stretch; gap:4px; ${isFiredToday ? 'opacity:0.55;' : ''}">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="font-size:0.8rem;">⏰</span>
+                <span style="font-size:0.78rem;font-weight:600;color:#fff;">${r.time}</span>
+                <span style="font-size:0.7rem;color:rgba(255,255,255,0.7);">${(r.label||'').replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}</span>
+                ${r.recurring ? '<span style="font-size:0.55rem;background:rgba(34,197,94,0.18);color:#86efac;padding:1px 5px;border-radius:8px;">DAILY</span>' : ''}
+                ${isFiredToday ? '<span style="font-size:0.55rem;background:rgba(167,139,250,0.18);color:#c4b5fd;padding:1px 5px;border-radius:8px;">FIRED</span>' : ''}
+              </div>
+              <button data-idx="${i}" class="rem-del" style="background:none;border:none;color:rgba(239,68,68,0.7);cursor:pointer;font-size:0.75rem;" title="Delete">✕</button>
+            </div>
+          </div>`;
+        });
+        html += '<div class="block-form" style="display:flex;gap:4px;margin-top:6px;">';
+        html += '<button id="btn-clear-reminders" class="btn-red" style="flex:1;">Clear All Reminders</button>';
+        html += '</div>';
+      }
 
       // --- ACTIVE BLOCKS LIST ---
       const sArr = current.sessions || [];
@@ -631,6 +671,48 @@
         api.setSessions(current.sessions);
         render();
       });
+
+      // --- Reminder Handlers ---
+      const btnAddRem = document.getElementById('btn-add-reminder');
+      if (btnAddRem) {
+        btnAddRem.addEventListener('click', () => {
+          const time = document.getElementById('rem-time').value;
+          const label = document.getElementById('rem-label').value.trim();
+          const recurring = document.getElementById('rem-recurring').checked;
+          if (!time) return;
+          if (!current.reminders) current.reminders = [];
+          current.reminders.push({
+            id: Date.now() + '-' + Math.random().toString(36).slice(2,7),
+            time: time,
+            label: label,
+            recurring: recurring
+          });
+          api.setReminders(current.reminders);
+          document.getElementById('rem-label').value = '';
+          render();
+        });
+      }
+
+      body.querySelectorAll('.rem-del').forEach(el => {
+        el.addEventListener('click', e => {
+          e.stopPropagation();
+          const idx = parseInt(e.target.dataset.idx);
+          if (current.reminders) {
+            current.reminders.splice(idx, 1);
+            api.setReminders(current.reminders);
+            render();
+          }
+        });
+      });
+
+      const btnClearRem = document.getElementById('btn-clear-reminders');
+      if (btnClearRem) {
+        btnClearRem.addEventListener('click', () => {
+          current.reminders = [];
+          api.setReminders([]);
+          render();
+        });
+      }
     }
 
     document.getElementById('btn-close').addEventListener('click', () => api.closePanel());
