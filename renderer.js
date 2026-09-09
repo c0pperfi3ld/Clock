@@ -110,12 +110,15 @@
     // in the right side of the window and is HTML-based, so it has its own
     // layout. The renderer only needs to track the wrapper's size.
     const wrap = document.getElementById('clock-wrapper');
-    const w = wrap.clientWidth, h = wrap.clientHeight;
+    const w = Math.max(80, wrap.clientWidth || 0);
+    const h = Math.max(80, wrap.clientHeight || 0);
     canvas.width = w*dpr; canvas.height = h*dpr;
     canvas.style.width = w+'px'; canvas.style.height = h+'px';
     X.setTransform(dpr,0,0,dpr,0,0);
   }
   resize();
+  // Re-run after first paint to catch any post-layout sizing adjustments
+  requestAnimationFrame(resize);
   window.addEventListener('resize', resize);
   api.onWindowResized(resize);
 

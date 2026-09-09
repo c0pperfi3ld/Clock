@@ -18,13 +18,16 @@ html, body {
 
 /* ── Clock area (left, square) ── */
 #clock-wrapper {
-  width: 100vh;
+  /* Square that fits within available height and leaves room for the sidebar.
+     Never wider than 100vw - sidebarMin so the panel always has space. */
+  width: min(100vh, calc(100vw - 240px));
   height: 100vh;
   flex-shrink: 0;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 #clock {
   display: block;
@@ -65,7 +68,7 @@ html, body {
 /* ── Tasks panel (right) ── */
 #todo-panel {
   flex: 1;
-  min-width: 240px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: linear-gradient(160deg,
