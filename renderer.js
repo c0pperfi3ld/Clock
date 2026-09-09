@@ -85,7 +85,6 @@
          const idx = parseInt(interactiveMode.split('-')[1]);
          if (sessions[idx]) {
             sessions[idx].color = e.target.value;
-            api.onSetSessions(sessions);
             save();
          }
      }
@@ -95,7 +94,6 @@
          const idx = parseInt(interactiveMode.split('-')[1]);
          if (sessions[idx]) {
             sessions[idx].elapsedColor = e.target.value;
-            api.onSetSessions(sessions);
             save();
          }
      }
@@ -1033,6 +1031,100 @@
     const [ha,ma,sa]=angles(hrF,minF,secF);
     drawHandSet(cx,cy,r,ha,ma,sa,t.accent,'rgba(255,255,255,0.7)',t.sec,true);
   }
+
+  function drawLeafHands(cx,cy,r,ha,ma,sa,hC,mC,sC,isDark) {
+    X.lineCap='round';X.lineJoin='round';
+    X.save();X.translate(cx,cy);X.rotate(ha);
+    X.beginPath();X.moveTo(0,r*0.1);X.quadraticCurveTo(r*0.08,-r*0.25,0,-r*0.55);X.quadraticCurveTo(-r*0.08,-r*0.25,0,r*0.1);
+    X.fillStyle=hC;X.fill();X.restore();
+    X.save();X.translate(cx,cy);X.rotate(ma);
+    X.beginPath();X.moveTo(0,r*0.1);X.quadraticCurveTo(r*0.06,-r*0.4,0,-r*0.8);X.quadraticCurveTo(-r*0.06,-r*0.4,0,r*0.1);
+    X.fillStyle=mC;X.fill();X.restore();
+    drawSec(cx,cy,r,sa,sC,isDark,0.85);
+  }
+
+  function drawChronometerHands(cx,cy,r,ha,ma,sa,hC,mC,sC,isDark) {
+    X.lineCap='round';X.lineJoin='miter';
+    // Vintage Chronometer: precision needles with round counter-balances
+    X.save();X.translate(cx,cy);X.rotate(ha);
+    X.beginPath();X.moveTo(-r*0.02, r*0.15);X.lineTo(r*0.02, r*0.15);
+    X.lineTo(r*0.01, -r*0.4);X.lineTo(0, -r*0.5);X.lineTo(-r*0.01, -r*0.4);X.closePath();
+    X.fillStyle=hC;X.fill();
+    X.beginPath();X.arc(0, r*0.15, r*0.06, 0, PI2);X.lineWidth=2;X.strokeStyle=hC;X.stroke();X.restore();
+    
+    X.save();X.translate(cx,cy);X.rotate(ma);
+    X.beginPath();X.moveTo(-r*0.015, r*0.15);X.lineTo(r*0.015, r*0.15);
+    X.lineTo(r*0.008, -r*0.7);X.lineTo(0, -r*0.85);X.lineTo(-r*0.008, -r*0.7);X.closePath();
+    X.fillStyle=mC;X.fill();
+    X.beginPath();X.arc(0, r*0.15, r*0.05, 0, PI2);X.lineWidth=2;X.strokeStyle=mC;X.stroke();X.restore();
+    drawSec(cx,cy,r,sa,sC,isDark,0.9);
+  }
+
+  function drawLuminousHands(cx,cy,r,ha,ma,sa,hC,mC,sC,isDark) {
+    X.lineCap='butt';X.lineJoin='round';
+    X.save();X.translate(cx,cy);X.rotate(ha);
+    X.beginPath();X.rect(-r*0.04, -r*0.5, r*0.08, r*0.6);X.fillStyle=hC;X.fill();
+    X.beginPath();X.rect(-r*0.015, -r*0.45, r*0.03, r*0.4);X.fillStyle=isDark?'#fff':'#000';X.fill();X.restore();
+    
+    X.save();X.translate(cx,cy);X.rotate(ma);
+    X.beginPath();X.rect(-r*0.03, -r*0.8, r*0.06, r*0.9);X.fillStyle=mC;X.fill();
+    X.beginPath();X.rect(-r*0.01, -r*0.75, r*0.02, r*0.65);X.fillStyle=isDark?'#fff':'#000';X.fill();X.restore();
+    drawSec(cx,cy,r,sa,sC,isDark,0.85);
+  }
+
+  function drawArrowHands(cx,cy,r,ha,ma,sa,hC,mC,sC,isDark) {
+    X.lineCap='round';X.lineJoin='round';
+    X.save();X.translate(cx,cy);X.rotate(ha);
+    X.beginPath();X.moveTo(-r*0.03, 0);X.lineTo(r*0.03, 0);X.lineTo(r*0.02, -r*0.3);
+    X.lineTo(r*0.08, -r*0.3);X.lineTo(0, -r*0.5);X.lineTo(-r*0.08, -r*0.3);
+    X.lineTo(-r*0.02, -r*0.3);X.closePath();
+    X.fillStyle=hC;X.fill();X.restore();
+    
+    X.save();X.translate(cx,cy);X.rotate(ma);
+    X.beginPath();X.moveTo(-r*0.02, 0);X.lineTo(r*0.02, 0);X.lineTo(r*0.015, -r*0.6);
+    X.lineTo(r*0.06, -r*0.6);X.lineTo(0, -r*0.85);X.lineTo(-r*0.06, -r*0.6);
+    X.lineTo(-r*0.015, -r*0.6);X.closePath();
+    X.fillStyle=mC;X.fill();X.restore();
+    drawSec(cx,cy,r,sa,sC,isDark,0.9);
+  }
+
+  function drawMinimalistDotHands(cx,cy,r,ha,ma,sa,hC,mC,sC,isDark) {
+    X.lineCap='round';
+    X.save();X.translate(cx,cy);X.rotate(ha);
+    X.beginPath();X.moveTo(0, r*0.1);X.lineTo(0, -r*0.4);X.lineWidth=r*0.03;X.strokeStyle=hC;X.stroke();
+    X.beginPath();X.arc(0, -r*0.45, r*0.05, 0, PI2);X.fillStyle=hC;X.fill();X.restore();
+    
+    X.save();X.translate(cx,cy);X.rotate(ma);
+    X.beginPath();X.moveTo(0, r*0.1);X.lineTo(0, -r*0.7);X.lineWidth=r*0.02;X.strokeStyle=mC;X.stroke();
+    X.beginPath();X.arc(0, -r*0.75, r*0.04, 0, PI2);X.fillStyle=mC;X.fill();X.restore();
+    drawSec(cx,cy,r,sa,sC,isDark,0.85);
+  }
+
+  function drawArtDecoHands(cx,cy,r,ha,ma,sa,hC,mC,sC,isDark) {
+    X.lineCap='butt';X.lineJoin='miter';
+    X.save();X.translate(cx,cy);X.rotate(ha);
+    X.beginPath();X.moveTo(-r*0.04, r*0.1);X.lineTo(r*0.04, r*0.1);
+    X.lineTo(r*0.04, -r*0.2);X.lineTo(r*0.02, -r*0.2);X.lineTo(r*0.02, -r*0.4);
+    X.lineTo(0, -r*0.5);X.lineTo(-r*0.02, -r*0.4);X.lineTo(-r*0.02, -r*0.2);
+    X.lineTo(-r*0.04, -r*0.2);X.closePath();
+    X.fillStyle=hC;X.fill();X.restore();
+    
+    X.save();X.translate(cx,cy);X.rotate(ma);
+    X.beginPath();X.moveTo(-r*0.03, r*0.1);X.lineTo(r*0.03, r*0.1);
+    X.lineTo(r*0.03, -r*0.4);X.lineTo(r*0.015, -r*0.4);X.lineTo(r*0.015, -r*0.7);
+    X.lineTo(0, -r*0.85);X.lineTo(-r*0.015, -r*0.7);X.lineTo(-r*0.015, -r*0.4);
+    X.lineTo(-r*0.03, -r*0.4);X.closePath();
+    X.fillStyle=mC;X.fill();X.restore();
+    drawSec(cx,cy,r,sa,sC,isDark,0.9);
+  }
+
+  const HANDS = {
+    tapered:drawTaperedHands, baton:drawBatonHands, breguet:drawBreguetHands,
+    skeleton:drawSkeletonHands, sword:drawSwordHands, spade:drawSpadeHands,
+    syringe:drawSyringeHands, snowflake:drawSnowflakeHands, dauphine:drawDauphineHands,
+    leaf:drawLeafHands, chronometer:drawChronometerHands, luminous:drawLuminousHands,
+    arrow:drawArrowHands, minimalist_dot:drawMinimalistDotHands, art_deco:drawArtDecoHands
+  };
 
   function drawGhostShadow(cx,cy,r,hrF,minF,secF,t) {
     const [ha,ma,sa]=angles(hrF,minF,secF);
