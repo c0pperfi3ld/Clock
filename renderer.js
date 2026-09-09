@@ -45,8 +45,7 @@
   if (saved.tooltipAnim) tooltipAnim=saved.tooltipAnim;
   if (saved.tooltipSize) tooltipSize=saved.tooltipSize;
   if (Array.isArray(saved.reminders)) reminders=saved.reminders;
-  let todos = []; // [{id, text, done, createdAt}]
-  let todoFilter = 'all';
+  let todos = []; // [{id, text, done, createdAt, priority, color}]
   if (Array.isArray(saved.todos)) todos = saved.todos;
   function saveTodos() { api.saveSettings({todos}); }
 
@@ -400,48 +399,47 @@
   let editingLabelIdx = -1;
   let editInput = null;
 
-  // ── Todo list (HTML panel) ──
+  // ── Todo list (HTML panel) — minimal: + button, add box, task cards ──
   const todoList = document.getElementById('todo-list');
-  const todoInput = document.getElementById('todo-input');
-  const todoForm = document.getElementById('todo-form');
-  const todoCount = document.getElementById('todo-count');
-  const todoClear = document.getElementById('todo-clear');
-  const todoEmpty = document.getElementById('todo-empty');
+  const todoAddBox = document.getElementById('todo-add-box');
+  const todoAddPlus = document.getElementById('todo-add-plus');
 
-  function renderTodos() {
-    const filtered = todos.filter(t => {
-      if (todoFilter === 'active') return !t.done;
-      if (todoFilter === 'done') return t.done;
-      return true;
-    });
-    todoList.innerHTML = '';
-    filtered.forEach((t, idx) => {
-      const realIdx = todos.indexOf(t);
-      const li = document.createElement('li');
-      li.className = 'todo-item' + (t.done ? ' done' : '');
-      li.style.animationDelay = (idx * 0.04) + 's';
-      li.dataset.id = t.id;
-      li.innerHTML = `
-        <div class="todo-check ${t.done ? 'checked' : ''}" data-action="toggle" data-id="${t.id}"></div>
-        <div class="todo-text" data-action="edit" data-id="${t.id}">${escapeHtml(t.text)}</div>
-        <button class="todo-del" data-action="del" data-id="${t.id}" title="Delete">×</button>
-      `;
-      todoList.appendChild(li);
-    });
-    const activeCount = todos.filter(t => !t.done).length;
-    todoCount.textContent = activeCount;
-    todoCount.classList.toggle('has-items', activeCount > 0);
-    todoEmpty.classList.toggle('show', todos.length === 0);
-  }
+  // Inline SVG flag
+  const FLAG_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 3v18h2v-7h11l-2-4 2-4H7V3H5z"/></svg>';
 
   function escapeHtml(s) {
     return (s || '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
+  function renderTodos() {
+    todoList.innerHTML = '';
+    todos.forEach((t, idx) => {
+      const li = document.createElement('li');
+      li.className = 'todo-item' + (t.done ? ' done' : '');
+      li.style.animationDelay = (idx * 0.04) + 's';
+      li.dataset.id = t.id;
+      const colorStyle = t.color ? `--todo-color:${t.color};background:${t.color}88;` : '';
+      li.innerHTML = `
+        <div class="todo-check ${t.done ? 'checked' : ''}" data-action="toggle" data-id="${t.id}"></div>
+        <label class="todo-color ${t.color ? 'has-color' : ''}" data-action="color" data-id="${t.id}" style="${colorStyle}" title="Color">
+          <input type="color" value="${t.color || '#8b5cf6'}" data-id="${t.id}" />
+        </label>
+        <div class="todo-text" data-action="edit" data-id="${t.id}">${escapeHtml(t.text)}</div>
+        <button class="todo-priority" data-action="priority" data-id="${t.id}" data-priority="${t.priority || 'none'}" title="Priority: ${t.priority || 'none'} (click to cycle)">${FLAG_SVG}</button>
+        <button class="todo-del" data-action="del" data-id="${t.id}" title="Delete">×</button>
+      `;
+      todoList.appendChild(li);
+    });
+  }
+
   function addTodo(text) {
     const t = (text || '').trim();
     if (!t) return;
-    todos.unshift({ id: Date.now() + '-' + Math.random().toString(36).slice(2,7), text: t, done: false, createdAt: Date.now() });
+    todos.unshift({
+      id: Date.now() + '-' + Math.random().toString(36).slice(2,7),
+      text: t, done: false, createdAt: Date.now(),
+      priority: null, color: null
+    });
     saveTodos();
     renderTodos();
   }
@@ -452,13 +450,11 @@
       li.classList.add('removing');
       setTimeout(() => {
         todos = todos.filter(t => t.id !== id);
-        saveTodos();
-        renderTodos();
-      }, 240);
+        saveTodos(); renderTodos();
+      }, 260);
     } else {
       todos = todos.filter(t => t.id !== id);
-      saveTodos();
-      renderTodos();
+      saveTodos(); renderTodos();
     }
   }
 
@@ -466,8 +462,23 @@
     const t = todos.find(x => x.id === id);
     if (!t) return;
     t.done = !t.done;
-    saveTodos();
-    renderTodos();
+    saveTodos(); renderTodos();
+  }
+
+  function cyclePriority(id) {
+    const t = todos.find(x => x.id === id);
+    if (!t) return;
+    const order = [null, 'low', 'medium', 'high'];
+    const i = order.indexOf(t.priority || null);
+    t.priority = order[(i + 1) % order.length];
+    saveTodos(); renderTodos();
+  }
+
+  function setColor(id, color) {
+    const t = todos.find(x => x.id === id);
+    if (!t) return;
+    t.color = color || null;
+    saveTodos(); renderTodos();
   }
 
   function updateTodoText(id, text) {
@@ -479,34 +490,43 @@
     saveTodos();
   }
 
-  function clearCompleted() {
-    if (!todos.some(t => t.done)) return;
-    todos = todos.filter(t => !t.done);
-    saveTodos();
-    renderTodos();
-  }
+  // Add box behavior: type + Enter to save
+  todoAddBox.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const txt = todoAddBox.textContent.trim();
+      if (txt) {
+        addTodo(txt);
+        todoAddBox.textContent = '';
+        // Keep focus so the user can add more
+        todoAddBox.focus();
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      todoAddBox.textContent = '';
+      todoAddBox.blur();
+    }
+  });
+  // Blur the add box when clicking outside the panel
+  todoAddBox.addEventListener('blur', () => { /* keep text — user might want to come back */ });
 
-  // Form submit (Enter or + button)
-  todoForm.addEventListener('submit', e => {
-    e.preventDefault();
-    addTodo(todoInput.value);
-    todoInput.value = '';
-    todoInput.focus();
+  // + button focuses the add box
+  todoAddPlus.addEventListener('click', () => {
+    todoAddBox.focus();
   });
 
-  // List clicks (event delegation)
+  // List interactions (event delegation)
   todoList.addEventListener('click', e => {
     const el = e.target.closest('[data-action]');
     if (!el) return;
     const action = el.dataset.action;
     const id = el.dataset.id;
     if (action === 'toggle') { toggleTodo(id); return; }
-    if (action === 'del') { e.stopPropagation(); removeTodo(id); return; }
+    if (action === 'del')    { e.stopPropagation(); removeTodo(id); return; }
+    if (action === 'priority') { e.stopPropagation(); cyclePriority(id); return; }
     if (action === 'edit') {
-      // Make the text editable
       el.setAttribute('contenteditable', 'true');
       el.focus();
-      // Select all
       const range = document.createRange();
       range.selectNodeContents(el);
       const sel = window.getSelection();
@@ -528,19 +548,13 @@
     }
   });
 
-  // Filter chips
-  document.querySelectorAll('.filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      todoFilter = btn.dataset.filter;
-      document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b === btn));
-      renderTodos();
-    });
+  // Color picker — listen for input events on the hidden color inputs
+  todoList.addEventListener('input', e => {
+    if (e.target.matches('input[type="color"]')) {
+      setColor(e.target.dataset.id, e.target.value);
+    }
   });
 
-  // Clear completed
-  todoClear.addEventListener('click', clearCompleted);
-
-  // Initial render
   renderTodos();
 
   window.addEventListener('mousemove', e => {
@@ -711,32 +725,28 @@
        let ty = cy + Math.sin(angle) * useR;
        const isRight = Math.cos(angle) > 0;
 
-       // Apply tooltipSize modifier + auto-shrink if text would overflow wrapper
+       // Apply tooltipSize modifier + auto-shrink to keep the WHOLE text visible.
+       // No truncation — the font shrinks as small as needed to fit, then the
+       // label is clamped to the available side of the wrapper.
        const sizeScale = tooltipSize || 1.0;
        let fontPx = 10 * sizeScale;
        X.font = `600 ${fontPx}px Inter, system-ui, sans-serif`;
-       const pad = 6 * sizeScale;
-       const delSize = 6 * sizeScale;
+       const pad = 5 * sizeScale;
+       const delSize = 5 * sizeScale;
        const delExtra = isPlaceholder ? 0 : delSize * 2 + 6;
+       // Position closer to the dial so there's more room outside
+       const txC = cx + Math.cos(angle) * (r + 8);
        // Available width depends on side + side clearance
-       const availW = isRight ? (W - MARGIN - (tx + pad + delExtra)) : (tx - MARGIN - pad);
+       const availW = isRight ? (W - MARGIN - (txC + pad + delExtra)) : (txC - MARGIN - pad);
        let tw = X.measureText(drawText).width;
-       // Shrink the font until the label fits, down to a hard floor of 7px
-       while (tw + delExtra + pad * 2 > availW && fontPx > 7) {
+       // Shrink the font until the label fits, down to a 5px floor (still legible)
+       while (tw + delExtra + pad * 2 > availW && fontPx > 5) {
           fontPx -= 0.5;
           X.font = `600 ${fontPx}px Inter, system-ui, sans-serif`;
           tw = X.measureText(drawText).width;
        }
-       // If even at 7px it still doesn't fit, truncate with an ellipsis
-       if (tw + delExtra + pad * 2 > availW) {
-          const ell = '…';
-          while (drawText.length > 1 && X.measureText(drawText + ell).width + delExtra + pad * 2 > availW) {
-             drawText = drawText.slice(0, -1);
-          }
-          drawText = drawText + ell;
-          tw = X.measureText(drawText).width;
-       }
        const th = 12 * sizeScale;
+       tx = txC;
 
        let labelX = tx, labelY = ty, align = 'center';
 
