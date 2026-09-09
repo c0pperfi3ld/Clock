@@ -16,13 +16,23 @@ function saveSettings(data) {
 function createWindow() {
   const settings = loadSettings();
   const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
-  const defaultH = 360;
-  const defaultW = 620; // clock (360) + todo sidebar (260)
-  const bounds = settings.windowBounds || { x: sw - defaultW - 40, y: 40, width: defaultW, height: defaultH };
+  const defaultH = 380;
+  const defaultW = 640; // clock (380) + todo sidebar (260)
+  // Migration: ignore saved bounds that look like the old square (1:1) layout
+  // or are too small for the new clock+sidebar layout.
+  let bounds = settings.windowBounds;
+  const looksLegacy = bounds && (
+    Math.abs(bounds.width - bounds.height) < 20 || // square (old 1:1 lock)
+    bounds.width < 480 ||
+    bounds.height < 280
+  );
+  if (!bounds || looksLegacy) {
+    bounds = { x: sw - defaultW - 40, y: 40, width: defaultW, height: defaultH };
+  }
 
   win = new BrowserWindow({
     x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
-    minWidth: 360, minHeight: 260, frame: false, transparent: true,
+    minWidth: 460, minHeight: 300, frame: false, transparent: true,
     alwaysOnTop: true, resizable: true, skipTaskbar: false, hasShadow: false,
     backgroundColor: '#00000000',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false }
