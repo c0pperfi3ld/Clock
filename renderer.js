@@ -122,7 +122,8 @@
     const wrap = document.getElementById('clock-wrapper');
     const w = wrap.clientWidth, h = wrap.clientHeight;
     const cx = w/2, cy = h/2;
-    const r = Math.min(cx, cy) - 4;
+    const margin = Math.round(Math.max(34, 24 * (tooltipSize || 1.0)));
+    const r = Math.max(50, Math.min(cx, cy) - margin);
     return { cx, cy, r, w, h };
   }
 
@@ -588,6 +589,9 @@
      stopEditLabel();
      editingLabelIdx = idx;
      
+     const sizeScale = tooltipSize || 1.0;
+     const fontPx = Math.round(11 * sizeScale);
+
      editInput = document.createElement('input');
      editInput.type = 'text';
      editInput.value = sessions[idx].task || '';
@@ -596,16 +600,16 @@
         position: 'absolute',
         left: box.x + 'px',
         top: box.y + 'px',
-        width: Math.max(box.w, 80) + 'px',
+        width: Math.max(box.w, 64) + 'px',
         height: box.h + 'px',
-        background: 'rgba(10,10,20,0.95)',
+        background: 'rgba(10,10,20,0.96)',
         border: '1px solid ' + (sessions[idx].color || '#3b82f6'),
-        borderRadius: '10px',
+        borderRadius: '3px',
         color: '#fff',
-        fontSize: '10px',
+        fontSize: fontPx + 'px',
         fontWeight: '600',
         fontFamily: 'Inter, system-ui, sans-serif',
-        padding: '0 8px',
+        padding: '0 3px',
         outline: 'none',
         zIndex: '500',
         boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
@@ -635,16 +639,23 @@
 
   function drawTaskLabels(cx, cy, r) {
     const now = Date.now();
-    const labelR = r + 16;
-    const maxR = Math.min(cx, cy) - 2;
-    const useR = Math.min(labelR, maxR);
-    // Wrapper bounds — labels must NEVER extend past the clock area's edge
     const W = Math.max(40, cx * 2);
     const H = Math.max(40, cy * 2);
-    const MARGIN = 4;
 
     labelHitBoxes = [];
     X.save();
+
+    const sizeScale = tooltipSize || 1.0;
+    const fontPx = Math.round(11 * sizeScale);
+    X.font = `600 ${fontPx}px Inter, system-ui, sans-serif`;
+
+    // Strict zero-padding: snug 3px clearance for glyph strokes
+    const padX = 3;
+    const delSize = Math.max(3.5, Math.round(fontPx * 0.4));
+    const delExtra = delSize * 2 + 3;
+    const bgH = Math.ceil(fontPx + 3);
+    const pillR = Math.min(3, Math.ceil(bgH / 2));
+    const gap = 5;
 
     for (let i = 0; i < sessions.length; i++) {
        const sess = sessions[i];
@@ -659,7 +670,7 @@
           const mdx = lastMouseX - cx, mdy = lastMouseY - cy;
           if (Math.hypot(mdx, mdy) < r + 30) continue;
        }
-       let drawText = isPlaceholder ? '＋ Add Task' : sess.task;
+       const drawText = isPlaceholder ? '＋ Add Task' : sess.task;
 
        if (!labelBirthTimes[i]) labelBirthTimes[i] = now;
        const age = now - labelBirthTimes[i];
@@ -667,54 +678,38 @@
        const midTime = (sess.start + sess.end) / 2;
        const angle = getAngleForDate(new Date(midTime));
 
-       let tx = cx + Math.cos(angle) * useR;
-       let ty = cy + Math.sin(angle) * useR;
-       const isRight = Math.cos(angle) > 0;
+       const tw = X.measureText(drawText).width;
+       const thisDelExtra = isPlaceholder ? 0 : delExtra;
+       const bgW = Math.ceil(tw + padX * 2 + thisDelExtra);
 
-       // Apply tooltipSize modifier + auto-shrink to keep the WHOLE text visible.
-       // The minimum font size scales with the user's setting, so a bigger
-       // tooltipSize actually produces a bigger font (not always 5px).
-       const sizeScale = tooltipSize || 1.0;
-       let fontPx = 10 * sizeScale;
-       // Minimum scales: 1.0× → 4px, 1.5× → 6px, 2.0× → 8px, 2.5× → 10px
-       const minFontPx = Math.max(4, sizeScale * 4);
-       X.font = `600 ${fontPx}px Inter, system-ui, sans-serif`;
-       const pad = 5 * sizeScale;
-       const delSize = 5 * sizeScale;
-       const delExtra = isPlaceholder ? 0 : delSize * 2 + 6;
-       // Position clearly outside the dial so the text area never overlaps the face
-       const txC = cx + Math.cos(angle) * (r + 24);
-       // Available width depends on side + side clearance
-       const availW = isRight ? (W - MARGIN - (txC + pad + delExtra)) : (txC - MARGIN - pad);
-       let tw = X.measureText(drawText).width;
-       // Shrink the font until the label fits, down to the scaled minimum
-       while (tw + delExtra + pad * 2 > availW && fontPx > minFontPx) {
-          fontPx -= 0.5;
-          X.font = `600 ${fontPx}px Inter, system-ui, sans-serif`;
-          tw = X.measureText(drawText).width;
+       // ── Always outside the clock ──
+       // Calculate vector pointing outward from clock center at block midpoint
+       const cosA = Math.cos(angle);
+       const sinA = Math.sin(angle);
+       const outX = cx + cosA * (r + gap);
+       const outY = cy + sinA * (r + gap);
+
+       // Align box so it grows radially outward away from the clock face
+       let bgX, bgY;
+       if (cosA > 0.25) {
+          bgX = outX;
+       } else if (cosA < -0.25) {
+          bgX = outX - bgW;
+       } else {
+          bgX = outX - bgW / 2;
        }
-       const th = 12 * sizeScale;
-       tx = txC;
 
-       let labelX = tx, labelY = ty, align = 'center';
-
-       if (isRight && tx + tw/2 + pad + delExtra + 4 > W - MARGIN) {
-          align = 'right'; labelX = W - MARGIN - pad - delExtra - 4;
-       } else if (!isRight && tx - tw/2 - pad < MARGIN) {
-          align = 'left'; labelX = MARGIN + pad + 4;
+       if (sinA > 0.25) {
+          bgY = outY;
+       } else if (sinA < -0.25) {
+          bgY = outY - bgH;
+       } else {
+          bgY = outY - bgH / 2;
        }
-       labelY = Math.max(th + pad, Math.min(H - pad, labelY));
 
-       let bgX;
-       if (align === 'center') bgX = labelX - tw/2 - pad;
-       else if (align === 'right') bgX = labelX - tw - pad;
-       else bgX = labelX - pad;
-
-       // Don't draw delete button on placeholder
-       const bgW = tw + pad * 2 + delExtra;
-       const bgH = th + pad * 1.5;
-       const bgY = labelY - th/2 - pad * 0.75;
-       const pillR = bgH / 2;
+       // Keep within canvas bounds
+       bgX = Math.max(2, Math.min(W - bgW - 2, bgX));
+       bgY = Math.max(2, Math.min(H - bgH - 2, bgY));
        
        // ── CONTINUOUS ANIMATIONS ──
        const animStyle = tooltipAnim || 'bounce';
@@ -767,7 +762,6 @@
               case 'swing': // Pendulum swing
                  animRot = tSine * 12 * Math.PI / 180;
                  break;
-              // --- NEW ---
               case 'wave': // Squish and stretch
                  animScaleX = 1.0 + tSine * 0.08;
                  animScaleY = 1.0 + tCos * 0.08;
@@ -789,7 +783,6 @@
                  break;
               case 'elastic': // Snaps out and springs back
                  if (tCycle < 0.3) {
-                    // Damped sine wave
                     const p = tCycle / 0.3;
                     animScaleX = animScaleY = 1.0 + Math.sin(p * Math.PI * 5) * Math.pow(1 - p, 2) * 0.3;
                  }
@@ -832,9 +825,9 @@
        if (animRot) X.rotate(animRot);
        X.translate(-pivotX, -pivotY + animOffY);
        
-       const drawBgY = bgY;
+       const drawBgY = bgY + animOffY;
        
-       // Pill background
+       // Pill background — snug, zero excess padding
        X.beginPath();
        X.moveTo(bgX + pillR, drawBgY);
        X.lineTo(bgX + bgW - pillR, drawBgY);
@@ -842,22 +835,22 @@
        X.lineTo(bgX + pillR, drawBgY + bgH);
        X.arc(bgX + pillR, drawBgY + pillR, pillR, Math.PI/2, -Math.PI/2);
        X.closePath();
-       X.fillStyle = isPlaceholder ? 'rgba(20,20,35,0.95)' : 'rgba(10,10,20,0.8)';
+       X.fillStyle = isPlaceholder ? 'rgba(20,20,35,0.95)' : 'rgba(10,10,20,0.85)';
        X.fill();
        X.strokeStyle = isPlaceholder ? 'rgba(167,139,250,0.7)' : sess.color;
        X.lineWidth = isPlaceholder ? 1.2 : 1;
        X.stroke();
        
-       // Glow (applies to both placeholder pulse and named-block animations)
+       // Glow
        if (shadowIntensity > 0) {
           X.shadowColor = isPlaceholder ? 'rgba(167,139,250,0.8)' : sess.color;
-          X.shadowBlur = shadowIntensity * (isPlaceholder ? 14 : (animStyle === 'neon-pulse' ? 25 : 15));
+          X.shadowBlur = shadowIntensity * (isPlaceholder ? 12 : (animStyle === 'neon-pulse' ? 20 : 12));
           X.fill();
           X.shadowBlur = 0;
           X.shadowColor = 'transparent';
        }
 
-       // Text
+       // Text — zero extra padding, snug against border
        X.textAlign = 'left';
        X.textBaseline = 'middle';
        X.fillStyle = isPlaceholder ? '#e9d5ff' : '#fff';
@@ -868,22 +861,22 @@
           const chars = Math.floor(tAge * drawText.length);
           finalString = drawText.substring(0, Math.max(1, chars));
        }
-       X.fillText(finalString, bgX + pad + (isPlaceholder ? 0 : 8 * sizeScale), labelY + animOffY);
+       X.fillText(finalString, bgX + padX, drawBgY + bgH / 2);
        
-       // × button
+       // × button — snug at right edge
        let delCx = 0, delCy = 0;
        if (!isPlaceholder) {
-           delCx = bgX + bgW - pad - (2 * sizeScale);
-           delCy = labelY + animOffY;
+           delCx = bgX + bgW - padX - delSize;
+           delCy = drawBgY + bgH / 2;
            X.globalAlpha = animAlpha * 0.5;
            X.beginPath();
            X.arc(delCx, delCy, delSize, 0, Math.PI*2);
            X.fillStyle = 'rgba(239,68,68,0.15)';
            X.fill();
-           X.font = `700 ${9 * sizeScale}px sans-serif`;
+           X.font = `700 ${Math.max(7, Math.round(fontPx * 0.75))}px sans-serif`;
            X.textAlign = 'center';
-           X.fillStyle = 'rgba(239,68,68,0.7)';
-           X.fillText('×', delCx, delCy + (1 * sizeScale));
+           X.fillStyle = 'rgba(239,68,68,0.8)';
+           X.fillText('×', delCx, delCy + 1);
        }
        
        X.restore();
