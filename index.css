@@ -8,6 +8,30 @@ html, body {
   font-family: 'Inter', system-ui, sans-serif;
 }
 
+#clock-wrapper {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#clock {
+  width: 100%;
+  height: 100%;
+}
+#app:hover #settings-btn { opacity: 1; pointer-events: auto; }
+#settings-btn {
+  position: absolute; top: 8px; right: 8px; width: 28px; height: 28px;
+  background: rgba(255,255,255,0.08); border-radius: 50%; display: flex;
+  align-items: center; justify-content: center; cursor: pointer;
+  opacity: 0; pointer-events: none; transition: opacity 0.25s, transform 0.2s; backdrop-filter: blur(4px);
+  -webkit-app-region: no-drag; border: 1px solid rgba(255,255,255,0.12); z-index: 10;
+}
+#settings-btn.visible { opacity: 1; pointer-events: auto; }
+#settings-btn:hover { background: rgba(255,255,255,0.18); transform: scale(1.15); }
+#settings-btn svg { width: 14px; height: 14px; fill: rgba(255,255,255,0.85); }
+
 #clock {
   display: block;
   width: 100%; height: 100%;
@@ -17,3 +41,74 @@ html, body {
 }
 
 #clock:active { cursor: grabbing; }
+
+.floating-picker {
+  position: absolute;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.8);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  overflow: hidden;
+  cursor: pointer;
+  display: none;
+  z-index: 100;
+  transition: transform 0.1s;
+  pointer-events: auto;
+}
+.floating-picker:hover {
+  transform: scale(1.15);
+  border-color: #fff;
+}
+.floating-picker input {
+  position: absolute;
+  top: -10px; left: -10px;
+  width: 44px; height: 44px;
+  padding: 0; margin: 0;
+  border: none; background: none;
+  cursor: pointer;
+}
+
+#block-tooltip {
+  position: absolute;
+  padding: 8px 14px;
+  background: rgba(15,15,25,0.85);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 200;
+  transform-origin: center bottom;
+  backdrop-filter: blur(8px);
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  transition: top 0.1s, left 0.1s;
+}
+
+#block-tooltip.show { opacity: 1; }
+
+#block-tooltip.anim-fade.show { animation: tooltip-fade 0.3s ease-out forwards; }
+@keyframes tooltip-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+#block-tooltip.anim-bounce.show { animation: tooltip-bounce 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+@keyframes tooltip-bounce {
+  from { opacity: 0; transform: scale(0.5) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+#block-tooltip.anim-slide.show { animation: tooltip-slide 0.3s ease-out forwards; }
+@keyframes tooltip-slide {
+  from { opacity: 0; transform: translateY(15px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+#block-tooltip.anim-flip.show { animation: tooltip-flip 0.4s ease-out forwards; }
+@keyframes tooltip-flip {
+  from { opacity: 0; transform: perspective(400px) rotateX(-90deg); }
+  to { opacity: 1; transform: perspective(400px) rotateX(0deg); }
+}

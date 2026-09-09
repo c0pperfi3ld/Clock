@@ -1,118 +1,63 @@
 <div align="center">
-  
-# 🌌 Floating Desktop Clock Widget 🌌
-
-**A pure, frameless, and ultra-customizable desktop clock built with Electron & HTML5 Canvas.**
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Electron](https://img.shields.io/badge/Electron-191970?logo=electron&logoColor=white)](#)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgray)](#)
-
-*Float seamlessly on your desktop while tracking time in style.*
-
+  <img src="https://raw.githubusercontent.com/miraj/clock/main/assets/icon.png" width="120" alt="Clock Icon" />
+  <h1>ChronoCore</h1>
+  <p><strong>A Next-Generation, Borderless, Highly-Customizable Desktop Clock & Time Management Tool</strong></p>
 </div>
 
 ---
 
-## ⚡ Quick Look Features
+**ChronoCore** is a modern Electron-based desktop widget that reimagines time management. Far beyond a simple clock, it features an invisible borderless interface, 52 unique canvas-rendered dials, algorithmic dynamic colors, and a zero-friction canvas editor that lets you construct Pomodoro loops and custom schedules directly on the clock face.
 
-| Feature | Description |
-| :--- | :--- |
-| 🎨 **Massive Customization** | 52 unique clock faces (Ghost, Classic, Motion) |
-| 🕰️ **Interchangeable Hands** | 10 styles (Lancet, Sword, Skeleton, Needle, etc.) |
-| 🌘 **Curated Themes** | 10 dark aesthetics (Obsidian, Void, Abyss, Midnight) |
-| 🪟 **Frameless & Transparent** | Blends flawlessly into any wallpaper |
-| 🚀 **High Performance** | Precomputed math, subpixel precision & zero-lag UI |
+## ✨ Features
 
----
+- **52 Architectural Dial Designs**: From Classic Wall Clocks and Swiss Aviators to Cyberpunk Neon, Retro LCDs, Holographic Projections, and Matrix Rain.
+- **10 Precision Hand Sets**: Customize your pointers (Tapered, Baton, Breguet, Skeleton, Sweeping, etc.).
+- **Zero-Friction Canvas Interactions**: 
+  - Click anywhere on the clock's dial to instantly spawn a new block of time.
+  - Drag the fluid start/end handles to intuitively resize blocks visually.
+  - Instantly delete blocks by clicking the inline floating trash icon.
+- **Algorithmic Color Engine**: Spawning new tasks mathematically spaces out hues on the color wheel using the Golden Angle (137.5°), ensuring optimal contrast and beautiful complementary palettes for every block.
+- **18 Continuous Task Animations**: Task labels float on the canvas with independent mathematical transforms ranging from elastic bounces and slow breathing, to rapid neon pulses and heartbeat scaling.
+- **Pomodoro Engine**: Generate multiple work/break cycles instantly with dual-color visualization for elapsed vs. remaining time.
+- **Transparent & Borderless UX**: A completely floating window utilizing a custom IPC drag handler that doesn't rely on restrictive CSS regions, allowing sub-pixel perfect interactions.
 
-## 🛠️ Detailed Installation Guide
+## 🚀 Quick Start
 
-Get up and running in minutes. Follow these step-by-step instructions.
+### Prerequisites
+- [Node.js](https://nodejs.org/) (v16+)
 
-### 1️⃣ Prerequisites
-Before you begin, ensure you have the following installed on your system:
-*   [**Git**](https://git-scm.com/downloads) (to clone the repository)
-*   [**Node.js & npm**](https://nodejs.org/) (Version 16.x or higher is recommended)
+### Installation
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/your-username/chronocore.git
+   cd chronocore
+   ```
 
-### 2️⃣ Clone the Repository
-Open your terminal (or Command Prompt / PowerShell) and run:
-```bash
-git clone https://github.com/c0pperfi3ld/Clock.git
-cd Clock
-```
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-### 3️⃣ Install Dependencies
-Let npm pull down all the necessary Electron packages:
-```bash
-npm install
-```
+3. **Launch the application**
+   ```bash
+   npm start
+   ```
 
-### 4️⃣ Launch the App
-Fire up the clock widget locally:
-```bash
-npm start
-```
+## 🧠 Architecture
 
-*(Optional) Packaging for Production:*
-If you want to create a standalone `.exe` or `.app` file, you can install an packager:
-```bash
-npm install -g electron-packager
-electron-packager . ClockApp --platform=win32 --arch=x64
-```
+ChronoCore achieves extreme performance by sidestepping heavy DOM manipulation for rendering. 
+- **`renderer.js`**: Drives a 60fps raw Canvas API engine handling all 52 designs, animated handles, glowing tooltips, and geometric wedge calculations.
+- **`main.js`**: Orchestrates secure window configurations, dual-IPC bridges, and OS-level persistent bounds tracking.
+- **Settings Panel**: An independent, transparent child window that syncs with the main thread, allowing real-time design switching and Pomodoro array building.
 
----
+## 🛠️ Usage
 
-## 🎯 How to Use
+- **Drag to Move**: Click anywhere on the clock face (where there are no handles) and drag to reposition the widget on your screen.
+- **Settings Panel**: Hover over the clock to reveal the Gear Icon. Click it to open the configuration panel.
+- **Add a Block**: Click on the empty space of the clock's outer ring.
+- **Edit a Block**: Click an existing wedge to reveal the Red/Blue drag handles and floating color pickers.
+- **Name a Task**: Click the translucent `+ Add Task` label floating outside the clock to spawn a native text input.
 
-Once launched, you will see two windows:
+## 📝 License
 
-1.  **The Floating Clock:** The main frameless widget on your desktop.
-    *   **Drag to Move:** You can drag the clock around your screen by clicking and holding on the clock face.
-2.  **The Settings Panel:** A dedicated control center for live customization.
-    *   **Design Selection:** Instantly switch between Ghost, Classic, and Motion designs.
-    *   **Theme & Hands:** Mix and match colors and hand styles with real-time feedback.
-    *   *Tip:* Keep the panel open on a secondary monitor to tweak designs without blocking your view!
-
----
-
-## 🏗️ Architecture Infographic
-
-The application utilizes a secure dual-window Electron architecture to keep the widget lightweight and isolated from the settings panel.
-
-```mermaid
-graph TD
-    %% Main Process
-    NodeMain["🖥️ Main Process (Node.js)"]
-    
-    %% Windows
-    Widget["⏱️ Clock Widget (Transparent Canvas)"]
-    Panel["⚙️ Settings Panel (UI Controls)"]
-    
-    %% Preloads (IPC Bridges)
-    PreloadA["🌉 preload.js (Secure IPC)"]
-    PreloadB["🌉 preload_panel.js (Secure IPC)"]
-    
-    %% Connections
-    NodeMain -->|Spawns| Widget
-    NodeMain -->|Spawns| Panel
-    
-    Widget --- PreloadA
-    Panel --- PreloadB
-    
-    PreloadB -->|Live Updates via IPC| NodeMain
-    NodeMain -->|Forwards Data| PreloadA
-    PreloadA -->|Re-renders Canvas| Widget
-    
-    style NodeMain fill:#191970,stroke:#fff,stroke-width:2px,color:#fff
-    style Widget fill:#111,stroke:#333,stroke-width:2px,color:#0ff
-    style Panel fill:#222,stroke:#444,stroke-width:2px,color:#fff
-```
-
-## 📜 License
-Distributed under the MIT License. See `LICENSE` for more information.
-
----
-<div align="center">
-  <i>Designed for performance. Built for aesthetics.</i>
-</div>
+This project is licensed under the MIT License - see the LICENSE file for details.

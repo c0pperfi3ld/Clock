@@ -1,15 +1,21 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
   <meta charset="UTF-8">
-  <title>Clock</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="index.css">
 </head>
 <body>
-  <canvas id="clock"></canvas>
+  <div id="app">
+    <div id="clock-wrapper">
+      <canvas id="clock"></canvas>
+      <label id="picker-wrap-start" class="floating-picker" title="Remaining Color">
+         <input type="color" id="color-start">
+      </label>
+      <label id="picker-wrap-end" class="floating-picker" title="Elapsed Color">
+         <input type="color" id="color-end">
+      </label>
+    </div>
+  </div>
   <script src="renderer.js"></script>
 </body>
 </html>
