@@ -58,6 +58,18 @@
   api.onSetTooltipAnim(a => { tooltipAnim=a; save(); });
   if (api.onSetTooltipSize) api.onSetTooltipSize(s => { tooltipSize=s; save(); });
 
+  // ── Reminder alert state ──
+  let reminderAlert = null; // { label, firedAt, duration }
+  if (api.onReminderFired) {
+    api.onReminderFired(data => {
+      reminderAlert = {
+        label: data.label || 'Reminder',
+        firedAt: performance.now(),
+        duration: 30 * 1000 // 30s pulse window
+      };
+    });
+  }
+
   const dpr = window.devicePixelRatio||1;
   const pWrapS = document.getElementById('picker-wrap-start');
   const pWrapE = document.getElementById('picker-wrap-end');
@@ -126,7 +138,8 @@
     
     // Check gear icon click first
     if (isClickOnGear(e.clientX, e.clientY)) {
-       api.showPanel({style,theme,handType,opacity});
+       const saved = api.loadSettings() || {};
+       api.showPanel({style,theme,handType,opacity,sessions,reminders:saved.reminders||[]});
        return;
     }
     
@@ -364,6 +377,11 @@
   // Click on label to edit, click × to delete task
   canvas.addEventListener('click', e => {
      const mx = e.clientX, my = e.clientY;
+     // Dismiss any active reminder alert first
+     if (reminderAlert) {
+        reminderAlert = null;
+        return;
+     }
      for (const box of labelHitBoxes) {
         // Check delete button
         if (Math.hypot(mx - box.delX, my - box.delY) < box.delR + 4) {
@@ -737,6 +755,65 @@
 
   function isClickOnGear(mx, my) {
     return gearOpacity > 0.1 && Math.hypot(mx - gearX, my - gearY) < gearR + 4;
+  }
+
+  // ── Reminder Alert Visual ──
+  // Draws a pulsing red ring around the clock + a banner with the label.
+  // Auto-clears after `duration` ms; user can click to dismiss.
+  function drawReminderAlert(cx, cy, r) {
+    if (!reminderAlert) return;
+    const elapsedMs = performance.now() - reminderAlert.firedAt;
+    if (elapsedMs > reminderAlert.duration) {
+      reminderAlert = null;
+      return;
+    }
+    const phase = elapsedMs / 1000; // seconds
+    // Two pulse rings (slow + fast) for a heartbeat feel
+    const pulse1 = (Math.sin(phase * 3) * 0.5 + 0.5);
+    const pulse2 = (Math.sin(phase * 5 + 1.5) * 0.5 + 0.5);
+    const fade = 1 - (elapsedMs / reminderAlert.duration); // 1 → 0
+    X.save();
+    // Outer ring
+    X.beginPath();
+    X.arc(cx, cy, r * (1.18 + 0.05 * pulse1), 0, PI2);
+    X.strokeStyle = `rgba(239,68,68,${0.55 * fade})`;
+    X.lineWidth = 4 + 4 * pulse1;
+    X.shadowColor = `rgba(239,68,68,${0.9 * fade})`;
+    X.shadowBlur = 22;
+    X.stroke();
+    // Inner ring
+    X.beginPath();
+    X.arc(cx, cy, r * (1.06 + 0.03 * pulse2), 0, PI2);
+    X.strokeStyle = `rgba(251,191,36,${0.7 * fade})`;
+    X.lineWidth = 2;
+    X.shadowColor = `rgba(251,191,36,${0.8 * fade})`;
+    X.shadowBlur = 14;
+    X.stroke();
+    X.shadowBlur = 0;
+    X.shadowColor = 'transparent';
+    // Banner — pill above the clock
+    const text = `⏰ ${reminderAlert.label}`;
+    X.font = '700 12px sans-serif';
+    const tw = X.measureText(text).width;
+    const padX = 12, padY = 6;
+    const bw = tw + padX * 2, bh = 12 + padY * 2;
+    const bx = cx - bw / 2;
+    const by = cy - r - bh - 10;
+    X.beginPath();
+    const pr = bh / 2;
+    X.moveTo(bx + pr, by);
+    X.lineTo(bx + bw - pr, by);
+    X.arc(bx + bw - pr, by + pr, pr, -Math.PI/2, Math.PI/2);
+    X.lineTo(bx + pr, by + bh);
+    X.arc(bx + pr, by + pr, pr, Math.PI/2, -Math.PI/2);
+    X.closePath();
+    X.fillStyle = `rgba(239,68,68,${0.92 * fade})`;
+    X.fill();
+    X.fillStyle = `rgba(255,255,255,${fade})`;
+    X.textAlign = 'center';
+    X.textBaseline = 'middle';
+    X.fillText(text, cx, by + pr);
+    X.restore();
   }
 
   /* ================================================================
@@ -1600,6 +1677,7 @@
     drawTaskLabels(cx, cy, r);
     drawInteractiveKnob(cx, cy, r);
     drawGearIcon(cx, cy, r);
+    drawReminderAlert(cx, cy, r);
     requestAnimationFrame(draw);
   }
 

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -122,6 +122,11 @@ ipcMain.on('panel-set-block-opacity', (_, v) => { if (win && !win.isDestroyed())
 ipcMain.on('panel-set-block-anim', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-block-anim', v); });
 ipcMain.on('panel-set-tooltip-anim', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-tooltip-anim', v); });
 ipcMain.on('panel-set-tooltip-size', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-tooltip-size', v); });
+ipcMain.on('panel-set-reminders', (_, v) => {
+  const s = loadSettings();
+  s.reminders = v;
+  saveSettings(s);
+});
 ipcMain.on('panel-focus-time', (_, data) => { if (win && !win.isDestroyed()) win.webContents.send('focus-time', data); });
 ipcMain.on('panel-blur-time', () => { if (win && !win.isDestroyed()) win.webContents.send('blur-time'); });
 ipcMain.on('clock-update-time', (_, data) => { if (panel && !panel.isDestroyed()) panel.webContents.send('update-time', data); });
@@ -133,5 +138,67 @@ ipcMain.on('close-app', () => app.quit());
 ipcMain.on('save-settings', (_, data) => { const s = loadSettings(); Object.assign(s, data); saveSettings(s); });
 ipcMain.on('load-settings', (event) => { event.returnValue = loadSettings(); });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  startReminderScheduler();
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+
+// ── Reminder Scheduler ──
+let reminderInterval = null;
+function startReminderScheduler() {
+  if (Notification.isSupported()) {
+    try { new Notification({ title: 'ChronoCore', body: 'Reminders armed.' }).show(); } catch (e) {}
+  }
+  if (reminderInterval) clearInterval(reminderInterval);
+  // Check every 15s — minute resolution is enough for HH:MM
+  reminderInterval = setInterval(checkReminders, 15 * 1000);
+  // Also run once after a short delay so the boot notification isn't immediately followed by stale fires
+  setTimeout(checkReminders, 5000);
+}
+
+function checkReminders() {
+  const s = loadSettings();
+  const reminders = Array.isArray(s.reminders) ? s.reminders : [];
+  if (reminders.length === 0) return;
+
+  const now = new Date();
+  const hh = now.getHours().toString().padStart(2, '0');
+  const mm = now.getMinutes().toString().padStart(2, '0');
+  const cur = `${hh}:${mm}`;
+  const todayKey = `${now.getFullYear()}-${(now.getMonth()+1).toString().padStart(2,'0')}-${now.getDate().toString().padStart(2,'0')}`;
+
+  let dirty = false;
+  for (const r of reminders) {
+    if (!r || !r.time) continue;
+    if (r.time !== cur) continue;
+    if (r.lastFiredDate === todayKey) continue; // already fired today
+    // FIRE
+    r.lastFiredDate = todayKey;
+    dirty = true;
+    const label = r.label || 'Reminder';
+    // OS notification
+    if (Notification.isSupported()) {
+      try {
+        new Notification({
+          title: '⏰ ChronoCore',
+          body: label,
+          silent: false
+        }).show();
+      } catch (e) {}
+    }
+    // Visual alert on clock face
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('reminder-fired', { id: r.id, label, time: r.time });
+    }
+    // Recurring=false → schedule for removal after a short delay (let user see it in panel first)
+    if (!r.recurring) {
+      r.removeAfter = Date.now() + 60 * 1000; // remove in 60s
+    }
+  }
+
+  // Cleanup expired one-time reminders
+  const stillValid = reminders.filter(r => !r.removeAfter || r.removeAfter > Date.now());
+  if (stillValid.length !== reminders.length) dirty = true;
+  if (dirty) { s.reminders = stillValid; saveSettings(s); }
+}
