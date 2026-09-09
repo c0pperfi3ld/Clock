@@ -2,6 +2,9 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="index.css">
 </head>
 <body>
@@ -15,6 +18,42 @@
          <input type="color" id="color-end">
       </label>
     </div>
+    <aside id="todo-panel">
+      <div class="todo-header">
+        <div class="todo-title">
+          <span class="todo-icon">✦</span>
+          <span>Tasks</span>
+        </div>
+        <div class="todo-stats">
+          <span class="todo-count" id="todo-count">0</span>
+          <button class="todo-clear" id="todo-clear" title="Clear completed">⌫</button>
+        </div>
+      </div>
+
+      <form id="todo-form" class="todo-form" autocomplete="off">
+        <button type="submit" class="todo-add-btn" title="Add task">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+        <input type="text" id="todo-input" placeholder="Add a task…" maxlength="80" />
+      </form>
+
+      <div class="todo-filters">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="active">Active</button>
+        <button class="filter-btn" data-filter="done">Done</button>
+      </div>
+
+      <ul id="todo-list" class="todo-list"></ul>
+
+      <div class="todo-empty" id="todo-empty">
+        <div class="empty-icon">📝</div>
+        <div class="empty-text">No tasks yet</div>
+        <div class="empty-sub">Press Enter to add your first task</div>
+      </div>
+    </aside>
   </div>
   <script src="renderer.js"></script>
 </body>

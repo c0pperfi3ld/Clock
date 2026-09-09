@@ -1,4 +1,4 @@
-/* Pure round floating clock — zero square boxes */
+/* ChronoCore — Clock + Tasks layout */
 * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
 
 html, body {
@@ -6,40 +6,34 @@ html, body {
   background: transparent !important;
   overflow: hidden;
   font-family: 'Inter', system-ui, sans-serif;
+  color: #fff;
 }
 
-#clock-wrapper {
-  position: relative;
+#app {
+  display: flex;
   width: 100vw;
   height: 100vh;
+  align-items: stretch;
+}
+
+/* ── Clock area (left, square) ── */
+#clock-wrapper {
+  width: 100vh;
+  height: 100vh;
+  flex-shrink: 0;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 #clock {
+  display: block;
   width: 100%;
   height: 100%;
-}
-#app:hover #settings-btn { opacity: 1; pointer-events: auto; }
-#settings-btn {
-  position: absolute; top: 8px; right: 8px; width: 28px; height: 28px;
-  background: rgba(255,255,255,0.08); border-radius: 50%; display: flex;
-  align-items: center; justify-content: center; cursor: pointer;
-  opacity: 0; pointer-events: none; transition: opacity 0.25s, transform 0.2s; backdrop-filter: blur(4px);
-  -webkit-app-region: no-drag; border: 1px solid rgba(255,255,255,0.12); z-index: 10;
-}
-#settings-btn.visible { opacity: 1; pointer-events: auto; }
-#settings-btn:hover { background: rgba(255,255,255,0.18); transform: scale(1.15); }
-#settings-btn svg { width: 14px; height: 14px; fill: rgba(255,255,255,0.85); }
-
-#clock {
-  display: block;
-  width: 100%; height: 100%;
   cursor: grab;
   background: transparent !important;
   transition: opacity 0.2s ease;
 }
-
 #clock:active { cursor: grabbing; }
 
 .floating-picker {
@@ -68,47 +62,339 @@ html, body {
   cursor: pointer;
 }
 
-#block-tooltip {
+/* ── Tasks panel (right) ── */
+#todo-panel {
+  flex: 1;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(160deg,
+    rgba(20, 18, 35, 0.78) 0%,
+    rgba(12, 10, 22, 0.82) 60%,
+    rgba(8, 6, 16, 0.85) 100%);
+  backdrop-filter: blur(28px) saturate(140%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  border-left: 1px solid rgba(255,255,255,0.08);
+  box-shadow: -20px 0 60px rgba(0,0,0,0.4) inset, 0 0 0 1px rgba(255,255,255,0.02);
+  position: relative;
+  overflow: hidden;
+}
+/* Subtle moving aurora glow */
+#todo-panel::before {
+  content: '';
   position: absolute;
-  padding: 8px 14px;
-  background: rgba(15,15,25,0.85);
-  border: 1px solid rgba(255,255,255,0.15);
+  top: -40%; left: -20%;
+  width: 140%; height: 60%;
+  background: radial-gradient(ellipse at center, rgba(139,92,246,0.18), transparent 60%);
+  pointer-events: none;
+  animation: aurora 14s ease-in-out infinite alternate;
+  z-index: 0;
+}
+#todo-panel::after {
+  content: '';
+  position: absolute;
+  bottom: -40%; right: -20%;
+  width: 140%; height: 60%;
+  background: radial-gradient(ellipse at center, rgba(56,189,248,0.12), transparent 60%);
+  pointer-events: none;
+  animation: aurora 18s ease-in-out infinite alternate-reverse;
+  z-index: 0;
+}
+@keyframes aurora {
+  0%   { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(8%, 4%) scale(1.15); }
+}
+
+/* ── Header ── */
+.todo-header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.todo-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.78rem; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: rgba(255,255,255,0.85);
+}
+.todo-icon {
+  display: inline-flex;
+  width: 22px; height: 22px;
+  align-items: center; justify-content: center;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+  color: #fff;
+  font-size: 0.85rem;
+  box-shadow: 0 4px 12px rgba(139,92,246,0.4);
+  animation: icon-pulse 3s ease-in-out infinite;
+}
+@keyframes icon-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 4px 12px rgba(139,92,246,0.4); }
+  50%      { transform: scale(1.06); box-shadow: 0 4px 16px rgba(236,72,153,0.55); }
+}
+.todo-stats { display: flex; align-items: center; gap: 8px; }
+.todo-count {
+  background: rgba(167,139,250,0.18);
+  color: #c4b5fd;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  min-width: 22px;
+  text-align: center;
+  transition: background 0.2s, color 0.2s;
+}
+.todo-count.has-items {
+  background: linear-gradient(135deg, rgba(139,92,246,0.32), rgba(236,72,153,0.32));
+  color: #fff;
+}
+.todo-clear {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.5);
+  width: 24px; height: 24px;
   border-radius: 6px;
-  color: white;
-  font-size: 14px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.todo-clear:hover {
+  background: rgba(239,68,68,0.18);
+  border-color: rgba(239,68,68,0.4);
+  color: #fca5a5;
+}
+
+/* ── Add form ── */
+.todo-form {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 14px 4px;
+  padding: 4px 4px 4px 6px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  transition: all 0.2s;
+}
+.todo-form:focus-within {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(167,139,250,0.5);
+  box-shadow: 0 0 0 3px rgba(167,139,250,0.12), 0 4px 16px rgba(139,92,246,0.18);
+}
+.todo-add-btn {
+  background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+  border: none;
+  color: #fff;
+  width: 30px; height: 30px;
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 2px 8px rgba(139,92,246,0.4);
+}
+.todo-add-btn:hover { transform: scale(1.08); box-shadow: 0 4px 14px rgba(236,72,153,0.5); }
+.todo-add-btn:active { transform: scale(0.94); }
+#todo-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 8px 6px;
+}
+#todo-input::placeholder { color: rgba(255,255,255,0.35); }
+
+/* ── Filter chips ── */
+.todo-filters {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 4px;
+  padding: 8px 14px 6px;
+}
+.filter-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: rgba(255,255,255,0.5);
+  font-family: inherit;
+  font-size: 0.66rem;
   font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.filter-btn:hover { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.04); }
+.filter-btn.active {
+  background: rgba(167,139,250,0.18);
+  color: #c4b5fd;
+  border-color: rgba(167,139,250,0.35);
+}
+
+/* ── List ── */
+.todo-list {
+  position: relative;
+  z-index: 1;
+  list-style: none;
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 8px 14px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+.todo-list::-webkit-scrollbar { width: 5px; }
+.todo-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+.todo-list::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.04);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s, border-color 0.15s, transform 0.2s, opacity 0.25s;
+  animation: item-in 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
+}
+.todo-item:hover { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); }
+.todo-item.done { opacity: 0.45; }
+.todo-item.done .todo-text { text-decoration: line-through; color: rgba(255,255,255,0.5); }
+.todo-item.removing { animation: item-out 0.24s ease-in forwards; }
+@keyframes item-in {
+  0%   { opacity: 0; transform: translateX(-12px) scale(0.96); }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+@keyframes item-out {
+  0%   { opacity: 1; transform: translateX(0) scale(1); max-height: 60px; margin-bottom: 4px; padding-top: 8px; padding-bottom: 8px; }
+  100% { opacity: 0; transform: translateX(20px) scale(0.94); max-height: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0; border-width: 0; }
+}
+
+/* Custom checkbox */
+.todo-check {
+  width: 18px; height: 18px;
+  border-radius: 6px;
+  border: 1.5px solid rgba(255,255,255,0.3);
+  background: transparent;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  position: relative;
+  cursor: pointer;
+}
+.todo-item:hover .todo-check { border-color: rgba(167,139,250,0.7); }
+.todo-check.checked {
+  background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+  border-color: transparent;
+  box-shadow: 0 2px 8px rgba(139,92,246,0.4);
+  animation: check-bounce 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+}
+@keyframes check-bounce {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+.todo-check.checked::after {
+  content: '';
+  width: 5px; height: 9px;
+  border-right: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(45deg) translate(-1px, -1px);
+  animation: check-draw 0.22s ease-out 0.06s backwards;
+}
+@keyframes check-draw {
+  0%   { width: 0; height: 0; opacity: 0; }
+  100% { width: 5px; height: 9px; opacity: 1; }
+}
+
+.todo-text {
+  flex: 1;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: rgba(255,255,255,0.9);
+  line-height: 1.35;
+  word-break: break-word;
+  cursor: text;
+  padding: 2px 0;
+}
+.todo-text[contenteditable="true"] {
+  outline: none;
+  background: rgba(255,255,255,0.06);
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: text;
+  user-select: text;
+}
+
+.todo-del {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.3);
+  width: 22px; height: 22px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: all 0.15s;
+}
+.todo-item:hover .todo-del { opacity: 1; }
+.todo-del:hover {
+  background: rgba(239,68,68,0.18);
+  color: #fca5a5;
+}
+
+/* ── Empty state ── */
+.todo-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  z-index: 1;
   pointer-events: none;
   opacity: 0;
-  z-index: 200;
-  transform-origin: center bottom;
-  backdrop-filter: blur(8px);
-  white-space: nowrap;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-  transition: top 0.1s, left 0.1s;
+  transition: opacity 0.3s;
+  margin-top: 80px;
+}
+.todo-empty.show { opacity: 1; }
+.empty-icon {
+  font-size: 2.4rem;
+  filter: grayscale(0.4);
+  animation: float-icon 4s ease-in-out infinite;
+}
+@keyframes float-icon {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50%      { transform: translateY(-4px) rotate(2deg); }
+}
+.empty-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.55);
+}
+.empty-sub {
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.3);
 }
 
-#block-tooltip.show { opacity: 1; }
-
-#block-tooltip.anim-fade.show { animation: tooltip-fade 0.3s ease-out forwards; }
-@keyframes tooltip-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-#block-tooltip.anim-bounce.show { animation: tooltip-bounce 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-@keyframes tooltip-bounce {
-  from { opacity: 0; transform: scale(0.5) translateY(10px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
-}
-
-#block-tooltip.anim-slide.show { animation: tooltip-slide 0.3s ease-out forwards; }
-@keyframes tooltip-slide {
-  from { opacity: 0; transform: translateY(15px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-#block-tooltip.anim-flip.show { animation: tooltip-flip 0.4s ease-out forwards; }
-@keyframes tooltip-flip {
-  from { opacity: 0; transform: perspective(400px) rotateX(-90deg); }
-  to { opacity: 1; transform: perspective(400px) rotateX(0deg); }
-}
+/* ── Reminder banner (kept from old layout, hidden now) ── */
+#block-tooltip { display: none; }
