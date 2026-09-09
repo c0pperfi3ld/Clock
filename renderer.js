@@ -968,12 +968,75 @@
     X.arc(gearX, gearY, gearR * 0.22, 0, PI2);
     X.fillStyle = 'rgba(0,0,0,0.6)';
     X.fill();
-    
+
     X.restore();
   }
 
-  // ── Tooltip size Ctrl+scroll helper (no on-dial buttons — they conflicted
-  //    with the block-spawn outer-ring click zone) ──
+  function isClickOnGear(mx, my) {
+    return gearOpacity > 0.1 && Math.hypot(mx - gearX, my - gearY) < gearR + 4;
+  }
+
+  // ── Tooltip size indicator (brief flash after Ctrl+scroll) ──
+  function drawTooltipSizeIndicator(cx, cy, r) {
+    if (!tooltipResizePulse) return;
+    const elapsed = performance.now() - tooltipResizePulse;
+    if (elapsed > 1200) { tooltipResizePulse = 0; return; }
+    const fade = 1 - (elapsed / 1200);
+    const label = `Tooltip ${(tooltipSize || 1.0).toFixed(1)}×`;
+    X.save();
+    X.globalAlpha = fade;
+    X.font = '700 12px Inter, system-ui, sans-serif';
+    const tw = X.measureText(label).width;
+    const padX = 12, padY = 6;
+    const bw = tw + padX * 2, bh = 12 + padY * 2;
+    const bx = cx - bw / 2;
+    const by = Math.max(4, cy - r + 8);
+    X.beginPath();
+    const pr = bh / 2;
+    X.moveTo(bx + pr, by);
+    X.lineTo(bx + bw - pr, by);
+    X.arc(bx + bw - pr, by + pr, pr, -Math.PI/2, Math.PI/2);
+    X.lineTo(bx + pr, by + bh);
+    X.arc(bx + pr, by + pr, pr, Math.PI/2, -Math.PI/2);
+    X.closePath();
+    X.fillStyle = 'rgba(167,139,250,0.92)';
+    X.shadowColor = 'rgba(167,139,250,0.5)';
+    X.shadowBlur = 14;
+    X.fill();
+    X.shadowBlur = 0;
+    X.fillStyle = '#fff';
+    X.textAlign = 'center';
+    X.textBaseline = 'middle';
+    X.fillText(label, cx, by + pr);
+    X.restore();
+  }
+
+  function drawGhostPure(cx,cy,r,hrF,minF,secF,t) {
+     const [ha,ma,sa]=angles(hrF,minF,secF);
+     for(let i=0;i<12;i++){const a=i*30*DEG2RAD;
+       X.beginPath();X.arc(cx+Math.sin(a)*r*0.88,cy-Math.cos(a)*r*0.88,Math.max(1.5,r*0.012),0,PI2);
+       X.fillStyle='rgba(255,255,255,0.18)';X.fill();}
+     drawHandSet(cx,cy,r,ha,ma,sa,'rgba(255,255,255,0.65)','rgba(255,255,255,0.45)',t.sec,false,0.7);
+  }
+
+  function drawGhostMist(cx,cy,r,hrF,minF,secF,t) {
+     X.save();X.globalAlpha=0.15;
+     for(let l=0;l<3;l++){const rr=r*0.85-l*12;
+       X.beginPath();X.arc(cx,cy,rr,0,PI2);
+       X.strokeStyle=l===0?'rgba(255,255,255,0.5)':l===1?'rgba(255,255,255,0.3)':'rgba(255,255,255,0.15)';
+       X.lineWidth=1;X.stroke();}
+     X.restore();
+     const [ha,ma,sa]=angles(hrF,minF,secF);
+     drawHandSet(cx,cy,r,ha,ma,sa,'rgba(255,255,255,0.55)','rgba(255,255,255,0.4)',t.sec,false,0.65);
+  }
+
+  function drawGhostPrism(cx,cy,r,hrF,minF,secF,t) {
+     const [ha,ma,sa]=angles(hrF,minF,secF);
+     // Chromatic offset hands
+     drawHandSet(cx-1.5,cy,r,ha,ma,sa,'rgba(239,68,68,0.7)','rgba(239,68,68,0.5)',null);
+     drawHandSet(cx+1.5,cy,r,ha,ma,sa,'rgba(56,189,248,0.7)','rgba(56,189,248,0.5)',null);
+     drawHandSet(cx,cy,r,ha,ma,sa,'#ffffff','rgba(255,255,255,0.9)',t.sec,true);
+  }
 
   function drawGhostWireframe(cx,cy,r,hrF,minF,secF,t) {
     X.beginPath();X.arc(cx,cy,r*0.9,0,PI2);
@@ -1058,6 +1121,188 @@
     X.save();X.shadowColor=t.accent;X.shadowBlur=8;
     drawHandSet(cx,cy,r,ha,ma,sa,t.accent,'rgba(255,255,255,0.7)',t.sec,true);
     X.restore();
+  }
+
+  /* ================================================================
+   *  MODULAR HAND DRAWING SYSTEM — 9 Types + helpers
+   * ================================================================ */
+
+  function drawHandSet(cx, cy, r, hAngle, mAngle, sAngle, hCol, mCol, sCol, glowSec=false, opacityScale=1) {
+    X.save();
+    if (opacityScale < 1) X.globalAlpha *= opacityScale;
+    const hType = handType, mType = handType, sType = handType;
+    const HANDS = {
+      tapered: {
+        hour: (cx,cy,a,len,col) => _tapered(cx,cy,a,len,len*0.09,len*0.03,col),
+        minute: (cx,cy,a,len,col) => _tapered(cx,cy,a,len,len*0.065,len*0.02,col)
+      },
+      sword: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=6;
+          const w=len*0.04;
+          X.beginPath();X.moveTo(0,len*0.12);X.lineTo(-w,0);X.lineTo(-w*0.7,-len*0.4);X.lineTo(0,-len);X.lineTo(w*0.7,-len*0.4);X.lineTo(w,0);X.closePath();
+          X.fillStyle=col;X.fill();X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.3)';X.shadowBlur=5;
+          const w=len*0.03;
+          X.beginPath();X.moveTo(0,len*0.12);X.lineTo(-w,0);X.lineTo(-w*0.7,-len*0.45);X.lineTo(0,-len);X.lineTo(w*0.7,-len*0.45);X.lineTo(w,0);X.closePath();
+          X.fillStyle=col;X.fill();X.restore();
+        }
+      },
+      dauphine: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=6;
+          const w=len*0.05;
+          X.beginPath();X.moveTo(0,len*0.1);X.lineTo(-w,0);X.lineTo(-w*0.3,-len*0.5);X.lineTo(0,-len);X.lineTo(w*0.3,-len*0.5);X.lineTo(w,0);X.closePath();
+          X.fillStyle=col;X.fill();X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.3)';X.shadowBlur=5;
+          const w=len*0.04;
+          X.beginPath();X.moveTo(0,len*0.1);X.lineTo(-w,0);X.lineTo(-w*0.3,-len*0.5);X.lineTo(0,-len);X.lineTo(w*0.3,-len*0.5);X.lineTo(w,0);X.closePath();
+          X.fillStyle=col;X.fill();X.restore();
+        }
+      },
+      leaf: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=6;
+          X.beginPath();X.moveTo(0,len*0.12);
+          X.quadraticCurveTo(-len*0.06,-len*0.3,0,-len);
+          X.quadraticCurveTo(len*0.06,-len*0.3,0,len*0.12);
+          X.fillStyle=col;X.fill();X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.3)';X.shadowBlur=5;
+          X.beginPath();X.moveTo(0,len*0.12);
+          X.quadraticCurveTo(-len*0.045,-len*0.35,0,-len);
+          X.quadraticCurveTo(len*0.045,-len*0.35,0,len*0.12);
+          X.fillStyle=col;X.fill();X.restore();
+        }
+      },
+      baton: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=6;
+          X.beginPath();X.roundRect(-len*0.025,len*0.1,len*0.05,-len-len*0.1,len*0.012);
+          X.fillStyle=col;X.fill();X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.3)';X.shadowBlur=5;
+          X.beginPath();X.roundRect(-len*0.018,len*0.1,len*0.036,-len-len*0.1,len*0.009);
+          X.fillStyle=col;X.fill();X.restore();
+        }
+      },
+      skeletonH: {
+        hour: (cx,cy,a,len,col) => _tapered(cx,cy,a,len,len*0.09,len*0.03,col,true),
+        minute: (cx,cy,a,len,col) => _tapered(cx,cy,a,len,len*0.065,len*0.02,col,true)
+      },
+      arrow: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=6;
+          const w=len*0.035;
+          X.beginPath();X.moveTo(-w,len*0.1);X.lineTo(-w,-len*0.7);X.lineTo(-w*1.8,-len*0.7);X.lineTo(0,-len);X.lineTo(w*1.8,-len*0.7);X.lineTo(w,-len*0.7);X.lineTo(w,len*0.1);X.closePath();
+          X.fillStyle=col;X.fill();X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.3)';X.shadowBlur=5;
+          const w=len*0.025;
+          X.beginPath();X.moveTo(-w,len*0.1);X.lineTo(-w,-len*0.72);X.lineTo(-w*1.8,-len*0.72);X.lineTo(0,-len);X.lineTo(w*1.8,-len*0.72);X.lineTo(w,-len*0.72);X.lineTo(w,len*0.1);X.closePath();
+          X.fillStyle=col;X.fill();X.restore();
+        }
+      },
+      spade: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=6;
+          const w=len*0.025;
+          X.beginPath();X.moveTo(-w,len*0.12);X.lineTo(-w,-len*0.65);
+          X.quadraticCurveTo(-len*0.07,-len*0.85,0,-len);
+          X.quadraticCurveTo(len*0.07,-len*0.85,w,-len*0.65);
+          X.lineTo(w,len*0.12);X.closePath();
+          X.fillStyle=col;X.fill();X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.3)';X.shadowBlur=5;
+          const w=len*0.018;
+          X.beginPath();X.moveTo(-w,len*0.12);X.lineTo(-w,-len*0.68);
+          X.quadraticCurveTo(-len*0.055,-len*0.88,0,-len);
+          X.quadraticCurveTo(len*0.055,-len*0.88,w,-len*0.68);
+          X.lineTo(w,len*0.12);X.closePath();
+          X.fillStyle=col;X.fill();X.restore();
+        }
+      },
+      cathedral: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=6;
+          const w=len*0.04;
+          X.beginPath();X.moveTo(0,len*0.12);X.lineTo(-w,0);X.lineTo(-w,-len*0.5);X.lineTo(-w*0.5,-len*0.55);X.lineTo(-w*0.5,-len);X.lineTo(0,-len*0.95);X.lineTo(w*0.5,-len);X.lineTo(w*0.5,-len*0.55);X.lineTo(w,-len*0.5);X.lineTo(w,0);X.closePath();
+          X.fillStyle=col;X.fill();X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.3)';X.shadowBlur=5;
+          const w=len*0.03;
+          X.beginPath();X.moveTo(0,len*0.12);X.lineTo(-w,0);X.lineTo(-w,-len*0.5);X.lineTo(-w*0.4,-len*0.55);X.lineTo(-w*0.4,-len);X.lineTo(0,-len*0.96);X.lineTo(w*0.4,-len);X.lineTo(w*0.4,-len*0.55);X.lineTo(w,-len*0.5);X.lineTo(w,0);X.closePath();
+          X.fillStyle=col;X.fill();X.restore();
+        }
+      }
+    };
+    const H = HANDS[hType] || HANDS.tapered;
+    const M = HANDS[mType] || HANDS.tapered;
+    H.hour(cx, cy, hAngle, r*0.55, hCol);
+    M.minute(cx, cy, mAngle, r*0.82, mCol);
+    if (sCol) {
+      X.save();X.translate(cx,cy);X.rotate(sAngle);
+      X.beginPath();X.moveTo(0,-r*0.88);X.lineTo(-1.2,r*0.05);X.lineTo(1.2,r*0.05);X.closePath();
+      X.fillStyle=sCol;X.fill();
+      if (glowSec) { X.shadowColor=sCol; X.shadowBlur=6; X.fill(); X.shadowBlur=0; }
+      X.restore();
+    }
+    X.beginPath();X.arc(cx,cy,Math.max(3,r*0.025),0,PI2);
+    X.fillStyle=hCol;X.fill();
+    X.restore();
+  }
+
+  function drawNeedle(cx,cy,a,len,col,glow) {
+    X.save();X.translate(cx,cy);X.rotate(a);
+    X.beginPath();X.moveTo(0,len*0.12);X.lineTo(-1.5,0);X.lineTo(0,-len);X.lineTo(1.5,0);X.closePath();
+    X.fillStyle=col;X.fill();X.restore();
+  }
+
+  function _tapered(cx,cy,a,len,bw,tw,col,hollow,glowCol) {
+    X.save();X.translate(cx,cy);X.rotate(a);
+    X.beginPath();X.moveTo(0,len*0.1);X.lineTo(-bw,0);X.lineTo(-tw,-len*0.5);X.lineTo(0,-len);X.lineTo(tw,-len*0.5);X.lineTo(bw,0);X.closePath();
+    if (hollow) { X.strokeStyle=col; X.lineWidth=1.2; X.stroke(); } else { X.fillStyle=col; X.fill(); }
+    if (glowCol) { X.shadowColor=glowCol; X.shadowBlur=6; X.stroke(); X.shadowBlur=0; }
+    X.restore();
+  }
+
+  function bezel(cx,cy,r,colors) {
+    const grd = X.createLinearGradient(cx-r, cy-r, cx+r, cy+r);
+    grd.addColorStop(0, colors[0]); grd.addColorStop(0.5, colors[1]); grd.addColorStop(1, colors[2]);
+    X.beginPath();X.arc(cx,cy,r,0,PI2);X.fillStyle=grd;X.fill();
+  }
+  function ticks60(cx,cy,r,hCol,mCol,hW,mW) {
+    for(let i=0;i<60;i++){
+      const a=i*6*DEG2RAD;
+      const isMajor = i%5===0;
+      const ri=r*(isMajor?0.88:0.92), ro=r*0.96;
+      X.beginPath();X.moveTo(cx+Math.sin(a)*ri,cy-Math.cos(a)*ri);
+      X.lineTo(cx+Math.sin(a)*ro,cy-Math.cos(a)*ro);
+      X.strokeStyle=isMajor?hCol:mCol;X.lineWidth=isMajor?hW:mW;X.stroke();
+    }
+  }
+  function nums12(cx,cy,r,rFrac,font,col) {
+    X.fillStyle=col;X.font=font;X.textAlign='center';X.textBaseline='middle';
+    for(let i=1;i<=12;i++){
+      const a=(i%12)*30*DEG2RAD;
+      X.fillText(i.toString(),cx+Math.sin(a)*r*rFrac,cy-Math.cos(a)*r*rFrac);
+    }
+  }
+  function angles(hrF,minF,secF) {
+    return [
+      (hrF/12)*PI2 - Math.PI/2,
+      (minF/60)*PI2 - Math.PI/2,
+      (secF/60)*PI2 - Math.PI/2
+    ];
   }
 
   /* ── WITH DIAL (25) ── */
