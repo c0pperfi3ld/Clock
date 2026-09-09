@@ -420,12 +420,45 @@
         ['bounce', '🎾 Bounce'], ['fade', '🌫️ Fade'], ['slide', '📤 Slide Up'], ['flip', '🔄 Flip'],
         ['typewriter', '⌨️ Typewriter'], ['glow-in', '✨ Glow In'], ['scale-pop', '💥 Scale Pop'], ['swing', '🎪 Swing'],
         ['wave', '🌊 Wave'], ['jitter', '⚡ Jitter'], ['orbit', '💫 Orbit'], ['breathing', '🫁 Breathing'],
-        ['elastic', '🪀 Elastic'], ['wobble', '😵‍💫 Wobble'], ['neon-pulse', '🚨 Neon Pulse'], 
-        ['shiver', '🥶 Shiver'], ['heartbeat', '💓 Heartbeat'], ['float-tilt', '🛸 Float Tilt']
+        ['elastic', '🪀 Elastic'], ['wobble', '😵‍💫 Wobble'], ['neon-pulse', '🚨 Neon Pulse'],
+        ['shiver', '🥶 Shiver'], ['heartbeat', '💓 Heartbeat'], ['float-tilt', '🛸 Float Tilt'],
+        ['zoom-spin', '🌀 Zoom Spin'], ['glitch', '📺 Glitch'], ['flicker', '💡 Flicker'], ['drift', '🌊 Drift'],
+        ['pendulum', '⏳ Pendulum'], ['snake', '🐍 Snake'], ['blink', '👁️ Blink'], ['tada', '🎉 Ta-Da']
       ];
       TT_ANIMS.forEach(([id, label]) => {
          html += `<div class="opt${tooltipAnim===id?' active':''}" data-action="tooltip-anim" data-val="${id}">
            <div class="dot"></div>${label}</div>`;
+      });
+
+      html += '<div class="sep"></div>';
+      html += '<div class="sec-label"><span>Orbit Ring</span></div>';
+      const orbitSpd = (typeof current.orbitSpeed === 'number') ? current.orbitSpeed : 1.0;
+      html += `<div class="slider-row"><label>Orbit Speed</label>
+        <input type="range" id="sl-orbit-speed" min="0" max="5" step="0.1" value="${orbitSpd}">
+        <span class="val" id="val-orbit-speed">${orbitSpd === 0 ? 'Paused' : orbitSpd.toFixed(1) + 'x'}</span></div>`;
+      const orbitStyle = current.orbitStyle || 'dash';
+      const ORBIT_STYLES = [
+        ['dash','⚪ Dotted Spin'],['double','⭕ Double Orbit'],['glow','✨ Glow Pulse'],
+        ['comet','☄️ Comet'],['rainbow','🌈 Rainbow'],['sparkle','✨ Sparkle'],['tide','🌊 Tide']
+      ];
+      ORBIT_STYLES.forEach(([id, label]) => {
+        html += `<div class="opt${orbitStyle===id?' active':''}" data-action="orbit-style" data-val="${id}">
+          <div class="dot"></div>${label}</div>`;
+      });
+
+      html += '<div class="sep"></div>';
+      html += '<div class="sec-label"><span>Task List Animation</span></div>';
+      const TODO_LEGACY = { slide:'tide-x', 'fade-up':'float', pop:'pulse', flip:'sway', bounce:'bob', 'swing-in':'wiggle', 'roll-in':'jelly' };
+      const todoAnimShown = TODO_LEGACY[current.todoAnim] || current.todoAnim || 'float';
+      const TODO_ANIMS = [
+        ['none','⏸️ Static'],['float','🌊 Float'],['pulse','💓 Pulse Glow'],['sway','🎪 Sway'],
+        ['breathe','🫁 Breathe'],['shimmer','✨ Shimmer'],['bob','🏀 Bob'],['wiggle','🪱 Wiggle'],
+        ['tide-x','↔️ Drift X'],['heartbeat','💗 Heartbeat'],['neon','🚨 Neon Glow'],['jelly','🫧 Jelly'],
+        ['glow-drift','🌅 Glow Drift']
+      ];
+      TODO_ANIMS.forEach(([id, label]) => {
+        html += `<div class="opt${todoAnimShown===id?' active':''}" data-action="todo-anim" data-val="${id}">
+          <div class="dot"></div>${label}</div>`;
       });
 
       html += '<div class="sep"></div>';
@@ -470,6 +503,14 @@
             if (api.setTooltipAnim) api.setTooltipAnim(val);
             else api.saveSettings({ tooltipAnim: val });
           }
+          if (action === 'orbit-style') {
+            current.orbitStyle = val;
+            if (api.setOrbitStyle) api.setOrbitStyle(val);
+          }
+          if (action === 'todo-anim') {
+            current.todoAnim = val;
+            if (api.setTodoAnim) api.setTodoAnim(val);
+          }
           render();
         });
       });
@@ -485,6 +526,16 @@
         document.getElementById('val-block-opacity').textContent = Math.round(current.blockOpacity * 100) + '%';
         api.setBlockOpacity(current.blockOpacity);
       });
+
+      const slOrbitSpeed = document.getElementById('sl-orbit-speed');
+      if (slOrbitSpeed) {
+        slOrbitSpeed.addEventListener('input', e => {
+          current.orbitSpeed = Math.max(0, Math.min(5, parseFloat(e.target.value) || 0));
+          document.getElementById('val-orbit-speed').textContent =
+            current.orbitSpeed === 0 ? 'Paused' : current.orbitSpeed.toFixed(1) + 'x';
+          if (api.setOrbitSpeed) api.setOrbitSpeed(current.orbitSpeed);
+        });
+      }
 
       const slAnimSpeed = document.getElementById('sl-anim-speed');
       if (slAnimSpeed) {

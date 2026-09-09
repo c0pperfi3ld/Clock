@@ -33,6 +33,12 @@
   let blockAnim = { style: 'pulse', speed: 1.0 };
   let tooltipAnim = 'bounce';
   let tooltipSize = 1.0;
+  let orbitSpeed = 1.0;
+  let orbitStyle = 'dash';
+  let todoAnim = 'float';
+  // Legacy entrance-only ids map to their nearest continuous loop.
+  const TODO_ANIM_LEGACY = { slide:'tide-x', 'fade-up':'float', pop:'pulse', flip:'sway', bounce:'bob', 'swing-in':'wiggle', 'roll-in':'jelly' };
+  function todoAnimEff() { return TODO_ANIM_LEGACY[todoAnim] || todoAnim || 'float'; }
   const saved = api.loadSettings();
   if (saved.clockStyle) style=saved.clockStyle;
   if (saved.theme) theme=saved.theme;
@@ -43,13 +49,16 @@
   if (saved.blockAnim) blockAnim=saved.blockAnim;
   if (saved.tooltipAnim) tooltipAnim=saved.tooltipAnim;
   if (saved.tooltipSize) tooltipSize=saved.tooltipSize;
+  if (typeof saved.orbitSpeed==='number') orbitSpeed=saved.orbitSpeed;
+  if (saved.orbitStyle) orbitStyle=saved.orbitStyle;
+  if (saved.todoAnim) todoAnim=saved.todoAnim;
   let todos = []; // [{id, text, done, createdAt, priority, color}]
   if (Array.isArray(saved.todos)) todos = saved.todos;
   function saveTodos() { api.saveSettings({todos}); }
 
   function applyOpacity() { canvas.style.opacity=opacity/100; }
   applyOpacity();
-  function save() { api.saveSettings({clockStyle:style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize}); }
+  function save() { api.saveSettings({clockStyle:style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim}); }
 
   api.onSetStyle(s => { style=s; save(); });
   api.onSetTheme(t => { theme=t; save(); });
@@ -60,11 +69,22 @@
   api.onSetBlockAnim(a => { blockAnim=a; save(); });
   api.onSetTooltipAnim(a => { tooltipAnim=a; save(); });
   if (api.onSetTooltipSize) api.onSetTooltipSize(s => { tooltipSize=s; save(); });
+  if (api.onSetOrbitSpeed) api.onSetOrbitSpeed(s => { orbitSpeed=s; save(); });
+  if (api.onSetOrbitStyle) api.onSetOrbitStyle(s => { orbitStyle=s; save(); });
+  if (api.onSetTodoAnim) api.onSetTodoAnim(s => { todoAnim=s; applyTodoAnim(); save(); });
 
-  // ── Tooltip font resize (Ctrl + scroll) ──
-  // Add a brief size-pulse animation on the dial as feedback.
+  // ── Tooltip font resize (Ctrl + scroll) / Orbit speed (Alt + scroll) ──
   let tooltipResizePulse = 0;
+  let orbitSpeedPulse = 0;
   canvas.addEventListener('wheel', e => {
+    if (e.altKey) {
+      e.preventDefault();
+      const step = e.deltaY < 0 ? 0.1 : -0.1;
+      orbitSpeed = Math.max(0, Math.min(5.0, Math.round(((orbitSpeed || 0) + step) * 10) / 10));
+      save();
+      orbitSpeedPulse = performance.now();
+      return;
+    }
     if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
     const step = e.deltaY < 0 ? 0.1 : -0.1;
@@ -118,13 +138,213 @@
 
   // ── Clock dial bounds (cached, recomputed on resize) ──
   // All drawing uses the wrapper's center, NOT the window center.
+  // ── Label orbit geometry (single source of truth) ──
+  // Dial -> SIGNIFICANT BUFFER -> dotted orbit -> small gap -> task boxes.
+  // Boxes are guaranteed strictly outside the dotted ring: nearest edge
+  // sits at orbitR + OUTER_GAP, so even with +/-6px bounce/slide animation
+  // they never cross back inside the dotted line.
+  const ORBIT_GAP = 42;   // significant distance buffer: dial edge -> dotted ring
+  const OUTER_GAP_BASE = 20; // dotted ring -> nearest box edge (covers anim inward offsets)
+  function orbitRadius(r) { return r + ORBIT_GAP; }
+
+  function applyTodoAnim() {
+    const panel = document.getElementById('todo-panel');
+    if (panel) panel.dataset.anim = todoAnimEff();
+  }
+
   function clockBounds() {
     const wrap = document.getElementById('clock-wrapper');
     const w = wrap.clientWidth, h = wrap.clientHeight;
     const cx = w/2, cy = h/2;
-    const margin = 36;
-    const r = Math.max(50, Math.min(cx, cy) - margin);
+    // Room for: dotted orbit (42) + outer gap (20) + typical box half-size.
+    const margin = 90;
+    let r = Math.max(50, Math.min(cx, cy) - margin);
+    // ── Auto-fit: shrink the dial just enough that every visible label box
+    // fits fully inside the WINDOW at its required outside-orbit distance.
+    // East side may use the transparent todo-panel area (HTML overlay labels).
+    try {
+      const now = Date.now();
+      const sc = tooltipSize || 1.0;
+      const fp = Math.round(11 * sc);
+      X.font = `600 ${fp}px Inter, system-ui, sans-serif`;
+      const pX = 10;
+      const dE = Math.max(3.5, Math.round(fp * 0.4)) * 2 + 3 + 10;
+      const oG = Math.max(OUTER_GAP_BASE, Math.round(10 * sc));
+      const wrapLeft = wrap.getBoundingClientRect().left || 0;
+      const eastMax = window.innerWidth - wrapLeft - 2;
+      let need = 0;
+      for (const sess of (sessions || [])) {
+        if (!sess || sess.end < now - 5 * 60 * 1000) continue;
+        if (!sess.task) continue; // hidden placeholders don't reserve space
+        const tw = X.measureText(sess.task).width;
+        const bW = Math.ceil(tw + pX * 2 + dE);
+        const bH = Math.ceil(fp + 12);
+        const hW = bW / 2, hH = bH / 2;
+        const ang = getAngleForDate(new Date((sess.start + sess.end) / 2));
+        const cA = Math.cos(ang), sA = Math.sin(ang);
+        const proj = Math.abs(hW * cA) + Math.abs(hH * sA);
+        const cd = (r + ORBIT_GAP) + oG + proj + 34;
+        const ex0 = cx + cA * cd - hW, ex1 = ex0 + bW;
+        const ey0 = cy + sA * cd - hH, ey1 = ey0 + bH;
+        if (ex0 < 2 && Math.abs(cA) > 0.15) need = Math.max(need, (2 - ex0) / Math.abs(cA));
+        if (ex1 > eastMax && Math.abs(cA) > 0.15) need = Math.max(need, (ex1 - eastMax) / Math.abs(cA));
+        if (ey0 < 2 && Math.abs(sA) > 0.15) need = Math.max(need, (2 - ey0) / Math.abs(sA));
+        if (ey1 > h - 2 && Math.abs(sA) > 0.15) need = Math.max(need, (ey1 - (h - 2)) / Math.abs(sA));
+      }
+      if (need > 0) r = Math.max(50, r - need - 4);
+    } catch (_) {}
     return { cx, cy, r, w, h };
+  }
+
+  function drawLabelOrbit(cx, cy, r) {
+    const or = orbitRadius(r);
+    // Clockwise rotation scaled by orbitSpeed. 1.0x ~= 20px/s. 0 = paused.
+    const spd = (typeof orbitSpeed === 'number' ? orbitSpeed : 1.0);
+    const nowMs = performance.now();
+    const rot = (nowMs / 1000) * 20 * spd;
+    const st = orbitStyle || 'dash';
+    X.save();
+    if (st === 'double') {
+      // Two counter-rotating dashed rings straddling the orbit radius.
+      for (const [off, dash, col, lw, dir] of [
+        [-9, [10, 7], 'rgba(148,210,185,0.65)', 1.5, -1],
+        [9, [4, 6], 'rgba(139,92,246,0.55)', 1.2, 1],
+      ]) {
+        X.beginPath();
+        X.arc(cx, cy, or + off, 0, PI2);
+        X.setLineDash(dash);
+        try { X.lineDashOffset = dir * rot; } catch (_) {}
+        X.strokeStyle = col;
+        X.lineWidth = lw;
+        X.stroke();
+      }
+      X.setLineDash([]);
+    } else if (st === 'glow') {
+      // Solid softly-pulsing glow ring (no dashes; pulse rate follows speed).
+      const pulse = 0.45 + 0.25 * Math.sin((nowMs / 1000) * (1 + spd * 1.5) * Math.PI * 2 * 0.5);
+      X.beginPath();
+      X.arc(cx, cy, or, 0, PI2);
+      X.strokeStyle = `rgba(148,210,185,${pulse.toFixed(3)})`;
+      X.lineWidth = 2;
+      try { X.shadowColor = 'rgba(148,210,185,0.7)'; X.shadowBlur = 10 + 6 * spd; } catch (_) {}
+      X.stroke();
+      try { X.shadowBlur = 0; } catch (_) {}
+    } else if (st === 'comet') {
+      // Faint full ring + bright comet arc sweeping clockwise.
+      X.beginPath();
+      X.arc(cx, cy, or, 0, PI2);
+      X.setLineDash([]);
+      X.strokeStyle = 'rgba(148,210,185,0.22)';
+      X.lineWidth = 1.5;
+      X.stroke();
+      const head = rot / or; // clockwise head angle
+      const tail = head - Math.PI * 0.45;
+      X.beginPath();
+      X.arc(cx, cy, or, tail, head);
+      X.strokeStyle = 'rgba(148,210,185,0.95)';
+      X.lineWidth = 3;
+      X.lineCap = 'round';
+      try { X.shadowColor = 'rgba(148,210,185,0.9)'; X.shadowBlur = 12; } catch (_) {}
+      X.stroke();
+      try { X.shadowBlur = 0; } catch (_) {}
+      // Comet head dot
+      X.beginPath();
+      X.arc(cx + Math.cos(head) * or, cy + Math.sin(head) * or, 3.2, 0, PI2);
+      X.fillStyle = '#a7f3d0';
+      X.fill();
+    } else if (st === 'rainbow') {
+      // Rotating rainbow segments sweeping clockwise.
+      const segs = 24;
+      const base = rot / or;
+      for (let i = 0; i < segs; i++) {
+        const a0 = base + (i / segs) * PI2;
+        const a1 = base + ((i + 0.82) / segs) * PI2;
+        X.beginPath();
+        X.arc(cx, cy, or, a0, a1);
+        X.strokeStyle = `hsla(${(i * 15 + nowMs / 40) % 360},90%,65%,0.8)`;
+        X.lineWidth = 2.5;
+        X.stroke();
+      }
+    } else if (st === 'sparkle') {
+      // Faint ring + sparkling dots travelling clockwise.
+      X.beginPath();
+      X.arc(cx, cy, or, 0, PI2);
+      X.setLineDash([3, 9]);
+      try { X.lineDashOffset = -rot; } catch (_) {}
+      X.strokeStyle = 'rgba(148,210,185,0.3)';
+      X.lineWidth = 1.2;
+      X.stroke();
+      X.setLineDash([]);
+      const n = 8;
+      const head = rot / or;
+      for (let i = 0; i < n; i++) {
+        const a = head - (i / n) * PI2;
+        const tw = 0.5 + 0.5 * Math.sin(nowMs / 180 + i * 1.7);
+        X.beginPath();
+        X.arc(cx + Math.cos(a) * or, cy + Math.sin(a) * or, 1 + 2.4 * tw, 0, PI2);
+        X.fillStyle = `rgba(167,243,208,${(0.25 + 0.75 * tw).toFixed(3)})`;
+        try { X.shadowColor = 'rgba(167,243,208,0.9)'; X.shadowBlur = 8 * tw; } catch (_) {}
+        X.fill();
+        try { X.shadowBlur = 0; } catch (_) {}
+      }
+    } else if (st === 'tide') {
+      // Breathing double dashed ring (in/out tide, drift follows speed).
+      const tide = Math.sin((nowMs / 1000) * (0.6 + spd * 0.8) * Math.PI) * 5;
+      for (const [off, dash, col] of [[-4 + tide, [12, 8], 'rgba(148,210,185,0.6)'], [6 - tide, [5, 7], 'rgba(139,92,246,0.5)']]) {
+        X.beginPath();
+        X.arc(cx, cy, or + off, 0, PI2);
+        X.setLineDash(dash);
+        try { X.lineDashOffset = -rot; } catch (_) {}
+        X.strokeStyle = col;
+        X.lineWidth = 1.4;
+        X.stroke();
+      }
+      X.setLineDash([]);
+    } else {
+      // 'dash' — classic clockwise rotating dotted ring.
+      X.beginPath();
+      X.arc(cx, cy, or, 0, PI2);
+      X.setLineDash([8, 8]);
+      try { X.lineDashOffset = -rot; } catch (_) {}
+      X.strokeStyle = 'rgba(148,210,185,0.65)';
+      X.lineWidth = 1.5;
+      X.stroke();
+      X.setLineDash([]);
+    }
+    try { X.lineDashOffset = 0; } catch (_) {}
+    X.restore();
+  }
+
+  // ── Orbit-speed indicator (brief flash after Alt+scroll / slider) ──
+  function drawOrbitSpeedIndicator(cx, cy, r) {
+    if (!orbitSpeedPulse) return;
+    const elapsed = performance.now() - orbitSpeedPulse;
+    if (elapsed > 1200) { orbitSpeedPulse = 0; return; }
+    const fade = 1 - (elapsed / 1200);
+    const spd = (typeof orbitSpeed === 'number' ? orbitSpeed : 1.0);
+    const label = spd === 0 ? 'Orbit Paused' : `Orbit ${spd.toFixed(1)}×`;
+    X.save();
+    X.globalAlpha = fade;
+    X.font = '700 12px Inter, system-ui, sans-serif';
+    const tw = X.measureText(label).width;
+    const padX = 12, padY = 6;
+    const bw = tw + padX * 2, bh = 12 + padY * 2;
+    const bx = cx - bw / 2;
+    const by = Math.max(4, cy - r + 8);
+    X.beginPath();
+    const pr = bh / 2;
+    X.roundRect(bx, by, bw, bh, pr);
+    X.closePath();
+    X.fillStyle = 'rgba(45,212,191,0.92)';
+    X.shadowColor = 'rgba(45,212,191,0.5)';
+    X.shadowBlur = 14;
+    X.fill();
+    X.shadowBlur = 0;
+    X.fillStyle = '#fff';
+    X.textAlign = 'center';
+    X.textBaseline = 'middle';
+    X.fillText(label, cx, by + pr);
+    X.restore();
   }
 
   let dragging=false;
@@ -162,7 +382,7 @@
     
     // Check gear icon click first
     if (isClickOnGear(mx, my)) {
-       api.showPanel({style,theme,handType,opacity,sessions});
+        api.showPanel({style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim});
        return;
     }
     
@@ -187,9 +407,11 @@
                    interactiveMode = null;
                    if (pWrapS) pWrapS.style.display = 'none';
                    if (pWrapE) pWrapE.style.display = 'none';
-                   editingLabelIdx = -1;
-                   if (editInput && editInput.parentNode) editInput.parentNode.removeChild(editInput);
-                   return;
+                    editingLabelIdx = -1;
+                    if (editInput && editInput.parentNode) editInput.parentNode.removeChild(editInput);
+                    editInput = null;
+                    lastLabelSig = '__cleared__';
+                    return;
                }
            }
            
@@ -297,7 +519,7 @@
                start: start.getTime(),
                end: end.getTime(),
                color: hslToHex(hue, 85, 60),
-               elapsedColor: hslToHex(hue, 95, 20),
+               elapsedColor: hslToHex(hue, 60, 40),
                type: 'custom',
                task: ''
            });
@@ -391,7 +613,7 @@
 
   // Track label animation birth times and click regions
   let labelBirthTimes = {};  // sessionIdx -> timestamp
-  let labelHitBoxes = [];    // [{x, y, w, h, idx, delX, delY, delR}]
+  let labelHitBoxes = [];    // legacy (labels are HTML overlay now)
   let editingLabelIdx = -1;
   let editInput = null;
 
@@ -412,7 +634,8 @@
     todos.forEach((t, idx) => {
       const li = document.createElement('li');
       li.className = 'todo-item' + (t.done ? ' done' : '');
-      li.style.animationDelay = (idx * 0.04) + 's';
+      // Two animations: entrance (no delay) + infinite loop (phase offset).
+      li.style.animationDelay = '0s, ' + (-(idx * 0.3)).toFixed(2) + 's';
       li.dataset.id = t.id;
       const colorStyle = t.color ? `--todo-color:${t.color};background:${t.color}88;` : '';
       li.innerHTML = `
@@ -557,38 +780,20 @@
   });
 
   renderTodos();
+  applyTodoAnim();
 
   window.addEventListener('mousemove', e => {
     lastMouseMove = Date.now();
-    lastMouseX = e.clientX;
-    lastMouseY = e.clientY;
-  });
-
-  // Click on label to edit, click × to delete task
-  canvas.addEventListener('click', e => {
-     const rect = canvas.getBoundingClientRect();
-     const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-     for (const box of labelHitBoxes) {
-        // Check delete button
-        if (Math.hypot(mx - box.delX, my - box.delY) < box.delR + 4) {
-           if (sessions[box.idx]) {
-              sessions[box.idx].task = '';
-              save();
-           }
-           return;
-        }
-        // Check label body
-        if (mx >= box.x && mx <= box.x + box.w && my >= box.y && my <= box.y + box.h) {
-           startEditLabel(box.idx, box);
-           return;
-        }
-     }
+    const rect = canvas.getBoundingClientRect();
+    lastMouseX = e.clientX - rect.left;
+    lastMouseY = e.clientY - rect.top;
   });
 
   function startEditLabel(idx, box) {
      if (editingLabelIdx === idx && editInput) return;
-     stopEditLabel();
+     stopEditLabel(true);
      editingLabelIdx = idx;
+     lastLabelSig = '__editing__';
      
      const sizeScale = tooltipSize || 1.0;
      const fontPx = Math.round(11 * sizeScale);
@@ -632,261 +837,184 @@
      editInput.select();
   }
 
-  function stopEditLabel() {
+  function stopEditLabel(silent) {
      editingLabelIdx = -1;
      if (editInput && editInput.parentNode) editInput.parentNode.removeChild(editInput);
      editInput = null;
+     if (!silent) lastLabelSig = '__editdone__';
   }
 
-  function drawTaskLabels(cx, cy, r) {
+  // ── Floating task labels (HTML overlay — never clipped by the canvas) ──
+  // Labels live in #labels (overflow:visible), so east-side boxes can extend
+  // over the transparent todo-panel area up to the window edge. The math below
+  // still guarantees every box sits totally outside the dotted orbit ring.
+  const labelsLayer = document.getElementById('labels');
+  const MOTION_CLASS = {
+    'bounce':'m-bounce','slide':'m-slide','fade':'m-fade','flip':'m-flip',
+    'typewriter':'m-typewriter','glow-in':'m-glow-in','scale-pop':'m-scale-pop',
+    'swing':'m-swing','wave':'m-wave','jitter':'m-jitter','orbit':'m-orbit',
+    'breathing':'m-breathing','elastic':'m-elastic','wobble':'m-wobble',
+    'neon-pulse':'m-neon-pulse','shiver':'m-shiver','heartbeat':'m-heartbeat',
+    'float-tilt':'m-float-tilt','zoom-spin':'m-zoom-spin','glitch':'m-glitch',
+    'flicker':'m-flicker','drift':'m-drift','pendulum':'m-pendulum',
+    'snake':'m-snake','blink':'m-blink','tada':'m-tada'
+  };
+  let lastLabelSig = '__init__';
+  let labelCenters = []; // [{x, y, idx, el, ph}] wrapper-relative centers
+  let lastMouseClient = null;
+
+  function animPadFor(style, isPH) {
+    let p = 4;
+    if (style === 'elastic') p += 30;
+    else if (style === 'scale-pop') p += 20;
+    else if (style === 'heartbeat') p += 15;
+    else if (style === 'breathing' || style === 'wave') p += 8;
+    else if (style === 'zoom-spin') p += 12;
+    else if (style === 'glitch') p += 6;
+    else if (style === 'neon-pulse') p += 6;
+    else if (style === 'drift' || style === 'slide' || style === 'bounce') p += 6;
+    else if (style === 'pendulum') p += 12;
+    else if (style === 'snake') p += 6;
+    else if (style === 'tada') p += 14;
+    if (isPH) p += 4;
+    return p;
+  }
+
+  function labelSig(cx, cy, r, W, H, bucket) {
+    return [cx|0, cy|0, r|0, W, H, tooltipSize, tooltipAnim,
+      sessions.map(s => s.start + ':' + s.end + ':' + (s.task || '') + ':' + (s.color || '')).join('|'),
+      editingLabelIdx, bucket].join('~');
+  }
+
+  function syncLabels(cx, cy, r, W, H) {
+    const sig = labelSig(cx, cy, r, W, H, Math.floor(Date.now() / 10000));
+    if (sig === lastLabelSig) return;
+    lastLabelSig = sig;
+    renderLabels(cx, cy, r, W, H);
+  }
+
+  function renderLabels(cx, cy, r, W, H) {
     const now = Date.now();
-    const W = Math.max(40, cx * 2);
-    const H = Math.max(40, cy * 2);
-
-    labelHitBoxes = [];
-    X.save();
-
+    labelsLayer.innerHTML = '';
+    labelCenters = [];
     const sizeScale = tooltipSize || 1.0;
-    const fontPx = Math.round(11 * sizeScale);
-    X.font = `600 ${fontPx}px Inter, system-ui, sans-serif`;
-
-    // Strict zero-padding: snug 3px clearance for glyph strokes
-    const padX = 3;
-    const delSize = Math.max(3.5, Math.round(fontPx * 0.4));
-    const delExtra = delSize * 2 + 3;
-    const bgH = Math.ceil(fontPx + 3);
-    const pillR = Math.min(bgH / 2, 6);
-    const gap = Math.max(18, Math.round(12 * sizeScale));
-
-    for (let i = 0; i < sessions.length; i++) {
-       const sess = sessions[i];
-       // 5-minute grace period so freshly-created blocks always show their label
-       if (sess.end < now - 5 * 60 * 1000) continue;
-       if (editingLabelIdx === i) continue;
-
-       const isPlaceholder = !sess.task;
-       const drawText = isPlaceholder ? '＋ Add Task' : sess.task;
-
-       if (!labelBirthTimes[i]) labelBirthTimes[i] = now;
-       const age = now - labelBirthTimes[i];
-
-       const midTime = (sess.start + sess.end) / 2;
-       const angle = getAngleForDate(new Date(midTime));
-
-       const tw = X.measureText(drawText).width;
-       const thisDelExtra = isPlaceholder ? 0 : delExtra;
-       const bgW = Math.ceil(tw + padX * 2 + thisDelExtra);
-
-       // ── Always strictly outside the clock ──
-       const cosA = Math.cos(angle);
-       const sinA = Math.sin(angle);
-
-       // Radial projection to ensure every corner of the pill box is strictly > r outside the clock
-       const halfW = bgW / 2;
-       const halfH = bgH / 2;
-       // Projected radial extent of the box along vector (cosA, sinA)
-       const boxProj = Math.abs(halfW * cosA) + Math.abs(halfH * sinA);
-       const centerDist = r + gap + boxProj;
-       
-       let centerBoxX = cx + cosA * centerDist;
-       let centerBoxY = cy + sinA * centerDist;
-
-       let bgX = centerBoxX - halfW;
-       let bgY = centerBoxY - halfH;
-
-       // Keep within canvas bounds while guaranteeing the tooltip remains strictly outside the dial
-       bgX = Math.max(2, Math.min(W - bgW - 2, bgX));
-       bgY = Math.max(2, Math.min(H - bgH - 2, bgY));
-
-       // Enforce minimum radial separation so bounding box corners never touch or clip inside the dial circle
-       const curCenterX = bgX + halfW - cx;
-       const curCenterY = bgY + halfH - cy;
-       const curDist = Math.hypot(curCenterX, curCenterY);
-       const minDist = r + gap + boxProj;
-       if (curDist < minDist && curDist > 0.001) {
-          const push = minDist / curDist;
-          bgX = cx + curCenterX * push - halfW;
-          bgY = cy + curCenterY * push - halfH;
-       }
-       
-       // ── CONTINUOUS ANIMATIONS ──
-       const animStyle = tooltipAnim || 'bounce';
-       let animAlpha = isPlaceholder ? 0.85 : 1;
-       let animScaleX = 1, animScaleY = 1, animOffX = 0, animOffY = 0, animRot = 0;
-       
-       const cycleDur = 2000; 
-       const tCycle = (now % cycleDur) / cycleDur; // 0.0 to 1.0
-       const tSine = Math.sin(tCycle * Math.PI * 2);
-       const tCos = Math.cos(tCycle * Math.PI * 2);
-       
-       let shadowIntensity = 0;
-       
-       if (isPlaceholder) {
-          // Gentle attention pulse so the "+ Add Task" hint is unmistakable.
-          // 3.2s cycle: brighter alpha + tiny scale up + soft glow.
-          const tP = (now % 3200) / 3200;
-          const pulseSine = Math.sin(tP * Math.PI * 2);
-          animAlpha = 0.75 + 0.2 * (pulseSine * 0.5 + 0.5);  // 0.75..0.95
-          animScaleX = animScaleY = 1.0 + 0.04 * (pulseSine * 0.5 + 0.5);
-          shadowIntensity = 0.6 + 0.4 * (pulseSine * 0.5 + 0.5);
-       }
-       
-       if (!isPlaceholder) {
-           switch (animStyle) {
-              case 'fade': // Gentle opacity pulse
-                 animAlpha = 0.6 + tSine * 0.4;
-                 break;
-              case 'bounce': // Smooth radial outward jumping away from clock
-                 animOffX = cosA * Math.abs(tSine) * 6;
-                 animOffY = sinA * Math.abs(tSine) * 6;
-                 break;
-              case 'slide': // Gentle radial float away/towards
-                 animOffX = cosA * (tSine * 3);
-                 animOffY = sinA * (tSine * 3);
-                 break;
-              case 'flip': // 3D-like flip over X axis
-                 animScaleY = tCos;
-                 animAlpha = Math.max(0.3, Math.abs(tCos));
-                 break;
-              case 'typewriter': // Retained as one-time
-                 break;
-              case 'glow-in': // Continuous pulsing glow
-                 shadowIntensity = 0.5 + tSine * 0.5;
-                 break;
-              case 'scale-pop': // Single sharp pop
-                 if (tCycle < 0.15) {
-                    const p = tCycle / 0.15;
-                    animScaleX = animScaleY = 1.0 + Math.sin(p * Math.PI) * 0.2;
-                 }
-                 break;
-              case 'swing': // Pendulum swing
-                 animRot = tSine * 12 * Math.PI / 180;
-                 break;
-              case 'wave': // Squish and stretch
-                 animScaleX = 1.0 + tSine * 0.08;
-                 animScaleY = 1.0 + tCos * 0.08;
-                 break;
-              case 'jitter': // Subtle glitch effect
-                 if (Math.random() > 0.8) {
-                    animOffX = (Math.random() - 0.5) * 4;
-                    animOffY = (Math.random() - 0.5) * 4;
-                    animAlpha = 0.7 + Math.random() * 0.3;
-                 }
-                 break;
-              case 'orbit': // Small circular motion
-                 animOffX = tCos * 3;
-                 animOffY = tSine * 3;
-                 break;
-              case 'breathing': // Very slow deep inhale/exhale
-                 animScaleX = animScaleY = 1.0 + Math.sin((now % 4000)/4000 * Math.PI * 2) * 0.06;
-                 animAlpha = 0.7 + Math.sin((now % 4000)/4000 * Math.PI * 2) * 0.3;
-                 break;
-              case 'elastic': // Snaps out and springs back
-                 if (tCycle < 0.3) {
-                    const p = tCycle / 0.3;
-                    animScaleX = animScaleY = 1.0 + Math.sin(p * Math.PI * 5) * Math.pow(1 - p, 2) * 0.3;
-                 }
-                 break;
-              case 'wobble': // Rotates back and forth sharply
-                 if (tCycle < 0.5) {
-                    animRot = Math.sin(tCycle * 2 * Math.PI * 3) * (1 - tCycle * 2) * 15 * Math.PI / 180;
-                 }
-                 break;
-              case 'neon-pulse': // High intensity sharp flashes
-                 if (tCycle < 0.1 || (tCycle > 0.15 && tCycle < 0.2)) {
-                    shadowIntensity = 1.0;
-                    animScaleX = animScaleY = 1.05;
-                 } else {
-                    shadowIntensity = 0.1;
-                 }
-                 break;
-              case 'shiver': // Rapid tiny shakes
-                 animRot = Math.sin(now / 20) * 2 * Math.PI / 180;
-                 animOffX = Math.cos(now / 15) * 1;
-                 break;
-              case 'heartbeat': // Double-beat
-                 if (tCycle < 0.1) animScaleX = animScaleY = 1.0 + Math.sin(tCycle * 10 * Math.PI) * 0.15;
-                 else if (tCycle > 0.15 && tCycle < 0.25) animScaleX = animScaleY = 1.0 + Math.sin((tCycle - 0.15) * 10 * Math.PI) * 0.15;
-                 break;
-              case 'float-tilt': // Diagonal float with tilt
-                 animOffY = tSine * 6;
-                 animRot = Math.sin(tCycle * Math.PI * 2 - Math.PI/4) * 5 * Math.PI / 180;
-                 break;
-           }
-       }
-       
-       X.globalAlpha = animAlpha * 0.85;
-       X.save();
-       
-       const centerX = bgX + bgW / 2;
-       const centerY = bgY + bgH / 2;
-       X.translate(centerX + animOffX, centerY + animOffY);
-       X.scale(animScaleX, animScaleY);
-       if (animRot) X.rotate(animRot);
-       X.translate(-centerX, -centerY);
-       
-       // Pill background — snug, zero excess padding
-        X.beginPath();
-        X.roundRect(bgX, bgY, bgW, bgH, pillR);
-        X.closePath();
-       X.fillStyle = isPlaceholder ? 'rgba(20,20,35,0.95)' : 'rgba(10,10,20,0.85)';
-       X.fill();
-       X.strokeStyle = isPlaceholder ? 'rgba(167,139,250,0.7)' : sess.color;
-       X.lineWidth = isPlaceholder ? 1.2 : 1;
-       X.stroke();
-       
-       // Glow
-       if (shadowIntensity > 0) {
-          X.shadowColor = isPlaceholder ? 'rgba(167,139,250,0.8)' : sess.color;
-          X.shadowBlur = shadowIntensity * (isPlaceholder ? 12 : (animStyle === 'neon-pulse' ? 20 : 12));
-          X.fill();
-          X.shadowBlur = 0;
-          X.shadowColor = 'transparent';
-       }
-
-       // Text — zero extra padding, snug against border
-       X.textAlign = 'left';
-       X.textBaseline = 'middle';
-       X.fillStyle = isPlaceholder ? '#e9d5ff' : '#fff';
-       
-       let finalString = drawText;
-       if (animStyle === 'typewriter' && !isPlaceholder) {
-          const tAge = Math.min(1, age / 1000);
-          const chars = Math.floor(tAge * drawText.length);
-          finalString = drawText.substring(0, Math.max(1, chars));
-       }
-       X.fillText(finalString, bgX + padX, bgY + bgH / 2);
-       
-       // × button — snug at right edge
-       let delCx = 0, delCy = 0;
-       if (!isPlaceholder) {
-           delCx = bgX + bgW - padX - delSize;
-           delCy = bgY + bgH / 2;
-           X.globalAlpha = animAlpha * 0.5;
-           X.beginPath();
-           X.arc(delCx, delCy, delSize, 0, Math.PI*2);
-           X.fillStyle = 'rgba(239,68,68,0.15)';
-           X.fill();
-           X.font = `700 ${Math.max(7, Math.round(fontPx * 0.75))}px sans-serif`;
-           X.textAlign = 'center';
-           X.fillStyle = 'rgba(239,68,68,0.8)';
-           X.fillText('×', delCx, delCy + 1);
-       }
-       
-       X.restore();
-       
-       labelHitBoxes.push({
-          x: bgX, y: bgY, w: bgW, h: bgH, idx: i,
-          delX: delCx, delY: delCy, delR: isPlaceholder ? 0 : delSize
-       });
-    }
-    
-    for (const key in labelBirthTimes) {
-       if (!sessions[key]) delete labelBirthTimes[key];
-    }
-    
-    X.restore();
+    const baseFont = Math.round(11 * sizeScale);
+    const padX = 10;
+    const style = tooltipAnim || 'bounce';
+    const mClass = MOTION_CLASS[style] || 'm-bounce';
+    const orbitR = orbitRadius(r);
+    const outerGap = Math.max(OUTER_GAP_BASE, Math.round(10 * sizeScale));
+    const wrapRect0 = document.getElementById('clock-wrapper').getBoundingClientRect();
+    const eastMax = window.innerWidth - (wrapRect0.left || 0) - 4;
+    sessions.forEach((sess, i) => {
+      if (!sess || sess.end < now - 5 * 60 * 1000) return;
+      if (editingLabelIdx === i) return;
+      const isPH = !sess.task;
+      const text = isPH ? '＋ Add Task' : sess.task;
+      if (!labelBirthTimes[i]) labelBirthTimes[i] = now;
+      const ang = getAngleForDate(new Date((sess.start + sess.end) / 2));
+      const cA = Math.cos(ang), sA = Math.sin(ang);
+      const pad = animPadFor(style, isPH);
+      // Shrink this label's font until it fits the WINDOW at the required
+      // outside-orbit distance (east side may use the todo-panel area).
+      let cur = baseFont, bW = 0, bH = 0, cdX = 0, cdY = 0;
+      for (let a = 0; a < 12; a++) {
+        X.font = `600 ${cur}px Inter, system-ui, sans-serif`;
+        const tw = X.measureText(text).width;
+        const del = isPH ? 0 : (Math.max(3.5, Math.round(cur * 0.4)) * 2 + 3 + 10);
+        bW = Math.ceil(tw + padX * 2 + del);
+        bH = Math.ceil(cur + 12);
+        const proj = Math.abs((bW / 2) * cA) + Math.abs((bH / 2) * sA);
+        const cd = orbitR + outerGap + proj + pad;
+        cdX = cx + cA * cd; cdY = cy + sA * cd;
+        if (cdX - bW / 2 >= 2 && cdX + bW / 2 <= eastMax &&
+            cdY - bH / 2 >= 2 && cdY + bH / 2 <= H - 2) break;
+        if (cur <= 8) break;
+        cur -= 1;
+      }
+      // Motion class goes on the ANCHOR so the whole box animates together.
+      const el = document.createElement('div');
+      el.className = 'task-label' + (isPH ? ' placeholder hidden' : '') +
+        ' ' + (isPH ? 'm-placeholder-pulse' : mClass) +
+        ((now - labelBirthTimes[i] < 600) ? ' entering' : '');
+      el.dataset.idx = i;
+      el.style.left = cdX.toFixed(1) + 'px';
+      el.style.top = cdY.toFixed(1) + 'px';
+      el.style.fontSize = cur + 'px';
+      el.style.setProperty('--dx', cA.toFixed(3));
+      el.style.setProperty('--dy', sA.toFixed(3));
+      el.style.setProperty('--lc', sess.color || '#3b82f6');
+      el.title = text;
+      const box = document.createElement('div');
+      box.className = 'lbl-box';
+      const row = document.createElement('div');
+      row.className = 'lbl-row';
+      const sp = document.createElement('span');
+      sp.className = 'txt';
+      sp.textContent = text;
+      row.appendChild(sp);
+      if (!isPH) {
+        const xb = document.createElement('span');
+        xb.className = 'x';
+        xb.textContent = '×';
+        const fs = Math.max(11, Math.round(cur * 0.9));
+        xb.style.width = fs + 'px';
+        xb.style.height = fs + 'px';
+        xb.style.fontSize = fs + 'px';
+        xb.dataset.idx = i;
+        row.appendChild(xb);
+      }
+      box.appendChild(row);
+      el.appendChild(box);
+      labelsLayer.appendChild(el);
+      labelCenters.push({ x: cdX, y: cdY, idx: i, el, ph: isPH });
+    });
+    for (const key in labelBirthTimes) { if (!sessions[key]) delete labelBirthTimes[key]; }
+    refreshPlaceholderVisibility(null);
   }
+
+  function refreshPlaceholderVisibility(e) {
+    let px = null, py = null;
+    if (e && typeof e.clientX === 'number') { px = e.clientX; py = e.clientY; }
+    else if (lastMouseClient) { px = lastMouseClient.x; py = lastMouseClient.y; }
+    if (px === null) return;
+    const wr = document.getElementById('clock-wrapper').getBoundingClientRect();
+    for (const c of labelCenters) {
+      if (!c.ph) continue;
+      const d = Math.hypot(px - (wr.left + c.x), py - (wr.top + c.y));
+      c.el.classList.toggle('hidden', d > 80);
+    }
+  }
+
+  labelsLayer.addEventListener('click', e => {
+    const xBtn = e.target.closest('.x');
+    if (xBtn) {
+      e.stopPropagation();
+      const idx = parseInt(xBtn.dataset.idx);
+      if (sessions[idx]) {
+        sessions[idx].task = '';
+        save();
+        lastLabelSig = '__cleared__';
+      }
+      return;
+    }
+    const lab = e.target.closest('.task-label');
+    if (lab) {
+      e.stopPropagation();
+      const idx = parseInt(lab.dataset.idx);
+      // Anchor is zero-size — measure the visual box instead.
+      const b = lab.querySelector('.lbl-box').getBoundingClientRect();
+      const wr = document.getElementById('clock-wrapper').getBoundingClientRect();
+      startEditLabel(idx, {
+        x: b.left - wr.left, y: b.top - wr.top, w: b.width, h: b.height
+      });
+    }
+  });
+
+  window.addEventListener('mousemove', e => {
+    lastMouseClient = { x: e.clientX, y: e.clientY };
+    refreshPlaceholderVisibility(e);
+  });
 
   function drawGearIcon(cx, cy, r) {
     // Position: top-right of clock circle
@@ -1372,9 +1500,9 @@
   }
   function angles(hrF,minF,secF) {
     return [
-      (hrF/12)*PI2 - Math.PI/2,
-      (minF/60)*PI2 - Math.PI/2,
-      (secF/60)*PI2 - Math.PI/2
+      (hrF/12)*PI2,
+      (minF/60)*PI2,
+      (secF/60)*PI2
     ];
   }
 
@@ -1758,12 +1886,30 @@
        if (sweepAngle > PI2) sweepAngle = PI2;
        let endAngle = startAngle + sweepAngle;
        
-       let elapsedMs = 0;
-       if (nowTime > sess.start) {
-           elapsedMs = Math.min(nowTime - sess.start, durationMs);
-       }
-       let elapsedAngle = (elapsedMs / MS_IN_12H) * PI2;
-       let currentAngle = startAngle + elapsedAngle;
+        // Calculate purely visual 12-hour cyclic elapsed time so the hour hand always splits the block
+        let visDuration = Math.min(durationMs, MS_IN_12H);
+        let nDate = new Date(nowTime);
+        let nowMsIn12h = (nDate.getHours() % 12) * 3600000 + nDate.getMinutes() * 60000 + nDate.getSeconds() * 1000 + nDate.getMilliseconds();
+
+        let dist = nowMsIn12h - startMsIn12h;
+        if (dist < 0) dist += MS_IN_12H;
+
+        let elapsedMs = 0;
+        if (dist <= visDuration) {
+            // Hour hand is currently inside the block
+            elapsedMs = dist;
+        } else {
+            // Hour hand is outside the block
+            let gap = MS_IN_12H - visDuration;
+            if (dist - visDuration < gap / 2) {
+                elapsedMs = visDuration; // Passed recently -> fully elapsed
+            } else {
+                elapsedMs = 0; // Upcoming soon -> fully remaining
+            }
+        }
+
+        let elapsedAngle = (elapsedMs / MS_IN_12H) * PI2;
+        let currentAngle = startAngle + elapsedAngle;
        let drawR = r + anim.rOff;
        let activeColor = anim.colorOverride || sess.color;
 
@@ -1771,7 +1917,8 @@
        if (elapsedMs > 0) {
            let elColor = sess.elapsedColor || sess.color;
            let hasCustomEl = !!sess.elapsedColor;
-           X.globalAlpha = hasCustomEl ? blockOpacity * 0.7 : blockOpacity * 0.25;
+           // Boost elapsed opacity heavily so custom colors are undeniably visible
+           X.globalAlpha = hasCustomEl ? Math.min(1.0, blockOpacity * 2.5) : blockOpacity * 0.4;
            X.shadowBlur = 0; X.shadowColor = 'transparent';
            X.beginPath();
            X.moveTo(cx, cy);
@@ -1780,7 +1927,7 @@
            X.fillStyle = elColor;
            X.fill();
            
-           X.globalAlpha = blockOpacity * 0.4;
+           X.globalAlpha = hasCustomEl ? Math.min(1.0, blockOpacity * 2.5) : blockOpacity * 0.4;
            X.beginPath();
            X.arc(cx, cy, r - 1, startAngle, currentAngle);
            X.strokeStyle = elColor;
@@ -1921,10 +2068,12 @@
     X.clearRect(0,0,w,h);
     (STYLES[style]||drawGhostPure)(cx,cy,r,hrF,minF,secF,t);
     drawSessionsOverlay(cx, cy, r);
-    drawTaskLabels(cx, cy, r);
+    drawLabelOrbit(cx, cy, r);
+    syncLabels(cx, cy, r, w, h);
     drawInteractiveKnob(cx, cy, r);
     drawGearIcon(cx, cy, r);
     drawTooltipSizeIndicator(cx, cy, r);
+    drawOrbitSpeedIndicator(cx, cy, r);
     requestAnimationFrame(draw);
   }
 
