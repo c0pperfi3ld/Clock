@@ -741,10 +741,12 @@
        const isRight = Math.cos(angle) > 0;
 
        // Apply tooltipSize modifier + auto-shrink to keep the WHOLE text visible.
-       // No truncation — the font shrinks as small as needed to fit, then the
-       // label is clamped to the available side of the wrapper.
+       // The minimum font size scales with the user's setting, so a bigger
+       // tooltipSize actually produces a bigger font (not always 5px).
        const sizeScale = tooltipSize || 1.0;
        let fontPx = 10 * sizeScale;
+       // Minimum scales: 1.0× → 4px, 1.5× → 6px, 2.0× → 8px, 2.5× → 10px
+       const minFontPx = Math.max(4, sizeScale * 4);
        X.font = `600 ${fontPx}px Inter, system-ui, sans-serif`;
        const pad = 5 * sizeScale;
        const delSize = 5 * sizeScale;
@@ -754,8 +756,8 @@
        // Available width depends on side + side clearance
        const availW = isRight ? (W - MARGIN - (txC + pad + delExtra)) : (txC - MARGIN - pad);
        let tw = X.measureText(drawText).width;
-       // Shrink the font until the label fits, down to a 5px floor (still legible)
-       while (tw + delExtra + pad * 2 > availW && fontPx > 5) {
+       // Shrink the font until the label fits, down to the scaled minimum
+       while (tw + delExtra + pad * 2 > availW && fontPx > minFontPx) {
           fontPx -= 0.5;
           X.font = `600 ${fontPx}px Inter, system-ui, sans-serif`;
           tw = X.measureText(drawText).width;
@@ -1181,7 +1183,7 @@
     X.restore();
   }
 
-  // ── Tooltip size indicator (brief flash after Ctrl+scroll) ──
+  // ── Tooltip size indicator (brief flash after Ctrl+scroll or A−/A+) ──
   function drawTooltipSizeIndicator(cx, cy, r) {
     if (!tooltipResizePulse) return;
     const elapsed = performance.now() - tooltipResizePulse;
@@ -1190,12 +1192,13 @@
     const label = `Tooltip ${(tooltipSize || 1.0).toFixed(1)}×`;
     X.save();
     X.globalAlpha = fade;
-    X.font = '700 11px Inter, system-ui, sans-serif';
+    X.font = '700 12px Inter, system-ui, sans-serif';
     const tw = X.measureText(label).width;
-    const padX = 10, padY = 5;
-    const bw = tw + padX * 2, bh = 11 + padY * 2;
+    const padX = 12, padY = 6;
+    const bw = tw + padX * 2, bh = 12 + padY * 2;
+    // Position: just inside the top of the dial (always visible, never clipped)
     const bx = cx - bw / 2;
-    const by = cy - r - bh - 36; // above the reminder banner area
+    const by = Math.max(4, cy - r + 8);
     X.beginPath();
     const pr = bh / 2;
     X.moveTo(bx + pr, by);
@@ -1204,9 +1207,9 @@
     X.lineTo(bx + pr, by + bh);
     X.arc(bx + pr, by + pr, pr, Math.PI/2, -Math.PI/2);
     X.closePath();
-    X.fillStyle = 'rgba(167,139,250,0.9)';
-    X.shadowColor = 'rgba(167,139,250,0.6)';
-    X.shadowBlur = 12;
+    X.fillStyle = 'rgba(167,139,250,0.92)';
+    X.shadowColor = 'rgba(167,139,250,0.5)';
+    X.shadowBlur = 14;
     X.fill();
     X.shadowBlur = 0;
     X.fillStyle = '#fff';
