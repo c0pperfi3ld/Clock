@@ -673,8 +673,8 @@
        const pad = 5 * sizeScale;
        const delSize = 5 * sizeScale;
        const delExtra = isPlaceholder ? 0 : delSize * 2 + 6;
-       // Position closer to the dial so there's more room outside
-       const txC = cx + Math.cos(angle) * (r + 8);
+       // Position clearly outside the dial so the text area never overlaps the face
+       const txC = cx + Math.cos(angle) * (r + 14);
        // Available width depends on side + side clearance
        const availW = isRight ? (W - MARGIN - (txC + pad + delExtra)) : (txC - MARGIN - pad);
        let tw = X.measureText(drawText).width;
@@ -1241,6 +1241,48 @@
           X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.3)';X.shadowBlur=5;
           const w=len*0.03;
           X.beginPath();X.moveTo(0,len*0.12);X.lineTo(-w,0);X.lineTo(-w,-len*0.5);X.lineTo(-w*0.4,-len*0.55);X.lineTo(-w*0.4,-len);X.lineTo(0,-len*0.96);X.lineTo(w*0.4,-len);X.lineTo(w*0.4,-len*0.55);X.lineTo(w,-len*0.5);X.lineTo(w,0);X.closePath();
+          X.fillStyle=col;X.fill();X.restore();
+        }
+      },
+      // ── Needle styles (3 new) ──
+      needle: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.4)';X.shadowBlur=5;
+          X.beginPath();X.moveTo(0,len*0.15);X.lineTo(-len*0.012,len*0.05);X.lineTo(0,-len);X.lineTo(len*0.012,len*0.05);X.closePath();
+          X.fillStyle=col;X.fill();X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=4;
+          X.beginPath();X.moveTo(0,len*0.15);X.lineTo(-len*0.008,len*0.05);X.lineTo(0,-len);X.lineTo(len*0.008,len*0.05);X.closePath();
+          X.fillStyle=col;X.fill();X.restore();
+        }
+      },
+      spike: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.5)';X.shadowBlur=6;
+          X.beginPath();X.moveTo(0,len*0.2);X.lineTo(-len*0.006,len*0.08);X.lineTo(0,-len);X.lineTo(len*0.006,len*0.08);X.closePath();
+          X.fillStyle=col;X.fill();
+          X.beginPath();X.arc(0,len*0.08,len*0.012,0,PI2);X.fillStyle=col;X.fill();
+          X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.45)';X.shadowBlur=5;
+          X.beginPath();X.moveTo(0,len*0.2);X.lineTo(-len*0.004,len*0.08);X.lineTo(0,-len);X.lineTo(len*0.004,len*0.08);X.closePath();
+          X.fillStyle=col;X.fill();
+          X.beginPath();X.arc(0,len*0.08,len*0.009,0,PI2);X.fillStyle=col;X.fill();
+          X.restore();
+        }
+      },
+      alpha: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.4)';X.shadowBlur=5;
+          // Diamond-tip alpha hand
+          X.beginPath();X.moveTo(0,len*0.18);X.lineTo(-len*0.022,len*0.02);X.lineTo(-len*0.006,-len*0.5);X.lineTo(0,-len);X.lineTo(len*0.006,-len*0.5);X.lineTo(len*0.022,len*0.02);X.closePath();
+          X.fillStyle=col;X.fill();X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=4;
+          X.beginPath();X.moveTo(0,len*0.18);X.lineTo(-len*0.015,len*0.02);X.lineTo(-len*0.005,-len*0.5);X.lineTo(0,-len);X.lineTo(len*0.005,-len*0.5);X.lineTo(len*0.015,len*0.02);X.closePath();
           X.fillStyle=col;X.fill();X.restore();
         }
       }
