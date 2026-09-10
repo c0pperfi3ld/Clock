@@ -36,6 +36,7 @@
   let orbitSpeed = 1.0;
   let orbitStyle = 'dash';
   let todoAnim = 'float';
+  let windowFitAuto = true; // grow/shrink the window so labels never clip
   // Legacy entrance-only ids map to their nearest continuous loop.
   const TODO_ANIM_LEGACY = { slide:'tide-x', 'fade-up':'float', pop:'pulse', flip:'sway', bounce:'bob', 'swing-in':'wiggle', 'roll-in':'jelly' };
   function todoAnimEff() { return TODO_ANIM_LEGACY[todoAnim] || todoAnim || 'float'; }
@@ -52,13 +53,28 @@
   if (typeof saved.orbitSpeed==='number') orbitSpeed=saved.orbitSpeed;
   if (saved.orbitStyle) orbitStyle=saved.orbitStyle;
   if (saved.todoAnim) todoAnim=saved.todoAnim;
+  if (typeof saved.windowFitAuto === 'boolean') windowFitAuto=saved.windowFitAuto;
   let todos = []; // [{id, text, done, createdAt, priority, color}]
   if (Array.isArray(saved.todos)) todos = saved.todos;
-  function saveTodos() { api.saveSettings({todos}); }
+  // Debounced settings writer: sliders/keystrokes queue patches, one
+  // synchronous file write per 300ms burst. Flushed on unload so quit
+  // never loses the trailing edge.
+  let savePending = null, saveTimer = null;
+  function flushSave() {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    if (savePending) { try { api.saveSettings(savePending); } catch (_) {} savePending = null; }
+  }
+  function queueSave(patch) {
+    if (!savePending) savePending = {};
+    Object.assign(savePending, patch);
+    if (!saveTimer) saveTimer = setTimeout(flushSave, 300);
+  }
+  function saveTodos() { queueSave({ todos }); }
+  window.addEventListener('beforeunload', flushSave);
 
   function applyOpacity() { canvas.style.opacity=opacity/100; }
   applyOpacity();
-  function save() { api.saveSettings({clockStyle:style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim}); }
+  function save() { queueSave({clockStyle:style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,windowFitAuto}); }
 
   api.onSetStyle(s => { style=s; save(); });
   api.onSetTheme(t => { theme=t; save(); });
@@ -72,6 +88,7 @@
   if (api.onSetOrbitSpeed) api.onSetOrbitSpeed(s => { orbitSpeed=s; save(); });
   if (api.onSetOrbitStyle) api.onSetOrbitStyle(s => { orbitStyle=s; save(); });
   if (api.onSetTodoAnim) api.onSetTodoAnim(s => { todoAnim=s; applyTodoAnim(); save(); });
+  if (api.onSetWindowFit) api.onSetWindowFit(v => { windowFitAuto = !!v; save(); lastFitSent = { t: -1, b: -1 }; });
 
   // ── Tooltip font resize (Ctrl + scroll) / Orbit speed (Alt + scroll) ──
   let tooltipResizePulse = 0;
@@ -93,7 +110,6 @@
     tooltipResizePulse = performance.now();
   }, { passive: false });
 
-  const dpr = window.devicePixelRatio||1;
   const pWrapS = document.getElementById('picker-wrap-start');
   const pWrapE = document.getElementById('picker-wrap-end');
   const pInputS = document.getElementById('color-start');
@@ -119,16 +135,22 @@
      }
   });
 
+  // Cached wrapper metrics — one layout read per resize, reused by every
+  // frame instead of forcing reflow from the hot draw path.
+  let wrapSize = { w: 300, h: 300 };
   function resize() {
     // Canvas fills the clock wrapper (left square area). The todo panel lives
     // in the right side of the window and is HTML-based, so it has its own
     // layout. The renderer only needs to track the wrapper's size.
+    const dpr = window.devicePixelRatio || 1; // re-read: stale across monitors
     const wrap = document.getElementById('clock-wrapper');
     const w = Math.max(80, wrap.clientWidth || 0);
     const h = Math.max(80, wrap.clientHeight || 0);
+    wrapSize = { w, h };
     canvas.width = w*dpr; canvas.height = h*dpr;
     canvas.style.width = w+'px'; canvas.style.height = h+'px';
     X.setTransform(dpr,0,0,dpr,0,0);
+    try { lastLabelSig = '__resize__'; } catch (_) {} // declared later; ignore TDZ on first run
   }
   resize();
   // Re-run after first paint to catch any post-layout sizing adjustments
@@ -153,46 +175,14 @@
   }
 
   function clockBounds() {
-    const wrap = document.getElementById('clock-wrapper');
-    const w = wrap.clientWidth, h = wrap.clientHeight;
+    const w = wrapSize.w, h = wrapSize.h; // cached by resize()
     const cx = w/2, cy = h/2;
     // Room for: dotted orbit (42) + outer gap (20) + typical box half-size.
+    // FIXED SIZE: the dial never shrinks, no matter how many labels exist.
+    // Labels are HTML overlay (never clipped); each shrinks its own font
+    // down to 8px to fit, then simply overflows past the window edge.
     const margin = 90;
-    let r = Math.max(50, Math.min(cx, cy) - margin);
-    // ── Auto-fit: shrink the dial just enough that every visible label box
-    // fits fully inside the WINDOW at its required outside-orbit distance.
-    // East side may use the transparent todo-panel area (HTML overlay labels).
-    try {
-      const now = Date.now();
-      const sc = tooltipSize || 1.0;
-      const fp = Math.round(11 * sc);
-      X.font = `600 ${fp}px Inter, system-ui, sans-serif`;
-      const pX = 10;
-      const dE = Math.max(3.5, Math.round(fp * 0.4)) * 2 + 3 + 10;
-      const oG = Math.max(OUTER_GAP_BASE, Math.round(10 * sc));
-      const wrapLeft = wrap.getBoundingClientRect().left || 0;
-      const eastMax = window.innerWidth - wrapLeft - 2;
-      let need = 0;
-      for (const sess of (sessions || [])) {
-        if (!sess || sess.end < now - 5 * 60 * 1000) continue;
-        if (!sess.task) continue; // hidden placeholders don't reserve space
-        const tw = X.measureText(sess.task).width;
-        const bW = Math.ceil(tw + pX * 2 + dE);
-        const bH = Math.ceil(fp + 12);
-        const hW = bW / 2, hH = bH / 2;
-        const ang = getAngleForDate(new Date((sess.start + sess.end) / 2));
-        const cA = Math.cos(ang), sA = Math.sin(ang);
-        const proj = Math.abs(hW * cA) + Math.abs(hH * sA);
-        const cd = (r + ORBIT_GAP) + oG + proj + 34;
-        const ex0 = cx + cA * cd - hW, ex1 = ex0 + bW;
-        const ey0 = cy + sA * cd - hH, ey1 = ey0 + bH;
-        if (ex0 < 2 && Math.abs(cA) > 0.15) need = Math.max(need, (2 - ex0) / Math.abs(cA));
-        if (ex1 > eastMax && Math.abs(cA) > 0.15) need = Math.max(need, (ex1 - eastMax) / Math.abs(cA));
-        if (ey0 < 2 && Math.abs(sA) > 0.15) need = Math.max(need, (2 - ey0) / Math.abs(sA));
-        if (ey1 > h - 2 && Math.abs(sA) > 0.15) need = Math.max(need, (ey1 - (h - 2)) / Math.abs(sA));
-      }
-      if (need > 0) r = Math.max(50, r - need - 4);
-    } catch (_) {}
+    const r = Math.max(50, Math.min(cx, cy) - margin);
     return { cx, cy, r, w, h };
   }
 
@@ -300,6 +290,305 @@
         X.stroke();
       }
       X.setLineDash([]);
+    } else if (st === 'cyber-scan') {
+      // High-tech cyber radar sweep with reticle tick marks
+      X.beginPath();
+      X.arc(cx, cy, or - 6, 0, PI2);
+      X.strokeStyle = 'rgba(56,189,248,0.2)';
+      X.lineWidth = 1;
+      X.stroke();
+      X.beginPath();
+      X.arc(cx, cy, or + 6, 0, PI2);
+      X.strokeStyle = 'rgba(56,189,248,0.2)';
+      X.lineWidth = 1;
+      X.stroke();
+      const baseA = rot / or;
+      for (let i = 0; i < 4; i++) {
+        const a = baseA + (i * Math.PI * 0.5);
+        const cosA = Math.cos(a), sinA = Math.sin(a);
+        X.beginPath();
+        X.moveTo(cx + cosA * (or - 8), cy + sinA * (or - 8));
+        X.lineTo(cx + cosA * (or + 8), cy + sinA * (or + 8));
+        X.strokeStyle = 'rgba(56,189,248,0.7)';
+        X.lineWidth = 1.5;
+        X.stroke();
+      }
+      const sweepLen = 0.65;
+      const head = baseA;
+      const tail = head - sweepLen;
+      X.beginPath();
+      X.arc(cx, cy, or, tail, head);
+      X.strokeStyle = 'rgba(56,189,248,0.9)';
+      X.lineWidth = 3.5;
+      X.lineCap = 'round';
+      try { X.shadowColor = '#38bdf8'; X.shadowBlur = 10; } catch (_) {}
+      X.stroke();
+      try { X.shadowBlur = 0; } catch (_) {}
+      X.beginPath();
+      X.arc(cx + Math.cos(head) * or, cy + Math.sin(head) * or, 3, 0, PI2);
+      X.fillStyle = '#e0f2fe';
+      X.fill();
+    } else if (st === 'particles') {
+      // Cosmic swarm of orbiting starlight particles
+      X.beginPath();
+      X.arc(cx, cy, or, 0, PI2);
+      X.setLineDash([2, 10]);
+      try { X.lineDashOffset = -rot * 0.5; } catch (_) {}
+      X.strokeStyle = 'rgba(167,139,250,0.2)';
+      X.lineWidth = 1;
+      X.stroke();
+      X.setLineDash([]);
+      const count = 18;
+      const baseA = (rot * 0.7) / or;
+      for (let i = 0; i < count; i++) {
+        const a = baseA + (i / count) * PI2;
+        const radWobble = or + Math.sin(nowMs / 500 + i * 1.4) * 6;
+        const pSize = 1.2 + 1.6 * (0.5 + 0.5 * Math.sin(nowMs / 300 + i * 2));
+        const px = cx + Math.cos(a) * radWobble;
+        const py = cy + Math.sin(a) * radWobble;
+        const col = i % 3 === 0 ? '#38bdf8' : (i % 3 === 1 ? '#c084fc' : '#34d399');
+        X.beginPath();
+        X.arc(px, py, pSize, 0, PI2);
+        X.fillStyle = col;
+        try { X.shadowColor = col; X.shadowBlur = 6; } catch (_) {}
+        X.fill();
+        try { X.shadowBlur = 0; } catch (_) {}
+      }
+    } else if (st === 'pulse-wave') {
+      // Concentric ripple waves pulsating outward from dial
+      const speedFactor = 0.6 + spd * 0.5;
+      const phase = ((nowMs / 1000) * speedFactor) % 1;
+      const waves = 3;
+      for (let k = 0; k < waves; k++) {
+        const p = (phase + k / waves) % 1;
+        const ripR = or - 10 + p * 22;
+        const alpha = (1 - p) * 0.75;
+        X.beginPath();
+        X.arc(cx, cy, ripR, 0, PI2);
+        X.strokeStyle = `rgba(148,210,185,${alpha.toFixed(3)})`;
+        X.lineWidth = 1.6 * (1 - p * 0.4);
+        try { X.shadowColor = 'rgba(148,210,185,0.6)'; X.shadowBlur = 6 * (1 - p); } catch (_) {}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch (_) {}
+      }
+    } else if (st === 'quantum') {
+      // High-energy quantum electric arc plasma ring
+      const pts = 28;
+      const tSec = nowMs / 1000;
+      X.beginPath();
+      for (let i = 0; i <= pts; i++) {
+        const a = (i / pts) * PI2 + rot / or;
+        const jitter = Math.sin(i * 9 + tSec * 16) * 4.5 + Math.cos(i * 5 - tSec * 22) * 2;
+        const qx = cx + Math.cos(a) * (or + jitter);
+        const qy = cy + Math.sin(a) * (or + jitter);
+        if (i === 0) X.moveTo(qx, qy); else X.lineTo(qx, qy);
+      }
+      X.closePath();
+      X.strokeStyle = 'rgba(56,189,248,0.85)';
+      X.lineWidth = 1.8;
+      try { X.shadowColor = '#06b6d4'; X.shadowBlur = 10; } catch (_) {}
+      X.stroke();
+      X.beginPath();
+      for (let i = 0; i <= pts; i++) {
+        const a = (i / pts) * PI2 - rot / or;
+        const jitter = Math.sin(i * 7 - tSec * 14) * 3;
+        const qx = cx + Math.cos(a) * (or - 4 + jitter);
+        const qy = cy + Math.sin(a) * (or - 4 + jitter);
+        if (i === 0) X.moveTo(qx, qy); else X.lineTo(qx, qy);
+      }
+      X.closePath();
+      X.strokeStyle = 'rgba(192,132,252,0.65)';
+      X.lineWidth = 1.2;
+      try { X.shadowColor = '#c084fc'; X.shadowBlur = 8; } catch (_) {}
+      X.stroke();
+      try { X.shadowBlur = 0; } catch (_) {}
+    } else if (st === 'vortex') {
+      // Logarithmic spiral vortex filaments
+      const arms = 8;
+      const baseA = (rot * 1.5) / or;
+      for (let k = 0; k < arms; k++) {
+        const armA = baseA + (k / arms) * PI2;
+        X.beginPath();
+        for (let step = 0; step <= 10; step++) {
+          const frac = step / 10;
+          const currR = or - 12 + frac * 24;
+          const currA = armA + frac * 0.45;
+          const vx = cx + Math.cos(currA) * currR;
+          const vy = cy + Math.sin(currA) * currR;
+          if (step === 0) X.moveTo(vx, vy); else X.lineTo(vx, vy);
+        }
+        X.strokeStyle = `hsla(${(k * 45 + nowMs / 30) % 360}, 85%, 65%, 0.75)`;
+        X.lineWidth = 1.8;
+        try { X.shadowColor = 'rgba(255,255,255,0.4)'; X.shadowBlur = 4; } catch (_) {}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch (_) {}
+      }
+    } else if (st === 'gear-teeth') {
+      // Precision mechanical gear cog ring
+      const teeth = 32;
+      const baseA = rot / or;
+      X.beginPath();
+      for (let i = 0; i < teeth; i++) {
+        const a0 = baseA + (i / teeth) * PI2;
+        const a1 = baseA + ((i + 0.35) / teeth) * PI2;
+        const a2 = baseA + ((i + 0.65) / teeth) * PI2;
+        const a3 = baseA + ((i + 1.0) / teeth) * PI2;
+        const rIn = or - 3.5, rOut = or + 3.5;
+        if (i === 0) X.moveTo(cx + Math.cos(a0) * rIn, cy + Math.sin(a0) * rIn);
+        X.lineTo(cx + Math.cos(a1) * rIn, cy + Math.sin(a1) * rIn);
+        X.lineTo(cx + Math.cos(a1) * rOut, cy + Math.sin(a1) * rOut);
+        X.lineTo(cx + Math.cos(a2) * rOut, cy + Math.sin(a2) * rOut);
+        X.lineTo(cx + Math.cos(a2) * rIn, cy + Math.sin(a2) * rIn);
+        X.lineTo(cx + Math.cos(a3) * rIn, cy + Math.sin(a3) * rIn);
+      }
+      X.closePath();
+      X.strokeStyle = 'rgba(245,158,11,0.85)';
+      X.lineWidth = 1.5;
+      X.stroke();
+      X.beginPath();
+      X.arc(cx, cy, or - 8, 0, PI2);
+      X.strokeStyle = 'rgba(245,158,11,0.3)';
+      X.lineWidth = 1;
+      X.stroke();
+      for (let i = 0; i < 12; i++) {
+        const a = baseA * 0.5 + (i / 12) * PI2;
+        X.beginPath();
+        X.arc(cx + Math.cos(a) * (or - 8), cy + Math.sin(a) * (or - 8), 1.4, 0, PI2);
+        X.fillStyle = '#fbbf24';
+        X.fill();
+      }
+    } else if (st === 'neon-chase') {
+      // Twin hyper-velocity laser chasers
+      X.beginPath();
+      X.arc(cx, cy, or, 0, PI2);
+      X.strokeStyle = 'rgba(255,255,255,0.08)';
+      X.lineWidth = 1;
+      X.stroke();
+      const baseA = (rot * 1.6) / or;
+      const chasers = [
+        { offset: 0, col: '#f43f5e', rgb: '244,63,94' },
+        { offset: Math.PI, col: '#06b6d4', rgb: '6,182,212' }
+      ];
+      chasers.forEach(ch => {
+        const head = baseA + ch.offset;
+        const tailLen = 1.1;
+        const segments = 12;
+        for (let s = 0; s < segments; s++) {
+          const a0 = head - (s / segments) * tailLen;
+          const a1 = head - ((s + 1) / segments) * tailLen;
+          const aAlpha = (1 - s / segments) * 0.9;
+          X.beginPath();
+          X.arc(cx, cy, or, a1, a0);
+          X.strokeStyle = `rgba(${ch.rgb},${aAlpha.toFixed(3)})`;
+          X.lineWidth = 2.8 * (1 - s / segments * 0.5);
+          X.stroke();
+        }
+        const hx = cx + Math.cos(head) * or;
+        const hy = cy + Math.sin(head) * or;
+        X.beginPath();
+        X.arc(hx, hy, 3.5, 0, PI2);
+        X.fillStyle = '#ffffff';
+        try { X.shadowColor = ch.col; X.shadowBlur = 12; } catch (_) {}
+        X.fill();
+        try { X.shadowBlur = 0; } catch (_) {}
+      });
+    } else if (st === 'eclipse-corona') {
+      // Shimmering solar prominence corona flares
+      const rays = 36;
+      const baseA = rot / or;
+      const tSec = nowMs / 1000;
+      X.beginPath();
+      X.arc(cx, cy, or - 4, 0, PI2);
+      X.strokeStyle = 'rgba(251,191,36,0.35)';
+      X.lineWidth = 1.2;
+      X.stroke();
+      for (let i = 0; i < rays; i++) {
+        const a = baseA + (i / rays) * PI2;
+        const flareLen = 4 + 9 * (0.5 + 0.5 * Math.sin(i * 3.7 + tSec * 4));
+        const r0 = or - 3;
+        const r1 = r0 + flareLen;
+        const cosA = Math.cos(a), sinA = Math.sin(a);
+        X.beginPath();
+        X.moveTo(cx + cosA * r0, cy + sinA * r0);
+        X.lineTo(cx + cosA * r1, cy + sinA * r1);
+        const col = i % 2 === 0 ? 'rgba(251,191,36,0.85)' : 'rgba(249,115,22,0.75)';
+        X.strokeStyle = col;
+        X.lineWidth = 1.6;
+        try { X.shadowColor = '#f59e0b'; X.shadowBlur = 6; } catch (_) {}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch (_) {}
+      }
+    } else if (st === 'dna-helix') {
+      // Intertwined double sinusoidal orbit helix
+      const waveFreq = 12;
+      const tPhase = rot / 6;
+      const pts = 64;
+      X.beginPath();
+      for (let i = 0; i <= pts; i++) {
+        const a = (i / pts) * PI2;
+        const rOff = Math.sin(a * waveFreq + tPhase) * 6;
+        const hx = cx + Math.cos(a) * (or + rOff);
+        const hy = cy + Math.sin(a) * (or + rOff);
+        if (i === 0) X.moveTo(hx, hy); else X.lineTo(hx, hy);
+      }
+      X.strokeStyle = 'rgba(56,189,248,0.8)';
+      X.lineWidth = 1.8;
+      try { X.shadowColor = '#38bdf8'; X.shadowBlur = 5; } catch (_) {}
+      X.stroke();
+      X.beginPath();
+      for (let i = 0; i <= pts; i++) {
+        const a = (i / pts) * PI2;
+        const rOff = -Math.sin(a * waveFreq + tPhase) * 6;
+        const hx = cx + Math.cos(a) * (or + rOff);
+        const hy = cy + Math.sin(a) * (or + rOff);
+        if (i === 0) X.moveTo(hx, hy); else X.lineTo(hx, hy);
+      }
+      X.strokeStyle = 'rgba(236,72,153,0.8)';
+      X.lineWidth = 1.8;
+      try { X.shadowColor = '#ec4899'; X.shadowBlur = 5; } catch (_) {}
+      X.stroke();
+      try { X.shadowBlur = 0; } catch (_) {}
+      for (let rIdx = 0; rIdx < waveFreq * 2; rIdx++) {
+        const a = (rIdx / (waveFreq * 2)) * PI2;
+        const rOff = Math.sin(a * waveFreq + tPhase) * 6;
+        if (Math.abs(rOff) > 3) {
+          X.beginPath();
+          X.moveTo(cx + Math.cos(a) * (or + rOff), cy + Math.sin(a) * (or + rOff));
+          X.lineTo(cx + Math.cos(a) * (or - rOff), cy + Math.sin(a) * (or - rOff));
+          X.strokeStyle = 'rgba(255,255,255,0.4)';
+          X.lineWidth = 1;
+          X.stroke();
+        }
+      }
+    } else if (st === 'hex-shield') {
+      // Segmented tactical defense aegis shield
+      const segs = 6;
+      const baseA = rot / or;
+      const gapAngle = 0.18;
+      const segAngle = (PI2 / segs) - gapAngle;
+      for (let i = 0; i < segs; i++) {
+        const aStart = baseA + i * (PI2 / segs);
+        const aEnd = aStart + segAngle;
+        const pulse = 0.5 + 0.5 * Math.sin(nowMs / 400 + i);
+        X.beginPath();
+        X.arc(cx, cy, or, aStart, aEnd);
+        X.strokeStyle = `rgba(16,185,129,${(0.4 + 0.5 * pulse).toFixed(3)})`;
+        X.lineWidth = 3;
+        try { X.shadowColor = '#10b981'; X.shadowBlur = 8 * pulse; } catch (_) {}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch (_) {}
+        X.beginPath();
+        X.arc(cx, cy, or + 5, aStart + 0.08, aEnd - 0.08);
+        X.strokeStyle = 'rgba(16,185,129,0.3)';
+        X.lineWidth = 1;
+        X.stroke();
+        [aStart, aEnd].forEach(capA => {
+          X.beginPath();
+          X.arc(cx + Math.cos(capA) * or, cy + Math.sin(capA) * or, 2.2, 0, PI2);
+          X.fillStyle = '#6ee7b7';
+          X.fill();
+        });
+      }
     } else {
       // 'dash' — classic clockwise rotating dotted ring.
       X.beginPath();
@@ -352,8 +641,8 @@
   let interactiveMode = null;
   let interactiveDate = null;
   let draggingKnob = false;
-  let dragIsPM = false;
-  let dragLastHrs12 = null;
+  let dragLastAngle = 0;
+  let dragCurrentTimeMs = 0;
 
   api.onFocusTime(data => {
     interactiveMode = data.type;
@@ -382,7 +671,7 @@
     
     // Check gear icon click first
     if (isClickOnGear(mx, my)) {
-        api.showPanel({style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim});
+        api.showPanel({style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,windowFitAuto});
        return;
     }
     
@@ -426,13 +715,23 @@
            const kxE = cx + Math.cos(aEnd) * (r - 12);
            const kyE = cy + Math.sin(aEnd) * (r - 12);
            
-           if (Math.hypot(mx - kxS, my - kyS) < 30) {
-               draggingKnob = true; dragIsPM = dStart.getHours() >= 12; dragLastHrs12 = dStart.getHours() % 12;
-               interactiveMode = `edit-${idx}-start`; interactiveDate = dStart; return;
+           if (Math.hypot(mx - kxS, my - kyS) < 45) {
+               draggingKnob = true;
+               interactiveMode = `edit-${idx}-start`; interactiveDate = dStart;
+               let angle = Math.atan2(my - cy, mx - cx);
+               if (angle < 0) angle += PI2;
+               dragLastAngle = angle;
+               dragCurrentTimeMs = sess.start;
+               return;
            }
-           if (Math.hypot(mx - kxE, my - kyE) < 30) {
-               draggingKnob = true; dragIsPM = dEnd.getHours() >= 12; dragLastHrs12 = dEnd.getHours() % 12;
-               interactiveMode = `edit-${idx}-end`; interactiveDate = dEnd; return;
+           if (Math.hypot(mx - kxE, my - kyE) < 45) {
+               draggingKnob = true;
+               interactiveMode = `edit-${idx}-end`; interactiveDate = dEnd;
+               let angle = Math.atan2(my - cy, mx - cx);
+               if (angle < 0) angle += PI2;
+               dragLastAngle = angle;
+               dragCurrentTimeMs = sess.end;
+               return;
            }
        }
        
@@ -445,8 +744,13 @@
        const angle = getAngleForDate(interactiveDate);
        const kx = cx + Math.cos(angle) * (r - 12);
        const ky = cy + Math.sin(angle) * (r - 12);
-       if (Math.hypot(mx - kx, my - ky) < 30) {
-          draggingKnob = true; dragIsPM = interactiveDate.getHours() >= 12; dragLastHrs12 = interactiveDate.getHours() % 12; return;
+       if (Math.hypot(mx - kx, my - ky) < 45) {
+          draggingKnob = true;
+          let a = Math.atan2(my - cy, mx - cx);
+          if (a < 0) a += PI2;
+          dragLastAngle = a;
+          dragCurrentTimeMs = interactiveDate.getTime();
+          return;
        }
     }
     
@@ -550,44 +854,35 @@
        let clockAngle = angle + (Math.PI / 2);
        if (clockAngle < 0) clockAngle += PI2;
        if (clockAngle >= PI2) clockAngle -= PI2;
+       let deltaA = angle - dragLastAngle;
+       if (deltaA > Math.PI) deltaA -= PI2;
+       else if (deltaA < -Math.PI) deltaA += PI2;
+       dragLastAngle = angle;
        
-       let totalMins = Math.round((clockAngle / PI2) * 12 * 60);
-       let hrs12 = Math.floor(totalMins / 60);
-       let mins = totalMins % 60;
+       const msPerRad = (12 * 3600000) / PI2;
+       dragCurrentTimeMs += deltaA * msPerRad;
        
-       mins = Math.round(mins / 5) * 5;
-       if (mins === 60) { mins = 0; hrs12++; }
-       if (hrs12 >= 12) hrs12 -= 12;
-       
-       if (dragLastHrs12 === 11 && hrs12 === 0) dragIsPM = !dragIsPM;
-       else if (dragLastHrs12 === 0 && hrs12 === 11) dragIsPM = !dragIsPM;
-       dragLastHrs12 = hrs12;
-       
-       let newHrs = hrs12;
-       if (dragIsPM) newHrs += 12;
-       if (newHrs === 24) newHrs = 0;
+       // round to nearest 1 minute
+       let newTimeMs = Math.round(dragCurrentTimeMs / 60000) * 60000;
        
        if (interactiveMode.startsWith('edit-')) {
            const idx = parseInt(interactiveMode.split('-')[1]);
            const key = interactiveMode.split('-')[2]; // 'start' or 'end'
            const sess = sessions[idx];
            if (sess) {
-              const d = new Date(sess[key]);
-              d.setHours(newHrs, mins, 0, 0);
-              sess[key] = d.getTime();
-               // Prevent crossover with minimum 5-minute duration
-               if (key === 'start' && sess.start >= sess.end - 5 * 60000) sess.end = sess.start + 5 * 60000;
-               if (key === 'end' && sess.end <= sess.start + 5 * 60000) sess.start = sess.end - 5 * 60000;
-               save();
-              
-              // We must update the panel inputs too!
-              const outTimeStr = `${newHrs.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}`;
-              api.updateTimeInput({type: interactiveMode, timeStr: outTimeStr});
-              interactiveDate = d; // update for draw
+               if (key === 'start' && newTimeMs >= sess.end - 60000) newTimeMs = sess.end - 60000;
+                if (key === 'end' && newTimeMs <= sess.start + 60000) newTimeMs = sess.start + 60000;
+
+                sess[key] = newTimeMs;
+
+                const d = new Date(newTimeMs);
+               const outTimeStr = `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+               api.updateTimeInput({type: interactiveMode, timeStr: outTimeStr});
+               interactiveDate = d; // update for draw
            }
        } else {
-           interactiveDate.setHours(newHrs, mins, 0, 0);
-           const timeStr = `${newHrs.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}`;
+           interactiveDate = new Date(newTimeMs);
+           const timeStr = `${interactiveDate.getHours().toString().padStart(2,'0')}:${interactiveDate.getMinutes().toString().padStart(2,'0')}`;
            api.updateTimeInput({type: interactiveMode, timeStr});
        }
     }
@@ -597,6 +892,7 @@
     if(dragging){dragging=false;api.dragEnd();} 
     if(draggingKnob) {
       draggingKnob = false;
+      save(); // Save once at the end of the drag
       if (interactiveMode && interactiveMode.startsWith('edit-')) {
          const idx = interactiveMode.split('-')[1];
          interactiveMode = `edit-${idx}-both`; // Return to showing both handles
@@ -860,6 +1156,7 @@
     'snake':'m-snake','blink':'m-blink','tada':'m-tada'
   };
   let lastLabelSig = '__init__';
+  let enterTimer = null; // clears the 600ms entrance state without a rebuild storm
   let labelCenters = []; // [{x, y, idx, el, ph}] wrapper-relative centers
   let lastMouseClient = null;
 
@@ -880,17 +1177,41 @@
     return p;
   }
 
-  function labelSig(cx, cy, r, W, H, bucket) {
+  function labelSig(cx, cy, r, W, H) {
     return [cx|0, cy|0, r|0, W, H, tooltipSize, tooltipAnim,
       sessions.map(s => s.start + ':' + s.end + ':' + (s.task || '') + ':' + (s.color || '')).join('|'),
-      editingLabelIdx, bucket].join('~');
+      editingLabelIdx].join('~');
   }
 
   function syncLabels(cx, cy, r, W, H) {
-    const sig = labelSig(cx, cy, r, W, H, Math.floor(Date.now() / 10000));
+    // Change-driven: rebuild the DOM only when data or geometry changed.
+    // (No time bucket — rebuilding restarts CSS motions and churns layout.)
+    const sig = labelSig(cx, cy, r, W, H);
     if (sig === lastLabelSig) return;
     lastLabelSig = sig;
     renderLabels(cx, cy, r, W, H);
+  }
+
+  // Expired sessions drop off the dial: re-check visibility every 10s and
+  // invalidate ONLY when the visible set actually changed.
+  let lastVisSig = '';
+  setInterval(() => {
+    try {
+      const now = Date.now();
+      const vs = sessions.map(s => (s && s.end > now - 300000 && s.task ? '1' : '0')).join('');
+      if (vs !== lastVisSig) { lastVisSig = vs; lastLabelSig = '__expiry__'; }
+    } catch (_) {}
+  }, 10000);
+
+  // Ask main to grow/shrink the window so labels never clip (throttled).
+  let lastFitSent = { t: -1, b: -1 }, lastFitAt = 0;
+  function maybeFitWindow(needT, needB) {
+    if (!windowFitAuto || !api.fitWindow) return;
+    needT = Math.max(0, Math.ceil(needT)); needB = Math.max(0, Math.ceil(needB));
+    const now = performance.now();
+    if ((needT === lastFitSent.t && needB === lastFitSent.b) || now - lastFitAt < 800) return;
+    lastFitSent = { t: needT, b: needB }; lastFitAt = now;
+    try { api.fitWindow({ top: needT, bottom: needB }); } catch (_) {}
   }
 
   function renderLabels(cx, cy, r, W, H) {
@@ -906,6 +1227,7 @@
     const outerGap = Math.max(OUTER_GAP_BASE, Math.round(10 * sizeScale));
     const wrapRect0 = document.getElementById('clock-wrapper').getBoundingClientRect();
     const eastMax = window.innerWidth - (wrapRect0.left || 0) - 4;
+    let fitMin = Infinity, fitMax = -Infinity; // label extremes for window auto-fit
     sessions.forEach((sess, i) => {
       if (!sess || sess.end < now - 5 * 60 * 1000) return;
       if (editingLabelIdx === i) return;
@@ -968,9 +1290,21 @@
       el.appendChild(box);
       labelsLayer.appendChild(el);
       labelCenters.push({ x: cdX, y: cdY, idx: i, el, ph: isPH });
+      // Track extremes so the window can grow to fit (fixed dial).
+      // Hidden placeholders don't reserve space.
+      if (!isPH) {
+        if (cdY - bH / 2 < fitMin) fitMin = cdY - bH / 2;
+        if (cdY + bH / 2 > fitMax) fitMax = cdY + bH / 2;
+      }
     });
     for (const key in labelBirthTimes) { if (!sessions[key]) delete labelBirthTimes[key]; }
     refreshPlaceholderVisibility(null);
+    // Clear the entrance state 650ms after a batch with new labels.
+    if (labelCenters.some(c => !c.ph && (now - (labelBirthTimes[c.idx] || 0) < 600)) && !enterTimer) {
+      enterTimer = setTimeout(() => { enterTimer = null; lastLabelSig = '__entered__'; }, 650);
+    }
+    // Grow/shrink the window (not the dial) when labels overflow top/bottom.
+    maybeFitWindow(4 - fitMin, fitMax - (H - 4));
   }
 
   function refreshPlaceholderVisibility(e) {
@@ -1843,8 +2177,8 @@
     matrix_rain:drawMatrixRain, equalizer:drawEqualizer, vortex:drawVortex
   };
 
-  function getAnimModifier(nowTime) {
-    const s = blockAnim.style || 'none';
+  function getAnimModifier(nowTime, styleOverride) {
+    const s = styleOverride || blockAnim.style || 'none';
     const spd = blockAnim.speed || 1.0;
     const t = (nowTime / 1000) * spd;
     
@@ -1858,21 +2192,215 @@
       case 'rainbow-glow': return { opMul: 1, rOff: 0, blur: 8 + 4 * Math.sin(t * 2), colorOverride: rainbowColor(1) };
       case 'rainbow-pulse': return { opMul: 0.7 + 0.3 * Math.sin(t * 3), rOff: 0, blur: 0, colorOverride: rainbowColor(2) };
       case 'disco': return { opMul: 0.8 + 0.2 * Math.sin(t * 12), rOff: 3 * Math.sin(t * 15), blur: 5, colorOverride: rainbowColor(6) };
+      case 'radar-sweep': return { opMul: 0.9, rOff: 0, blur: 3 };
+      case 'stripes': return { opMul: 0.85, rOff: 0, blur: 0 };
+      case 'neon-flow': return { opMul: 0.9, rOff: 0, blur: 4 };
+      case 'particles': return { opMul: 0.85, rOff: 0, blur: 2 };
+      case 'wave-ripple': return { opMul: 0.85, rOff: 0, blur: 2 };
+      case 'electric': return { opMul: 0.9, rOff: 0, blur: 5 };
+      case 'aurora': return { opMul: 0.95, rOff: 0, blur: 4 };
+      case 'sandglass': return { opMul: 0.88, rOff: 0, blur: 2 };
+      case 'glitch': return { opMul: 0.85 + (Math.sin(t * 18) > 0.85 ? 0.25 : 0), rOff: 0, blur: 3 };
+      case 'heartbeat': {
+        const hb = Math.pow(Math.max(0, Math.sin(t * 3)), 16) + 0.6 * Math.pow(Math.max(0, Math.sin(t * 3 - 0.45)), 16);
+        return { opMul: 0.75 + hb * 0.4, rOff: hb * 3.5, blur: hb * 10 };
+      }
       default: return { opMul: 1, rOff: 0, blur: 0 };
     }
   }
 
+  function drawTimeBlockAnimEffect(cx, cy, r, startA, endA, color, style, t, opacity) {
+    if (!style || style === 'none' || style === 'pulse' || style === 'glow' ||
+        style === 'breathe' || style === 'shimmer' || style === 'rainbow-glow' ||
+        style === 'rainbow-pulse' || style === 'disco') return;
+
+    const angleSpan = endA - startA;
+    if (angleSpan <= 0.001) return;
+
+    X.save();
+    // Clip cleanly to the sector so animation stays strictly inside the time block
+    X.beginPath();
+    X.moveTo(cx, cy);
+    X.arc(cx, cy, r, startA, endA);
+    X.closePath();
+    X.clip();
+
+    if (style === 'radar-sweep') {
+      const sweepPhase = 0.5 + 0.5 * Math.sin(t * 2.2);
+      const sweepA = startA + angleSpan * sweepPhase;
+      const trailSpan = Math.min(angleSpan * 0.4, 0.35);
+      X.beginPath();
+      X.moveTo(cx, cy);
+      X.arc(cx, cy, r, sweepA - trailSpan, sweepA);
+      X.closePath();
+      X.fillStyle = 'rgba(255,255,255,0.18)';
+      X.fill();
+      X.beginPath();
+      X.moveTo(cx, cy);
+      X.lineTo(cx + Math.cos(sweepA) * r, cy + Math.sin(sweepA) * r);
+      X.strokeStyle = '#ffffff';
+      X.lineWidth = 2.2;
+      try { X.shadowColor = color; X.shadowBlur = 8; } catch (_) {}
+      X.stroke();
+      try { X.shadowBlur = 0; } catch (_) {}
+    } else if (style === 'stripes') {
+      const spacing = 18;
+      const offset = (t * 26) % spacing;
+      X.lineWidth = 6;
+      X.strokeStyle = 'rgba(255,255,255,0.16)';
+      const maxD = r * 1.5;
+      for (let d = -maxD + offset; d < maxD; d += spacing) {
+        X.beginPath();
+        X.moveTo(cx + d - r, cy - r);
+        X.lineTo(cx + d + r, cy + r);
+        X.stroke();
+      }
+    } else if (style === 'neon-flow') {
+      const p1 = r;
+      const p2 = angleSpan * r;
+      const p3 = r;
+      const totalP = p1 + p2 + p3;
+      const dist = (t * 140) % totalP;
+      let px = cx, py = cy;
+      if (dist < p1) {
+        const frac = dist / p1;
+        px = cx + Math.cos(startA) * (frac * r);
+        py = cy + Math.sin(startA) * (frac * r);
+      } else if (dist < p1 + p2) {
+        const frac = (dist - p1) / p2;
+        const curA = startA + frac * angleSpan;
+        px = cx + Math.cos(curA) * r;
+        py = cy + Math.sin(curA) * r;
+      } else {
+        const frac = 1 - ((dist - p1 - p2) / p3);
+        px = cx + Math.cos(endA) * (frac * r);
+        py = cy + Math.sin(endA) * (frac * r);
+      }
+      X.beginPath();
+      X.arc(px, py, 4, 0, PI2);
+      X.fillStyle = '#ffffff';
+      try { X.shadowColor = color; X.shadowBlur = 12; } catch (_) {}
+      X.fill();
+      try { X.shadowBlur = 0; } catch (_) {}
+    } else if (style === 'particles') {
+      const count = 16;
+      for (let i = 0; i < count; i++) {
+        const p = ((t * 0.3 + (i / count)) % 1);
+        const pAngle = startA + (((i * 73) % 100) / 100) * angleSpan;
+        const pDist = p * r;
+        const pAlpha = Math.sin(p * Math.PI) * 0.85;
+        const px = cx + Math.cos(pAngle) * pDist;
+        const py = cy + Math.sin(pAngle) * pDist;
+        X.beginPath();
+        X.arc(px, py, 1.5 + Math.sin(i + t * 2) * 0.8, 0, PI2);
+        X.fillStyle = `rgba(255,255,255,${pAlpha.toFixed(3)})`;
+        try { X.shadowColor = color; X.shadowBlur = 4; } catch (_) {}
+        X.fill();
+        try { X.shadowBlur = 0; } catch (_) {}
+      }
+    } else if (style === 'wave-ripple') {
+      const waves = 4;
+      for (let k = 0; k < waves; k++) {
+        const p = ((t * 0.6 + k / waves) % 1);
+        const ripR = p * r;
+        const alpha = (1 - p) * 0.45;
+        X.beginPath();
+        X.arc(cx, cy, ripR, startA, endA);
+        X.strokeStyle = `rgba(255,255,255,${alpha.toFixed(3)})`;
+        X.lineWidth = 2.5;
+        X.stroke();
+      }
+    } else if (style === 'electric') {
+      const bolts = 3;
+      for (let b = 0; b < bolts; b++) {
+        const seed = Math.floor(t * 12) + b * 13;
+        X.beginPath();
+        const pts = 8;
+        for (let j = 0; j <= pts; j++) {
+          const frac = j / pts;
+          const curA = startA + frac * angleSpan;
+          const jitterR = r - 10 + (Math.sin(seed * 7 + j * 11) * 8);
+          const jx = cx + Math.cos(curA) * jitterR;
+          const jy = cy + Math.sin(curA) * jitterR;
+          if (j === 0) X.moveTo(jx, jy); else X.lineTo(jx, jy);
+        }
+        X.strokeStyle = 'rgba(224,242,254,0.75)';
+        X.lineWidth = 1.4;
+        try { X.shadowColor = '#38bdf8'; X.shadowBlur = 8; } catch (_) {}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch (_) {}
+      }
+    } else if (style === 'aurora') {
+      const midA = (startA + endA) * 0.5;
+      const grad = X.createLinearGradient(
+        cx + Math.cos(midA + t) * (r * 0.3),
+        cy + Math.sin(midA + t) * (r * 0.3),
+        cx + Math.cos(midA) * r,
+        cy + Math.sin(midA) * r
+      );
+      grad.addColorStop(0, `hsla(${(t * 50) % 360}, 90%, 65%, 0.25)`);
+      grad.addColorStop(0.5, `hsla(${(t * 50 + 80) % 360}, 85%, 60%, 0.35)`);
+      grad.addColorStop(1, `hsla(${(t * 50 + 160) % 360}, 90%, 70%, 0.25)`);
+      X.fillStyle = grad;
+      X.fill();
+    } else if (style === 'sandglass') {
+      const p = (t * 0.5) % 1;
+      const sweepA = startA + p * angleSpan;
+      X.beginPath();
+      X.moveTo(cx, cy);
+      X.arc(cx, cy, r, startA, sweepA);
+      X.closePath();
+      X.fillStyle = 'rgba(255,255,255,0.14)';
+      X.fill();
+      X.beginPath();
+      X.moveTo(cx, cy);
+      X.lineTo(cx + Math.cos(sweepA) * r, cy + Math.sin(sweepA) * r);
+      X.strokeStyle = 'rgba(255,255,255,0.7)';
+      X.lineWidth = 1.8;
+      X.stroke();
+    } else if (style === 'glitch') {
+      X.lineWidth = 1;
+      X.strokeStyle = 'rgba(255,255,255,0.09)';
+      for (let y = cy - r; y < cy + r; y += 4) {
+        X.beginPath();
+        X.moveTo(cx - r, y);
+        X.lineTo(cx + r, y);
+        X.stroke();
+      }
+      if (Math.sin(t * 16) > 0.6) {
+        const sliceY = cy - r + ((t * 130) % (r * 2));
+        X.fillStyle = (Math.sin(t * 30) > 0) ? 'rgba(56,189,248,0.3)' : 'rgba(244,63,94,0.3)';
+        X.fillRect(cx - r, sliceY, r * 2, 8);
+      }
+    } else if (style === 'heartbeat') {
+      const hb = Math.pow(Math.max(0, Math.sin(t * 3)), 16) + 0.6 * Math.pow(Math.max(0, Math.sin(t * 3 - 0.45)), 16);
+      if (hb > 0.05) {
+        X.beginPath();
+        X.arc(cx, cy, r * (0.3 + hb * 0.65), startA, endA);
+        X.strokeStyle = `rgba(255,255,255,${(hb * 0.6).toFixed(3)})`;
+        X.lineWidth = 3 * hb;
+        try { X.shadowColor = '#f43f5e'; X.shadowBlur = 10 * hb; } catch (_) {}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch (_) {}
+      }
+    }
+
+    X.restore();
+  }
+
   function drawSessionsOverlay(cx, cy, r) {
     if (!sessions || sessions.length === 0) return;
-    const nowTime = Date.now();
+    const nowTime = performance.now();
+    const realNow = Date.now();
     let needsCleanup = false;
-    const anim = getAnimModifier(nowTime);
+    const spd = blockAnim.speed || 1.0;
+    const t = (nowTime / 1000) * spd;
     
     X.save();
     const MS_IN_12H = 43200000;
     
     sessions.forEach(sess => {
-       if (nowTime - sess.end > MS_IN_12H) { 
+       if (realNow - sess.end > MS_IN_12H) {
            needsCleanup = true; 
            return; 
        }
@@ -1888,7 +2416,7 @@
        
         // Calculate purely visual 12-hour cyclic elapsed time so the hour hand always splits the block
         let visDuration = Math.min(durationMs, MS_IN_12H);
-        let nDate = new Date(nowTime);
+        let nDate = new Date(realNow);
         let nowMsIn12h = (nDate.getHours() % 12) * 3600000 + nDate.getMinutes() * 60000 + nDate.getSeconds() * 1000 + nDate.getMilliseconds();
 
         let dist = nowMsIn12h - startMsIn12h;
@@ -1910,6 +2438,8 @@
 
         let elapsedAngle = (elapsedMs / MS_IN_12H) * PI2;
         let currentAngle = startAngle + elapsedAngle;
+       const s = sess.anim || blockAnim.style || 'none';
+       const anim = getAnimModifier(nowTime, sess.anim || null);
        let drawR = r + anim.rOff;
        let activeColor = anim.colorOverride || sess.color;
 
@@ -1947,6 +2477,9 @@
            X.fillStyle = activeColor;
            X.fill();
            
+           // Specialized animated texture/layer for advanced styles
+           drawTimeBlockAnimEffect(cx, cy, drawR, currentAngle, endAngle, activeColor, s, t, blockOpacity);
+
            X.globalAlpha = Math.min(1, blockOpacity * anim.opMul + 0.4);
            X.beginPath();
            X.arc(cx, cy, drawR - 1, currentAngle, endAngle);
@@ -2015,16 +2548,16 @@
        // Position DOM Pickers inside the ring
        if (pWrapS && pInputS) {
            pWrapS.style.display = 'block';
-           const pxS = cx + Math.cos(aS) * (r - 38);
-           const pyS = cy + Math.sin(aS) * (r - 38);
+           const pxS = cx + Math.cos(aS) * (r - 50);
+           const pyS = cy + Math.sin(aS) * (r - 50);
            pWrapS.style.left = (pxS - 11) + 'px';
            pWrapS.style.top = (pyS - 11) + 'px';
            if (!pWrapS.matches(':focus-within')) pInputS.value = sess.color;
        }
        if (pWrapE && pInputE) {
            pWrapE.style.display = 'block';
-           const pxE = cx + Math.cos(aE) * (r - 38);
-           const pyE = cy + Math.sin(aE) * (r - 38);
+           const pxE = cx + Math.cos(aE) * (r - 50);
+           const pyE = cy + Math.sin(aE) * (r - 50);
            pWrapE.style.left = (pxE - 11) + 'px';
            pWrapE.style.top = (pyE - 11) + 'px';
            if (!pWrapE.matches(':focus-within')) pInputE.value = sess.elapsedColor || sess.color;
@@ -2060,20 +2593,23 @@
   }
 
   function draw() {
-    const { cx, cy, r, w, h } = clockBounds();
-    const now=new Date();
-    const sec=now.getSeconds(),ms=now.getMilliseconds();
-    const secF=sec+ms/1000, minF=now.getMinutes()+secF/60, hrF=(now.getHours()%12)+minF/60;
-    const t=THEMES[theme]||THEMES.midnight;
-    X.clearRect(0,0,w,h);
-    (STYLES[style]||drawGhostPure)(cx,cy,r,hrF,minF,secF,t);
-    drawSessionsOverlay(cx, cy, r);
-    drawLabelOrbit(cx, cy, r);
-    syncLabels(cx, cy, r, w, h);
-    drawInteractiveKnob(cx, cy, r);
-    drawGearIcon(cx, cy, r);
-    drawTooltipSizeIndicator(cx, cy, r);
-    drawOrbitSpeedIndicator(cx, cy, r);
+    // Hidden/minimized window: keep the loop alive but skip all paint work.
+    if (!document.hidden) {
+      const { cx, cy, r, w, h } = clockBounds();
+      const now=new Date();
+      const sec=now.getSeconds(),ms=now.getMilliseconds();
+      const secF=sec+ms/1000, minF=now.getMinutes()+secF/60, hrF=(now.getHours()%12)+minF/60;
+      const t=THEMES[theme]||THEMES.midnight;
+      X.clearRect(0,0,w,h);
+      (STYLES[style]||drawGhostPure)(cx,cy,r,hrF,minF,secF,t);
+      drawSessionsOverlay(cx, cy, r);
+      drawLabelOrbit(cx, cy, r);
+      syncLabels(cx, cy, r, w, h);
+      drawInteractiveKnob(cx, cy, r);
+      drawGearIcon(cx, cy, r);
+      drawTooltipSizeIndicator(cx, cy, r);
+      drawOrbitSpeedIndicator(cx, cy, r);
+    }
     requestAnimationFrame(draw);
   }
 

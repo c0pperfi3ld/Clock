@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('clockAPI', {
   onSetOrbitSpeed: (cb) => ipcRenderer.on('set-orbit-speed', (_, v) => cb(v)),
   onSetOrbitStyle: (cb) => ipcRenderer.on('set-orbit-style', (_, v) => cb(v)),
   onSetTodoAnim: (cb) => ipcRenderer.on('set-todo-anim', (_, v) => cb(v)),
+  onSetWindowFit: (cb) => ipcRenderer.on('set-window-fit', (_, v) => cb(v)),
+  fitWindow: (need) => ipcRenderer.send('fit-window', need),
   onWindowResized: (cb) => ipcRenderer.on('window-resized', (_, s) => cb(s)),
   updateTimeInput: (data) => ipcRenderer.send('clock-update-time', data),
   onFocusTime: (cb) => ipcRenderer.on('focus-time', (_, data) => cb(data)),

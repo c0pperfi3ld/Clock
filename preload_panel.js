@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('panelAPI', {
   setOrbitSpeed: (v) => ipcRenderer.send('panel-set-orbit-speed', v),
   setOrbitStyle: (v) => ipcRenderer.send('panel-set-orbit-style', v),
   setTodoAnim: (v) => ipcRenderer.send('panel-set-todo-anim', v),
+  setWindowFit: (v) => ipcRenderer.send('panel-set-window-fit', v),
+  saveSettings: (d) => ipcRenderer.send('save-settings', d),
   focusTimeInput: (type, timeStr) => ipcRenderer.send('panel-focus-time', {type, timeStr}),
   blurTimeInput: () => ipcRenderer.send('panel-blur-time'),
   closePanel: () => ipcRenderer.send('panel-close'),
