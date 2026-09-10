@@ -23,8 +23,8 @@ function pruneLegacySettings() {
 function createWindow() {
   const settings = loadSettings();
   const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
-  const defaultH = 380;
-  const defaultW = 640; // clock (380) + todo sidebar (260)
+  const defaultH = 430;
+  const defaultW = 690; // clock (430) + todo sidebar (260) + label headroom
   // Migration: ignore saved bounds that look like the old square (1:1) layout
   // or are too small for the new clock+sidebar layout.
   let bounds = settings.windowBounds;
@@ -39,7 +39,7 @@ function createWindow() {
 
   win = new BrowserWindow({
     x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
-    minWidth: 460, minHeight: 300, frame: false, transparent: true,
+    minWidth: 520, minHeight: 340, frame: false, transparent: true,
     alwaysOnTop: true, resizable: true, skipTaskbar: false, hasShadow: false,
     backgroundColor: '#00000000',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false }
@@ -143,6 +143,29 @@ ipcMain.on('panel-set-tooltip-size', (_, v) => { if (win && !win.isDestroyed()) 
 ipcMain.on('panel-set-orbit-speed', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-orbit-speed', v); });
 ipcMain.on('panel-set-orbit-style', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-orbit-style', v); });
 ipcMain.on('panel-set-todo-anim', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-todo-anim', v); });
+ipcMain.on('panel-set-window-fit', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-window-fit', v); });
+
+// ── Window auto-fit: grow the window height so task labels never clip ──
+// Grow-only (never auto-shrinks: restoring a smaller size would reintroduce
+// the same overflow and oscillate). Shrink manually any time; the next
+// overflow simply grows again. Capped to the display work area.
+ipcMain.on('fit-window', (_, need) => {
+  if (!win || win.isDestroyed()) return;
+  const top = Math.max(0, Math.round((need && need.top) || 0));
+  const bottom = Math.max(0, Math.round((need && need.bottom) || 0));
+  if (top + bottom <= 0) return;
+  const cur = win.getBounds();
+  const display = screen.getDisplayNearestPoint({ x: cur.x, y: cur.y });
+  const wa = display.workArea;
+  const nh = Math.max(340, Math.min(cur.height + top + bottom + 4, wa.height));
+  if (nh <= cur.height + 1) return; // already fits or no room left
+  let ny = cur.y - top;
+  if (ny < wa.y) ny = wa.y;
+  if (ny + nh > wa.y + wa.height) ny = Math.max(wa.y, wa.y + wa.height - nh);
+  const nb = { x: cur.x, y: Math.round(ny), width: cur.width, height: Math.round(nh) };
+  win.setBounds(nb);
+  const s = loadSettings(); s.windowBounds = nb; saveSettings(s);
+});
 ipcMain.on('panel-focus-time', (_, data) => { if (win && !win.isDestroyed()) win.webContents.send('focus-time', data); });
 ipcMain.on('panel-blur-time', () => { if (win && !win.isDestroyed()) win.webContents.send('blur-time'); });
 ipcMain.on('clock-update-time', (_, data) => { if (panel && !panel.isDestroyed()) panel.webContents.send('update-time', data); });

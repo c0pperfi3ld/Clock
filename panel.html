@@ -131,6 +131,31 @@
     }
     .opt.active .dot { background:#a78bfa; border-color:#a78bfa; box-shadow:0 0 8px rgba(167,139,250,0.6); }
 
+    /* ── Two-column option grids (long lists) ── */
+    .opt-grid { display:grid; grid-template-columns:1fr 1fr; gap:2px; padding:0 6px 4px; }
+    .opt-grid .opt { border-radius:6px; padding:5px 8px; font-size:0.68rem; }
+
+    /* ── Collapsible category groups ── */
+    details.group { margin:0 0 4px; }
+    details.group > summary { list-style:none; cursor:pointer; padding:10px 12px 6px;
+      font-size:0.65rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em;
+      color:#a78bfa; display:flex; align-items:center; justify-content:space-between; }
+    details.group > summary::-webkit-details-marker { display:none; }
+    details.group > summary::after { content:'▸'; color:rgba(255,255,255,0.35); transition:transform 0.15s; }
+    details.group[open] > summary::after { transform:rotate(90deg); }
+    details.group > summary:hover { color:#c4b5fd; }
+
+    /* ── Search + misc ── */
+    .search-row { padding:6px 12px 2px; }
+    .search-row input { width:100%; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1);
+      color:#fff; border-radius:6px; font-size:0.72rem; padding:6px 9px; outline:none; font-family:inherit; }
+    .search-row input:focus { border-color:rgba(167,139,250,0.6); }
+    .btn-wide { width:calc(100% - 24px); margin:6px 12px; padding:7px; background:rgba(255,255,255,0.06);
+      border:1px solid rgba(255,255,255,0.12); color:rgba(255,255,255,0.8); border-radius:6px;
+      cursor:pointer; font-size:0.72rem; font-weight:600; font-family:inherit; transition:all 0.15s; }
+    .btn-wide:hover { background:rgba(239,68,68,0.18); border-color:rgba(239,68,68,0.4); color:#fca5a5; }
+    .hint { padding:4px 14px 8px; font-size:0.62rem; color:rgba(255,255,255,0.35); line-height:1.45; }
+
     /* ── Slider Row ── */
     .slider-row {
       display:flex; align-items:center; gap:8px; padding:6px 12px;
@@ -207,9 +232,23 @@
     const api = window.panelAPI;
     const body = document.getElementById('body');
 
-    let current = { style:'classic', theme:'midnight', handType:'tapered', opacity:100, sessions:[] };
+    let current = { style:'classic', theme:'midnight', handType:'tapered', opacity:100, sessions:[], windowFitAuto:true };
+    let faceQuery = '';
+    let handleTimeUpdate = null; // assigned inside render(), invoked by the single IPC listener below
+
+    function esc(s) {
+      return (s || '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+    }
 
     api.onUpdateState(s => { Object.assign(current, s); render(); });
+
+    const ANIMS = [
+      ['none','⏸ None'],['pulse','💓 Pulse'],['glow','✨ Glow'],['breathe','🫁 Breathe'],['shimmer','⚡ Shimmer'],
+      ['rainbow-glow','🌈 RB Glow'],['rainbow-pulse','🌈 RB Pulse'],['disco','🪩 Disco'],
+      ['radar-sweep','📡 Radar Sweep'],['stripes','🦓 Marching Stripes'],['neon-flow','🚨 Laser Border'],
+      ['particles','✨ Stardust Embers'],['wave-ripple','🌊 Wave Ripple'],['electric','⚡ Plasma Arc'],
+      ['aurora','🌌 Aurora Flow'],['sandglass','⏳ Sandglass Fill'],['glitch','👾 Cyber Glitch'],['heartbeat','💗 Heartbeat']
+    ];
 
     const DESIGNS = {
       'GHOST & FLOATING (13)': [
@@ -262,14 +301,15 @@
       ['graphite','🩵 Graphite'],['onyx','🟠 Onyx'],['shadow','💜 Shadow'],['abyss','🔹 Abyss']
     ];
 
-    let activeTab = 'tab-clocks';
+    let activeTab = 'tab-faces';
 
     function render() {
       let html = `
         <div class="tabs">
-          <button class="tab-btn ${activeTab==='tab-clocks'?'active':''}" data-tab="tab-clocks">Clocks</button>
+          <button class="tab-btn ${activeTab==='tab-faces'?'active':''}" data-tab="tab-faces">Faces</button>
+          <button class="tab-btn ${activeTab==='tab-motion'?'active':''}" data-tab="tab-motion">Motion</button>
           <button class="tab-btn ${activeTab==='tab-blocks'?'active':''}" data-tab="tab-blocks">Blocks</button>
-          <button class="tab-btn ${activeTab==='tab-settings'?'active':''}" data-tab="tab-settings">Config</button>
+          <button class="tab-btn ${activeTab==='tab-general'?'active':''}" data-tab="tab-general">General</button>
         </div>
       `;
 
@@ -337,17 +377,21 @@
               </div>
             </div>
             <div>
-              <input type="text" class="block-task-edit modern-task-input" data-idx="${i}" value="${sess.task || ''}" placeholder="What are you doing?">
+              <input type="text" class="block-task-edit modern-task-input" data-idx="${i}" value="${esc(sess.task || '')}" placeholder="What are you doing?">
             </div>
             <div style="display:flex; justify-content:space-between; align-items:center; padding-top: 4px;">
-               <div style="display:flex; gap:12px; font-size:0.65rem; color:rgba(255,255,255,0.6); font-weight: 500;">
-                 <label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:4px;">
-                   Rem <input type="color" value="${sess.color}" data-idx="${i}" data-key="color" class="block-color-edit" style="width:14px;height:14px;padding:0;border:none;background:none;cursor:pointer;">
-                 </label>
-                 <label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:4px;">
-                   Elp <input type="color" value="${elColor}" data-idx="${i}" data-key="elapsedColor" class="block-color-edit" style="width:14px;height:14px;padding:0;border:none;background:none;cursor:pointer;">
-                 </label>
-               </div>
+                 <div style="display:flex; gap:8px; font-size:0.65rem; color:rgba(255,255,255,0.6); font-weight: 500; align-items:center;">
+                   <label style="display:flex;align-items:center;gap:4px;cursor:pointer;background:rgba(0,0,0,0.2);padding:2px 4px;border-radius:4px;">
+                     Rem <input type="color" value="${sess.color}" data-idx="${i}" data-key="color" class="block-color-edit" style="width:14px;height:14px;padding:0;border:none;background:none;cursor:pointer;">
+                   </label>
+                   <label style="display:flex;align-items:center;gap:4px;cursor:pointer;background:rgba(0,0,0,0.2);padding:2px 4px;border-radius:4px;">
+                     Elp <input type="color" value="${elColor}" data-idx="${i}" data-key="elapsedColor" class="block-color-edit" style="width:14px;height:14px;padding:0;border:none;background:none;cursor:pointer;">
+                   </label>
+                   <select class="block-anim-edit" data-idx="${i}" style="background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.8); border-radius:4px; font-size:0.65rem; padding:1px 4px; outline:none; max-width:70px; text-overflow:ellipsis; white-space:nowrap;">
+                     <option value="">Global Anim</option>
+                     ${ANIMS.map(a => `<option value="${a[0]}" ${sess.anim===a[0]?'selected':''}>${a[1]}</option>`).join('')}
+                   </select>
+                 </div>
                <button data-idx="${i}" class="block-del" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);color:#ef4444;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:0.65rem;transition:all 0.2s;font-weight:600;" onmouseover="this.style.background='rgba(239,68,68,0.2)'" onmouseout="this.style.background='rgba(239,68,68,0.1)'" title="Delete Block">✕ Delete</button>
             </div>
           </div>`;
@@ -364,57 +408,55 @@
       }
       html += '</div>'; // End Blocks Tab
 
-      // ── TAB: CLOCKS ──
-      html += `<div class="tab-content ${activeTab==='tab-clocks'?'active':''}" id="tab-clocks">`;
+      // ── TAB: FACES (dials + hands + themes, searchable) ──
+      html += `<div class="tab-content ${activeTab==='tab-faces'?'active':''}" id="tab-faces">`;
+      html += `<div class="search-row"><input type="text" id="face-search" placeholder="🔍 Search faces, hands, themes…" value="${esc(faceQuery)}"></div>`;
       for (const [group, items] of Object.entries(DESIGNS)) {
-        html += `<div class="sec-label"><span>${group}</span><span class="badge">${items.length}</span></div>`;
+        html += `<details class="group" open><summary><span>${group}</span><span class="badge">${items.length}</span></summary><div class="opt-grid">`;
         items.forEach(([id, label]) => {
           html += `<div class="opt${current.style===id?' active':''}" data-action="style" data-val="${id}">
             <div class="dot"></div>${label}</div>`;
         });
+        html += '</div></details>';
       }
-      html += '<div class="sep"></div><div class="sec-label"><span>Hand Style</span><span class="badge">16</span></div>';
+      html += `<details class="group" open><summary><span>Hand Style</span><span class="badge">16</span></summary><div class="opt-grid">`;
       HANDS.forEach(([id, label]) => {
         html += `<div class="opt${current.handType===id?' active':''}" data-action="hands" data-val="${id}">
           <div class="dot"></div>${label}</div>`;
       });
-      html += '<div class="sep"></div><div class="sec-label"><span>Color Theme</span><span class="badge">10</span></div>';
+      html += '</div></details>';
+      html += `<details class="group" open><summary><span>Color Theme</span><span class="badge">10</span></summary><div class="opt-grid">`;
       THEMES.forEach(([id, label]) => {
         html += `<div class="opt${current.theme===id?' active':''}" data-action="theme" data-val="${id}">
           <div class="dot"></div>${label}</div>`;
       });
-      html += '</div>'; // End Clocks Tab
+      html += '</div></details>';
+      html += '</div>'; // End Faces Tab
 
-      // ── TAB: CONFIG ──
-      html += `<div class="tab-content ${activeTab==='tab-settings'?'active':''}" id="tab-settings">`;
-
-      // ── Text Size (prominent at top — the most-tweaked setting) ──
-      const ttSize = current.tooltipSize || 1.0;
-      html += '<div class="sec-label"><span>Text Size</span><span class="badge" id="badge-text-size">' + ttSize.toFixed(1) + 'x</span></div>';
-      html += `<div class="slider-row" style="padding:8px 14px 10px;">
-        <button class="size-btn" data-size-step="-0.1" title="Smaller">A−</button>
-        <input type="range" min="0.3" max="5.0" step="0.05" value="${ttSize}" id="sl-tooltip-size" style="flex:1; margin:0 8px;">
-        <button class="size-btn" data-size-step="+0.1" title="Larger">A+</button>
-        <span class="val" id="val-tooltip-size">${ttSize.toFixed(1)}x</span>
-      </div>`;
-      html += '<div class="sep"></div>';
-
+      // ── TAB: MOTION (every animation in one place) ──
+      html += `<div class="tab-content ${activeTab==='tab-motion'?'active':''}" id="tab-motion">`;
       const curAnim = current.blockAnim || { style: 'pulse', speed: 1.0 };
-      html += '<div class="sec-label"><span>Block Animation</span></div>';
-      const ANIMS = [
-        ['none','⏸ None'],['pulse','💓 Pulse'],['glow','✨ Glow'],['breathe','🫁 Breathe'],['shimmer','⚡ Shimmer'],
-        ['rainbow-glow','🌈 RB Glow'],['rainbow-pulse','🌈 RB Pulse'],['disco','🪩 Disco']
+      const orbitSpd = (typeof current.orbitSpeed === 'number') ? current.orbitSpeed : 1.0;
+      const orbitStyle = current.orbitStyle || 'dash';
+      const ORBIT_STYLES = [
+        ['dash','⚪ Dotted Spin'],['double','⭕ Double Orbit'],['glow','✨ Glow Pulse'],
+        ['comet','☄️ Comet'],['rainbow','🌈 Rainbow'],['sparkle','✨ Sparkle'],['tide','🌊 Tide'],
+        ['cyber-scan','🌐 Cyber Scan'],['particles','🌌 Stardust Swarm'],['pulse-wave','💫 Ripple Waves'],
+        ['quantum','⚡ Quantum Arc'],['vortex','🌀 Vortex Spiral'],['gear-teeth','⚙️ Chrono Cog'],
+        ['neon-chase','🏎️ Neon Tracer'],['eclipse-corona','🌑 Solar Corona'],['dna-helix','🧬 Orbit Helix'],
+        ['hex-shield','🛡️ Hex Shield']
       ];
-      ANIMS.forEach(([id, label]) => {
-        html += `<div class="opt${curAnim.style===id?' active':''}" data-action="anim" data-val="${id}">
-          <div class="dot"></div>${label}</div>`;
-      });
-      html += `<div class="slider-row"><label>Speed</label>
-        <input type="range" min="0.2" max="3" step="0.1" value="${curAnim.speed}" id="sl-anim-speed">
-        <span class="val" id="val-anim-speed">${curAnim.speed}x</span></div>`;
+      const TODO_LEGACY = { slide:'tide-x', 'fade-up':'float', pop:'pulse', flip:'sway', bounce:'bob', 'swing-in':'wiggle', 'roll-in':'jelly' };
+      const todoAnimShown = TODO_LEGACY[current.todoAnim] || current.todoAnim || 'float';
+      const TODO_ANIMS = [
+        ['none','⏸️ Static'],['float','🌊 Float'],['pulse','💓 Pulse Glow'],['sway','🎪 Sway'],
+        ['breathe','🫁 Breathe'],['shimmer','✨ Shimmer'],['bob','🏀 Bob'],['wiggle','🪱 Wiggle'],
+        ['tide-x','↔️ Drift X'],['heartbeat','💗 Heartbeat'],['neon','🚨 Neon Glow'],['jelly','🫧 Jelly'],
+        ['glow-drift','🌅 Glow Drift']
+      ];
 
-      html += '<div class="sep"></div>';
-      html += '<div class="sec-label"><span>Tooltip Animation</span></div>';
+      html += '<details class="group" open><summary><span>🏷️ Label Motion</span></summary>';
+      html += '<div class="hint">Whole-box motion for the floating task labels. Border, text and × move together.</div>';
       const tooltipAnim = current.tooltipAnim || 'bounce';
       const TT_ANIMS = [
         ['bounce', '🎾 Bounce'], ['fade', '🌫️ Fade'], ['slide', '📤 Slide Up'], ['flip', '🔄 Flip'],
@@ -425,55 +467,78 @@
         ['zoom-spin', '🌀 Zoom Spin'], ['glitch', '📺 Glitch'], ['flicker', '💡 Flicker'], ['drift', '🌊 Drift'],
         ['pendulum', '⏳ Pendulum'], ['snake', '🐍 Snake'], ['blink', '👁️ Blink'], ['tada', '🎉 Ta-Da']
       ];
+      html += '<div class="opt-grid">';
       TT_ANIMS.forEach(([id, label]) => {
          html += `<div class="opt${tooltipAnim===id?' active':''}" data-action="tooltip-anim" data-val="${id}">
            <div class="dot"></div>${label}</div>`;
       });
+      html += '</div></details>';
 
-      html += '<div class="sep"></div>';
-      html += '<div class="sec-label"><span>Orbit Ring</span></div>';
-      const orbitSpd = (typeof current.orbitSpeed === 'number') ? current.orbitSpeed : 1.0;
-      html += `<div class="slider-row"><label>Orbit Speed</label>
-        <input type="range" id="sl-orbit-speed" min="0" max="5" step="0.1" value="${orbitSpd}">
-        <span class="val" id="val-orbit-speed">${orbitSpd === 0 ? 'Paused' : orbitSpd.toFixed(1) + 'x'}</span></div>`;
-      const orbitStyle = current.orbitStyle || 'dash';
-      const ORBIT_STYLES = [
-        ['dash','⚪ Dotted Spin'],['double','⭕ Double Orbit'],['glow','✨ Glow Pulse'],
-        ['comet','☄️ Comet'],['rainbow','🌈 Rainbow'],['sparkle','✨ Sparkle'],['tide','🌊 Tide']
-      ];
-      ORBIT_STYLES.forEach(([id, label]) => {
-        html += `<div class="opt${orbitStyle===id?' active':''}" data-action="orbit-style" data-val="${id}">
-          <div class="dot"></div>${label}</div>`;
-      });
-
-      html += '<div class="sep"></div>';
-      html += '<div class="sec-label"><span>Task List Animation</span></div>';
-      const TODO_LEGACY = { slide:'tide-x', 'fade-up':'float', pop:'pulse', flip:'sway', bounce:'bob', 'swing-in':'wiggle', 'roll-in':'jelly' };
-      const todoAnimShown = TODO_LEGACY[current.todoAnim] || current.todoAnim || 'float';
-      const TODO_ANIMS = [
-        ['none','⏸️ Static'],['float','🌊 Float'],['pulse','💓 Pulse Glow'],['sway','🎪 Sway'],
-        ['breathe','🫁 Breathe'],['shimmer','✨ Shimmer'],['bob','🏀 Bob'],['wiggle','🪱 Wiggle'],
-        ['tide-x','↔️ Drift X'],['heartbeat','💗 Heartbeat'],['neon','🚨 Neon Glow'],['jelly','🫧 Jelly'],
-        ['glow-drift','🌅 Glow Drift']
-      ];
+      html += '<details class="group" open><summary><span>🃏 Task Card Loops</span><span class="badge">' + TODO_ANIMS.length + '</span></summary>';
+      html += '<div class="hint">Cards loop the selected motion forever (phase-offset per card).</div><div class="opt-grid">';
       TODO_ANIMS.forEach(([id, label]) => {
         html += `<div class="opt${todoAnimShown===id?' active':''}" data-action="todo-anim" data-val="${id}">
           <div class="dot"></div>${label}</div>`;
       });
+      html += '</div></details>';
 
-      html += '<div class="sep"></div>';
+      html += '<details class="group" open><summary><span>⭕ Orbit Ring</span><span class="badge">' + ORBIT_STYLES.length + '</span></summary>';
+      html += `<div class="slider-row"><label>Speed</label>
+        <input type="range" id="sl-orbit-speed" min="0" max="5" step="0.1" value="${orbitSpd}">
+        <span class="val" id="val-orbit-speed">${orbitSpd === 0 ? 'Paused' : orbitSpd.toFixed(1) + 'x'}</span></div>`;
+      html += '<div class="hint">0 = paused · Alt+scroll over the clock also changes speed.</div><div class="opt-grid">';
+      ORBIT_STYLES.forEach(([id, label]) => {
+        html += `<div class="opt${orbitStyle===id?' active':''}" data-action="orbit-style" data-val="${id}">
+          <div class="dot"></div>${label}</div>`;
+      });
+      html += '</div></details>';
+
+      html += '<details class="group" open><summary><span>🧱 Time Block FX</span><span class="badge">' + ANIMS.length + '</span></summary>';
+      html += '<div class="hint">Global effect for all time wedges. A single block can override this from its card in the Blocks tab.</div><div class="opt-grid">';
+      ANIMS.forEach(([id, label]) => {
+        html += `<div class="opt${curAnim.style===id?' active':''}" data-action="anim" data-val="${id}">
+          <div class="dot"></div>${label}</div>`;
+      });
+      html += `</div><div class="slider-row"><label>Speed</label>
+        <input type="range" min="0.2" max="3" step="0.1" value="${curAnim.speed}" id="sl-anim-speed">
+        <span class="val" id="val-anim-speed">${curAnim.speed}x</span></div>`;
+      html += '</details>';
+      html += '</div>'; // End Motion Tab
+
+      // ── TAB: GENERAL (sizes, display, window, danger zone) ──
+      html += `<div class="tab-content ${activeTab==='tab-general'?'active':''}" id="tab-general">`;
+
+      const ttSize = current.tooltipSize || 1.0;
+      html += '<details class="group" open><summary><span>🔠 Text Size</span><span class="badge" id="badge-text-size">' + ttSize.toFixed(1) + 'x</span></summary>';
+      html += `<div class="slider-row" style="padding:8px 14px 10px;">
+        <button class="size-btn" data-size-step="-0.1" title="Smaller">A−</button>
+        <input type="range" min="0.3" max="5.0" step="0.05" value="${ttSize}" id="sl-tooltip-size" style="flex:1; margin:0 8px;">
+        <button class="size-btn" data-size-step="+0.1" title="Larger">A+</button>
+        <span class="val" id="val-tooltip-size">${ttSize.toFixed(1)}x</span>
+      </div><div class="hint">Ctrl+scroll over the clock works too.</div></details>`;
+
+      html += '<details class="group" open><summary><span>🖥️ Display</span></summary>';
       html += `<div class="slider-row"><label>Block Opacity</label>
         <input type="range" id="sl-block-opacity" min="0" max="1" step="0.05" value="${current.blockOpacity !== undefined ? current.blockOpacity : 0.25}">
         <span class="val" id="val-block-opacity">${Math.round((current.blockOpacity !== undefined ? current.blockOpacity : 0.25)*100)}%</span>
       </div>`;
-
-      html += '<div class="sep"></div>';
       html += `<div class="slider-row"><label>Window Op</label>
         <input type="range" min="20" max="100" step="5" value="${current.opacity}" id="sl-opacity">
         <span class="val" id="val-opacity">${current.opacity}%</span></div>`;
+      html += '</details>';
 
+      html += '<details class="group" open><summary><span>🪟 Window</span></summary>';
+      const fitOn = current.windowFitAuto !== false;
+      html += `<div class="chk-row" id="chk-fit"><input type="checkbox"${fitOn ? ' checked' : ''}> Auto-fit window to labels</div>`;
+      html += '<div class="hint">Grows the window taller when task labels would clip at the top/bottom edge. Never shrinks on its own.</div>';
       html += `<div class="chk-row" id="chk-ontop"><input type="checkbox" checked> Always on Top</div>`;
-      html += '</div>'; // End Config Tab
+      html += '</details>';
+
+      html += '<details class="group"><summary><span>⚠️ Danger Zone</span></summary>';
+      html += '<button class="btn-wide" id="btn-reset">Reset all settings to defaults</button>';
+      html += '<div class="hint">Restores faces, motions and display defaults. Your time blocks and tasks are kept.</div>';
+      html += '</details>';
+      html += '</div>'; // End General Tab
 
       body.innerHTML = html;
 
@@ -515,17 +580,23 @@
         });
       });
 
-      document.getElementById('sl-opacity').addEventListener('input', e => {
-        current.opacity = parseInt(e.target.value);
-        document.getElementById('val-opacity').textContent = current.opacity + '%';
-        api.setOpacity(current.opacity);
-      });
-      
-      document.getElementById('sl-block-opacity').addEventListener('input', e => {
-        current.blockOpacity = parseFloat(e.target.value);
-        document.getElementById('val-block-opacity').textContent = Math.round(current.blockOpacity * 100) + '%';
-        api.setBlockOpacity(current.blockOpacity);
-      });
+      const slOpacity = document.getElementById('sl-opacity');
+      if (slOpacity) {
+        slOpacity.addEventListener('input', e => {
+          current.opacity = parseInt(e.target.value);
+          document.getElementById('val-opacity').textContent = current.opacity + '%';
+          api.setOpacity(current.opacity);
+        });
+      }
+
+      const slBlockOpacity = document.getElementById('sl-block-opacity');
+      if (slBlockOpacity) {
+        slBlockOpacity.addEventListener('input', e => {
+          current.blockOpacity = parseFloat(e.target.value);
+          document.getElementById('val-block-opacity').textContent = Math.round(current.blockOpacity * 100) + '%';
+          api.setBlockOpacity(current.blockOpacity);
+        });
+      }
 
       const slOrbitSpeed = document.getElementById('sl-orbit-speed');
       if (slOrbitSpeed) {
@@ -541,11 +612,11 @@
       if (slAnimSpeed) {
          slAnimSpeed.addEventListener('input', e => {
            if (!current.blockAnim) current.blockAnim = { style: 'pulse', speed: 1.0 };
-           current.blockAnim.speed = parseFloat(e.target.value);
-           document.getElementById('val-anim-speed').textContent = current.blockAnim.speed.toFixed(1) + 'x';
-           api.setBlockAnim(current.blockAnim);
-           render();
-         });
+            current.blockAnim.speed = parseFloat(e.target.value);
+            document.getElementById('val-anim-speed').textContent = current.blockAnim.speed.toFixed(1) + 'x';
+            api.setBlockAnim(current.blockAnim);
+            // No render() here — it would destroy the slider mid-drag.
+          });
       }
       
       const slTooltipSize = document.getElementById('sl-tooltip-size');
@@ -570,11 +641,57 @@
          });
       });
 
-      document.getElementById('chk-ontop').addEventListener('click', e => {
-        const cb = e.currentTarget.querySelector('input');
-        if (e.target !== cb) cb.checked = !cb.checked;
-        api.setOnTop(cb.checked);
-      });
+      const chkOntop = document.getElementById('chk-ontop');
+      if (chkOntop) {
+        chkOntop.addEventListener('click', e => {
+          const cb = e.currentTarget.querySelector('input');
+          if (e.target !== cb) cb.checked = !cb.checked;
+          api.setOnTop(cb.checked);
+        });
+      }
+
+      const chkFit = document.getElementById('chk-fit');
+      if (chkFit) {
+        chkFit.addEventListener('click', e => {
+          const cb = e.currentTarget.querySelector('input');
+          if (e.target !== cb) cb.checked = !cb.checked;
+          current.windowFitAuto = cb.checked;
+          if (api.setWindowFit) api.setWindowFit(cb.checked);
+          else if (api.saveSettings) api.saveSettings({ windowFitAuto: cb.checked });
+        });
+      }
+
+      const btnReset = document.getElementById('btn-reset');
+      if (btnReset) {
+        btnReset.addEventListener('click', () => {
+          const d = { style:'handsonly_ghost', theme:'midnight', handType:'tapered', opacity:100,
+            blockOpacity:0.25, blockAnim:{ style:'pulse', speed:1.0 }, tooltipAnim:'bounce',
+            tooltipSize:1.0, orbitSpeed:1.0, orbitStyle:'dash', todoAnim:'float', windowFitAuto:true };
+          Object.assign(current, d);
+          api.setStyle(d.style); api.setTheme(d.theme); api.setHands(d.handType);
+          api.setOpacity(d.opacity); api.setBlockOpacity(d.blockOpacity);
+          api.setBlockAnim(d.blockAnim); api.setTooltipAnim(d.tooltipAnim);
+          api.setTooltipSize(d.tooltipSize); api.setOrbitSpeed(d.orbitSpeed);
+          api.setOrbitStyle(d.orbitStyle); api.setTodoAnim(d.todoAnim);
+          if (api.setWindowFit) api.setWindowFit(true);
+          api.setOnTop(true);
+          render();
+        });
+      }
+
+      // Faces search — filters options live, opens groups while searching.
+      const faceSearch = document.getElementById('face-search');
+      const applyFaceFilter = () => {
+        const q = (faceQuery || '').trim().toLowerCase();
+        body.querySelectorAll('#tab-faces .opt').forEach(o => {
+          o.style.display = (!q || o.textContent.toLowerCase().includes(q)) ? '' : 'none';
+        });
+        if (q) body.querySelectorAll('#tab-faces details.group').forEach(d => { d.open = true; });
+      };
+      if (faceSearch) {
+        if (faceQuery) { faceSearch.value = faceQuery; applyFaceFilter(); }
+        faceSearch.addEventListener('input', e => { faceQuery = e.target.value; applyFaceFilter(); });
+      }
 
       // --- Block List Handlers ---
       body.querySelectorAll('.block-color-edit').forEach(el => {
@@ -589,6 +706,16 @@
         });
         el.addEventListener('change', e => {
            render(); // Re-render only when picker closes
+        });
+      });
+      body.querySelectorAll('.block-anim-edit').forEach(el => {
+        el.addEventListener('change', e => {
+          const idx = parseInt(e.target.dataset.idx);
+          if (current.sessions && current.sessions[idx]) {
+            current.sessions[idx].anim = e.target.value || null;
+            api.setSessions(current.sessions);
+            render();
+          }
         });
       });
       body.querySelectorAll('.block-task-edit').forEach(el => {
@@ -667,13 +794,16 @@
         api.focusTimeInput(id, val);
       };
       
-      document.getElementById('custom-start').addEventListener('focus', e => handleFocus(e, 'create-start'));
-      document.getElementById('custom-end').addEventListener('focus', e => handleFocus(e, 'create-end'));
-      document.getElementById('custom-start').addEventListener('input', e => api.focusTimeInput('create-start', e.target.value));
-      document.getElementById('custom-end').addEventListener('input', e => api.focusTimeInput('create-end', e.target.value));
-      
-      document.getElementById('custom-start').addEventListener('blur', () => setTimeout(() => api.blurTimeInput(), 200));
-      document.getElementById('custom-end').addEventListener('blur', () => setTimeout(() => api.blurTimeInput(), 200));
+      const customStart = document.getElementById('custom-start');
+      const customEnd = document.getElementById('custom-end');
+      if (customStart && customEnd) {
+        customStart.addEventListener('focus', e => handleFocus(e, 'create-start'));
+        customEnd.addEventListener('focus', e => handleFocus(e, 'create-end'));
+        customStart.addEventListener('input', e => api.focusTimeInput('create-start', e.target.value));
+        customEnd.addEventListener('input', e => api.focusTimeInput('create-end', e.target.value));
+        customStart.addEventListener('blur', () => setTimeout(() => api.blurTimeInput(), 200));
+        customEnd.addEventListener('blur', () => setTimeout(() => api.blurTimeInput(), 200));
+      }
 
       // --- Interactive Time Inputs (Edit Active Blocks) ---
       body.querySelectorAll('.bl-time').forEach(el => {
@@ -690,11 +820,15 @@
         el.addEventListener('blur', () => setTimeout(() => api.blurTimeInput(), 200));
       });
 
-      api.onUpdateTime(data => {
+      // NOTE: api.onUpdateTime is registered ONCE below render() — never here,
+      // or every re-render would stack duplicate IPC listeners.
+      handleTimeUpdate = (data) => {
         if (data.type === 'create-start') {
-            document.getElementById('custom-start').value = data.timeStr;
+            const cs = document.getElementById('custom-start');
+            if (cs) cs.value = data.timeStr;
         } else if (data.type === 'create-end') {
-            document.getElementById('custom-end').value = data.timeStr;
+            const ce = document.getElementById('custom-end');
+            if (ce) ce.value = data.timeStr;
         } else if (data.type.startsWith('edit-')) {
             const parts = data.type.split('-');
             const idx = parseInt(parts[1]);
@@ -727,13 +861,14 @@
                    }
                 }
                 
-                api.setSessions(current.sessions);
+                // Intentionally NOT calling api.setSessions() here to avoid IPC race loop with renderer mousemove.
             }
         }
-      });
+      };
 
       // --- Session Handlers ---
-      document.getElementById('btn-pomodoro').addEventListener('click', () => {
+      const btnPomodoro = document.getElementById('btn-pomodoro');
+      if (btnPomodoro) btnPomodoro.addEventListener('click', () => {
         const task = document.getElementById('pomo-task').value.trim();
         const work = parseInt(document.getElementById('pomo-work').value) || 25;
         const breakM = parseInt(document.getElementById('pomo-break').value) || 5;
@@ -760,7 +895,8 @@
         render();
       });
 
-      document.getElementById('btn-custom').addEventListener('click', () => {
+      const btnCustom = document.getElementById('btn-custom');
+      if (btnCustom) btnCustom.addEventListener('click', () => {
         const task = document.getElementById('custom-task').value.trim();
         const sTime = document.getElementById('custom-start').value;
         const eTime = document.getElementById('custom-end').value;
@@ -792,6 +928,10 @@
 
     document.getElementById('btn-close').addEventListener('click', () => api.closePanel());
     document.getElementById('btn-quit').addEventListener('click', () => api.closeApp());
+
+    // Single IPC listener for clock time updates (registered once — render()
+    // only swaps the handler it calls, so listeners never pile up).
+    api.onUpdateTime(data => { if (handleTimeUpdate) handleTimeUpdate(data); });
 
     render();
   </script>

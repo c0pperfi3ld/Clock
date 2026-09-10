@@ -4,7 +4,7 @@
 
 **A borderless, canvas-rendered desktop clock widget — tasks, time blocks & Pomodoros included.**
 
-52 dials · 16 hands · 10 themes · 26 tooltip motions · 13 todo loops · 7 orbit rings · 8 block FX
+52 dials · 16 hands · 10 themes · 26 tooltip motions · 13 todo loops · 17 orbit rings · 18 block FX
 
 ![Electron](https://img.shields.io/badge/Electron-35-47848F?style=for-the-badge&logo=electron&logoColor=white)
 ![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-8b5cf6?style=for-the-badge)
@@ -22,10 +22,10 @@
 | 🔴 **Unclippable task labels** | HTML overlay floats *outside* the rotating orbit ring — long titles never clip, even at the window edge |
 | 🔴 **Live task cards** | Every todo loops its selected animation forever, phase-offset so cards feel alive |
 | 🟡 **52 × 16 × 10 design genome** | Dials, hands & themes combine into millions of unique faces |
-| 🟡 **Rotating orbit ring** | 7 ring styles, 0–5× clockwise speed (Alt+scroll), pauseable |
+| 🟡 **Rotating outer dial / orbit ring** | 17 ring styles, 0–5× clockwise speed (Alt+scroll), pauseable |
 | 🟢 **Zero-DOM clock face** | 60 FPS Canvas 2D · DPR-aware · borderless always-on-top window |
 | 🟢 **Golden Angle color engine** | 137.5° hue spacing — every new block lands on the most distinct hue |
-| 🟢 **Pomodoro + time blocks** | Elapsed/remaining dual-color wedges · click-to-spawn · drag-to-resize |
+| 🟢 **Pomodoro + time blocks** | Elapsed/remaining dual-color wedges · click-to-spawn · drag-to-resize · 18 animated FX |
 
 ---
 
@@ -78,19 +78,21 @@ npm start
 | 8 | 🎪 Swing | 17 | 💓 Heartbeat | 26 | 🎉 Ta-Da |
 | 9 | 🌊 Wave | 18 | 🛸 Float Tilt | | |
 
-> Labels are DOM nodes in an `overflow:visible` overlay. Each box is *guaranteed* outside the dotted ring (`orbit + gap + projected half-size + per-motion pad`), with per-label font shrink + dial auto-fit as the last resort at true window edges.
+> Labels are DOM nodes in an `overflow:visible` overlay. Each box is *guaranteed* outside the dotted ring (`orbit + gap + projected half-size + per-motion pad`). The dial is fixed-size — it never shrinks. Per-label font shrink (min 8px) plus **window auto-fit** (the window grows taller when labels would clip, toggleable in General) handle the true window edges.
 
 ### 13 Todo Loops — cards animate forever, not just on entrance
 
 *⏸️ Static · 🌊 Float · 💓 Pulse Glow · 🎪 Sway · 🫁 Breathe · ✨ Shimmer · 🏀 Bob · 🪱 Wiggle · ↔️ Drift X · 💗 Heartbeat · 🚨 Neon Glow · 🫧 Jelly · 🌅 Glow Drift*
 
-### 7 Orbit Ring Styles — clockwise, 0–5× speed
+### 17 Outer Dial / Orbit Ring Styles — clockwise, 0–5× speed
 
-*⚪ Dotted Spin · ⭕ Double Orbit · ✨ Glow Pulse · ☄️ Comet · 🌈 Rainbow · ✨ Sparkle · 🌊 Tide*
+*⚪ Dotted Spin · ⭕ Double Orbit · ✨ Glow Pulse · ☄️ Comet · 🌈 Rainbow · ✨ Sparkle · 🌊 Tide · 🌐 Cyber Scan · 🌌 Stardust Swarm · 💫 Ripple Waves · ⚡ Quantum Arc · 🌀 Vortex Spiral · ⚙️ Chrono Cog · 🏎️ Neon Tracer · 🌑 Solar Corona · 🧬 Orbit Helix · 🛡️ Hex Shield*
 
-### 8 Block Animations — with speed control
+### 18 Block Animations — with speed control
 
-*⏸ None · 💓 Pulse · ✨ Glow · 🫁 Breathe · ⚡ Shimmer · 🌈 RB Glow · 🌈 RB Pulse · 🪩 Disco*
+*⏸ None · 💓 Pulse · ✨ Glow · 🫁 Breathe · ⚡ Shimmer · 🌈 RB Glow · 🌈 RB Pulse · 🪩 Disco · 📡 Radar Sweep · 🦓 Marching Stripes · 🚨 Laser Border · ✨ Stardust Embers · 🌊 Wave Ripple · ⚡ Plasma Arc · 🌌 Aurora Flow · ⏳ Sandglass Fill · 👾 Cyber Glitch · 💗 Heartbeat*
+
+> Each block can override the global effect from its own card in the Blocks tab.
 
 ---
 
@@ -138,7 +140,7 @@ h_n = (n × 137.508°) mod 360°
 | Todo list | `+` button or type + Enter · checkbox · flag cycles priority · dot sets color |
 | Text size | Config → Text Size slider, `A−/A+`, or Ctrl+scroll (0.3–5×) |
 | Orbit speed | Config slider or Alt+scroll (0 = paused) |
-| Settings | Click ⚙ top-right · Clocks / Blocks / Config tabs |
+| Settings | Click ⚙ top-right · Faces / Motion / Blocks / General tabs (searchable, collapsible) |
 
 ---
 
@@ -150,14 +152,13 @@ Clock/
 ├── preload.js           ← clock-window IPC surface
 ├── preload_panel.js     ← settings-panel IPC surface
 ├── index.html           ← clock window (canvas + label overlay + todo panel)
-├── panel.html           ← settings panel (Clocks / Blocks / Config)
+├── panel.html           ← settings panel (Faces / Motion / Blocks / General)
 ├── index.css            ← layout + all keyframe animations
 ├── renderer.js          ← Canvas engine + DOM labels + todos
-├── error-logger.js      ← frontend error capture
 └── package.json         ← 1 dependency: electron@^35
 ```
 
-**IPC channels** — `drag-start` · `drag-move` · `drag-end` · `show-panel` · `panel-set-{style,theme,hands,opacity,sessions,block-opacity,block-anim,tooltip-anim,tooltip-size,orbit-speed,orbit-style,todo-anim}` · `focus-time` · `blur-time` · `clock-update-time` · `panel-set-ontop` · `panel-close` · `close-app` · `save-settings` · `load-settings`
+**IPC channels** — `drag-start` · `drag-move` · `drag-end` · `show-panel` · `panel-set-{style,theme,hands,opacity,sessions,block-opacity,block-anim,tooltip-anim,tooltip-size,orbit-speed,orbit-style,todo-anim,window-fit}` · `fit-window` · `focus-time` · `blur-time` · `clock-update-time` · `panel-set-ontop` · `panel-close` · `close-app` · `save-settings` · `load-settings`
 
 ---
 
@@ -197,8 +198,8 @@ case 'my-effect': return { opMul: ..., rOff: ..., blur: ..., colorOverride: '...
 ```
 Dials:       52       Tooltip motions:  26
 Hands:       16       Todo loops:       13
-Themes:      10       Orbit styles:      7
-Deps:        1        Block FX:           8
+Themes:      10       Orbit styles:     17
+Deps:        1        Block FX:          18
 Cold start:  <1.2s    Frame rate:   60 FPS
 ```
 
