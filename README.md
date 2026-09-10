@@ -19,7 +19,7 @@
 
 | Priority | Feature |
 |---|---|
-| 🔴 **Unclippable task labels** | HTML overlay floats *outside* the rotating orbit ring — long titles never clip, even at the window edge |
+| 🔴 **Circular task labels** | Task text rides the orbit ring itself — arches over the top half, smiles under the bottom half, always readable, never clipped |
 | 🔴 **Live task cards** | Every todo loops its selected animation forever, phase-offset so cards feel alive |
 | 🟡 **52 × 16 × 10 design genome** | Dials, hands & themes combine into millions of unique faces |
 | 🟡 **Rotating outer dial / orbit ring** | 17 ring styles, 0–5× clockwise speed (Alt+scroll), pauseable |
@@ -64,7 +64,7 @@ npm start
 
 ## 🎭 Animation Catalog
 
-### 26 Tooltip Motions — the whole box moves, not just the text
+### 26 Label Motions — curved text on the ring, not boxes
 
 | # | Motion | # | Motion | # | Motion |
 |---|---|---|---|---|---|
@@ -78,7 +78,7 @@ npm start
 | 8 | 🎪 Swing | 17 | 💓 Heartbeat | 26 | 🎉 Ta-Da |
 | 9 | 🌊 Wave | 18 | 🛸 Float Tilt | | |
 
-> Labels are DOM nodes in an `overflow:visible` overlay. Each box is *guaranteed* outside the dotted ring (`orbit + gap + projected half-size + per-motion pad`). The dial is fixed-size — it never shrinks. Per-label font shrink (min 8px) plus **window auto-fit** (the window grows taller when labels would clip, toggleable in General) handle the true window edges.
+> Labels are canvas glyphs set on a circle at `orbit + gap + half-height + motion pad` — strictly outside the dotted ring. Upper-half arcs stand upright, lower-half arcs flip so text reads correctly. Click text to rename, the trailing × chip to clear, the leading dot shows the block color. Per-label font shrink (min 8px) plus **window auto-fit** handle the true window edges; the dial never changes size.
 
 ### 13 Todo Loops — cards animate forever, not just on entrance
 
@@ -151,7 +151,7 @@ Clock/
 ├── main.js              ← window mgmt + IPC bridge + settings store
 ├── preload.js           ← clock-window IPC surface
 ├── preload_panel.js     ← settings-panel IPC surface
-├── index.html           ← clock window (canvas + label overlay + todo panel)
+├── index.html           ← clock window (canvas + todo panel)
 ├── panel.html           ← settings panel (Faces / Motion / Blocks / General)
 ├── index.css            ← layout + all keyframe animations
 ├── renderer.js          ← Canvas engine + DOM labels + todos
@@ -178,7 +178,9 @@ THEMES.sunset = { accent: '#ff6b6b', sec: '#ffd93d', glow: 'rgba(255,107,107,0.5
 // New block animation
 case 'my-effect': return { opMul: ..., rOff: ..., blur: ..., colorOverride: '...' };
 
-// New tooltip motion: add MOTION_CLASS entry + .m-* keyframes in index.css
+// New ring-text motion: add a case to labelMotionParams() in renderer.js
+// { r/rf: radial wobble, t/tf: tangential wobble, a/af: alpha dip,
+//   g: glow 0-2, w/wf: per-glyph wave, hb: heartbeat, gl: glitch gate }
 ```
 
 ---

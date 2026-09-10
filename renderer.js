@@ -161,12 +161,12 @@
   // ── Clock dial bounds (cached, recomputed on resize) ──
   // All drawing uses the wrapper's center, NOT the window center.
   // ── Label orbit geometry (single source of truth) ──
-  // Dial -> SIGNIFICANT BUFFER -> dotted orbit -> small gap -> task boxes.
-  // Boxes are guaranteed strictly outside the dotted ring: nearest edge
-  // sits at orbitR + OUTER_GAP, so even with +/-6px bounce/slide animation
-  // they never cross back inside the dotted line.
+  // Dial -> SIGNIFICANT BUFFER -> dotted orbit -> small gap -> ring text.
+  // Glyphs are guaranteed strictly outside the dotted ring: the text circle
+  // sits at orbitR + OUTER_GAP + half-height, so even full-swing motion
+  // never crosses back inside the dotted line.
   const ORBIT_GAP = 42;   // significant distance buffer: dial edge -> dotted ring
-  const OUTER_GAP_BASE = 20; // dotted ring -> nearest box edge (covers anim inward offsets)
+  const OUTER_GAP_BASE = 20; // dotted ring -> text circle (covers motion offsets)
   function orbitRadius(r) { return r + ORBIT_GAP; }
 
   function applyTodoAnim() {
@@ -179,8 +179,8 @@
     const cx = w/2, cy = h/2;
     // Room for: dotted orbit (42) + outer gap (20) + typical box half-size.
     // FIXED SIZE: the dial never shrinks, no matter how many labels exist.
-    // Labels are HTML overlay (never clipped); each shrinks its own font
-    // down to 8px to fit, then simply overflows past the window edge.
+    // Ring-text labels shrink their own font down to 8px to fit; the
+    // window auto-fit grows the window instead of touching the dial.
     const margin = 90;
     const r = Math.max(50, Math.min(cx, cy) - margin);
     return { cx, cy, r, w, h };
@@ -674,7 +674,24 @@
         api.showPanel({style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,windowFitAuto});
        return;
     }
-    
+
+    // ── Circular ring labels: × chip clears the task, text opens the editor ──
+    {
+        const hit = hitLabelArc(mx, my);
+        if (hit && sessions[hit.arc.idx]) {
+            if (hit.kind === 'chip') {
+                sessions[hit.arc.idx].task = '';
+                save();
+            } else {
+                startEditLabel(hit.arc.idx, {
+                    x: hit.arc.x0, y: hit.arc.y0,
+                    w: hit.arc.x1 - hit.arc.x0, h: hit.arc.y1 - hit.arc.y0
+                });
+            }
+            return;
+        }
+    }
+
     const { cx, cy, r } = clockBounds();
     const dx = mx - cx, dy = my - cy;
     const dist = Math.hypot(dx, dy);
@@ -907,9 +924,7 @@
   let lastMouseX = null, lastMouseY = null;
   let gearX = 0, gearY = 0, gearR = 14;
 
-  // Track label animation birth times and click regions
-  let labelBirthTimes = {};  // sessionIdx -> timestamp
-  let labelHitBoxes = [];    // legacy (labels are HTML overlay now)
+  // Track the label currently being edited (its ring text hides meanwhile)
   let editingLabelIdx = -1;
   let editInput = null;
 
@@ -1140,41 +1155,59 @@
      if (!silent) lastLabelSig = '__editdone__';
   }
 
-  // ── Floating task labels (HTML overlay — never clipped by the canvas) ──
-  // Labels live in #labels (overflow:visible), so east-side boxes can extend
-  // over the transparent todo-panel area up to the window edge. The math below
-  // still guarantees every box sits totally outside the dotted orbit ring.
-  const labelsLayer = document.getElementById('labels');
-  const MOTION_CLASS = {
-    'bounce':'m-bounce','slide':'m-slide','fade':'m-fade','flip':'m-flip',
-    'typewriter':'m-typewriter','glow-in':'m-glow-in','scale-pop':'m-scale-pop',
-    'swing':'m-swing','wave':'m-wave','jitter':'m-jitter','orbit':'m-orbit',
-    'breathing':'m-breathing','elastic':'m-elastic','wobble':'m-wobble',
-    'neon-pulse':'m-neon-pulse','shiver':'m-shiver','heartbeat':'m-heartbeat',
-    'float-tilt':'m-float-tilt','zoom-spin':'m-zoom-spin','glitch':'m-glitch',
-    'flicker':'m-flicker','drift':'m-drift','pendulum':'m-pendulum',
-    'snake':'m-snake','blink':'m-blink','tada':'m-tada'
-  };
+  // ── Circular task labels: text set directly on the orbit ring ──
+  // Upper-half arcs read normally (glyphs stand outward on the ring);
+  // lower-half arcs flip (glyphs hang under the ring) so text stays
+  // readable everywhere. Layout is cached by signature; only the motion
+  // (radial/tangent wobble, glow, alpha) is evaluated per frame.
   let lastLabelSig = '__init__';
-  let enterTimer = null; // clears the 600ms entrance state without a rebuild storm
-  let labelCenters = []; // [{x, y, idx, el, ph}] wrapper-relative centers
-  let lastMouseClient = null;
+  let labelLayouts = []; // [{idx,mid,upper,R,font,lineH,chars,total,half,isPH,color}]
+  let labelArcs = [];    // per-frame hit records [{idx,R,mid,half,lineH,x0,y0,x1,y1,chip,isPH,visible}]
+  let lastMouseCanvas = null; // canvas-relative mouse, for placeholder proximity
 
-  function animPadFor(style, isPH) {
-    let p = 4;
-    if (style === 'elastic') p += 30;
-    else if (style === 'scale-pop') p += 20;
-    else if (style === 'heartbeat') p += 15;
-    else if (style === 'breathing' || style === 'wave') p += 8;
-    else if (style === 'zoom-spin') p += 12;
-    else if (style === 'glitch') p += 6;
-    else if (style === 'neon-pulse') p += 6;
-    else if (style === 'drift' || style === 'slide' || style === 'bounce') p += 6;
-    else if (style === 'pendulum') p += 12;
-    else if (style === 'snake') p += 6;
-    else if (style === 'tada') p += 14;
-    if (isPH) p += 4;
-    return p;
+  function labelMotionParams(style) {
+    // r: radial px amp, rf: Hz, t: tangential px amp, tf: Hz,
+    // a: alpha dip, af: Hz, g: glow 0-2, w/wf: per-glyph wave, hb: heartbeat, gl: glitch gate
+    switch (style) {
+      case 'slide': return { t:6, tf:.5 };
+      case 'fade': return { a:.45, af:.5 };
+      case 'flip': return { t:4, tf:.7, r:2, rf:.7 };
+      case 'typewriter': return { t:2, tf:.5, a:.12, af:.5 };
+      case 'glow-in': return { g:1 };
+      case 'scale-pop': return { r:4, rf:.5 };
+      case 'swing': return { t:5, tf:.45 };
+      case 'wave': return { r:3, rf:.8, w:2, wf:1 };
+      case 'jitter': return { t:2, tf:6, r:1.5, rf:7 };
+      case 'orbit': return { t:4, tf:.3 };
+      case 'breathing': return { r:4, rf:.25, a:.1, af:.25 };
+      case 'elastic': return { r:6, rf:.5 };
+      case 'wobble': return { t:3, tf:.9, r:2, rf:.9 };
+      case 'neon-pulse': return { g:2, a:.2, af:1.2 };
+      case 'shiver': return { t:1.2, tf:8 };
+      case 'heartbeat': return { r:5, rf:.9, hb:1 };
+      case 'float-tilt': return { r:3, rf:.5, t:3, tf:.5 };
+      case 'zoom-spin': return { r:5, rf:.4, t:5, tf:.4 };
+      case 'glitch': return { t:3, tf:5, g:1, gl:1 };
+      case 'flicker': return { a:.6, af:1.8 };
+      case 'drift': return { t:7, tf:.3 };
+      case 'pendulum': return { t:6, tf:.45 };
+      case 'snake': return { w:3, wf:1.2 };
+      case 'blink': return { a:.7, af:.4 };
+      case 'tada': return { r:4, rf:.5, t:4, tf:.5 };
+      default: return { r:6, rf:.5 }; // bounce
+    }
+  }
+
+  function motionPad(mp) { return 6 + (mp.r || 0) + (mp.t || 0); }
+
+  // Sample points across an arc (upper: θ grows left→right; lower: shrinks).
+  function arcSamples(upper, mid, half, n) {
+    const out = [];
+    for (let k = 0; k < n; k++) {
+      const off = n === 1 ? 0 : -half + (2 * half * k) / (n - 1);
+      out.push(upper ? mid + off : mid - off);
+    }
+    return out;
   }
 
   function labelSig(cx, cy, r, W, H) {
@@ -1184,12 +1217,11 @@
   }
 
   function syncLabels(cx, cy, r, W, H) {
-    // Change-driven: rebuild the DOM only when data or geometry changed.
-    // (No time bucket — rebuilding restarts CSS motions and churns layout.)
+    // Change-driven: re-layout only when data or geometry changed.
     const sig = labelSig(cx, cy, r, W, H);
     if (sig === lastLabelSig) return;
     lastLabelSig = sig;
-    renderLabels(cx, cy, r, W, H);
+    layoutLabels(cx, cy, r, W, H);
   }
 
   // Expired sessions drop off the dial: re-check visibility every 10s and
@@ -1203,7 +1235,7 @@
     } catch (_) {}
   }, 10000);
 
-  // Ask main to grow/shrink the window so labels never clip (throttled).
+  // Ask main to grow the window so labels never clip (throttled, grow-only).
   let lastFitSent = { t: -1, b: -1 }, lastFitAt = 0;
   function maybeFitWindow(needT, needB) {
     if (!windowFitAuto || !api.fitWindow) return;
@@ -1214,140 +1246,192 @@
     try { api.fitWindow({ top: needT, bottom: needB }); } catch (_) {}
   }
 
-  function renderLabels(cx, cy, r, W, H) {
+  function layoutLabels(cx, cy, r, W, H) {
     const now = Date.now();
-    labelsLayer.innerHTML = '';
-    labelCenters = [];
+    labelLayouts = [];
     const sizeScale = tooltipSize || 1.0;
-    const baseFont = Math.round(11 * sizeScale);
-    const padX = 10;
-    const style = tooltipAnim || 'bounce';
-    const mClass = MOTION_CLASS[style] || 'm-bounce';
+    const baseFont = Math.round(12 * sizeScale);
+    const mp = labelMotionParams(tooltipAnim || 'bounce');
+    const pad = motionPad(mp);
     const orbitR = orbitRadius(r);
     const outerGap = Math.max(OUTER_GAP_BASE, Math.round(10 * sizeScale));
     const wrapRect0 = document.getElementById('clock-wrapper').getBoundingClientRect();
     const eastMax = window.innerWidth - (wrapRect0.left || 0) - 4;
-    let fitMin = Infinity, fitMax = -Infinity; // label extremes for window auto-fit
+    let fitMin = Infinity, fitMax = -Infinity; // arc extremes for window auto-fit
     sessions.forEach((sess, i) => {
       if (!sess || sess.end < now - 5 * 60 * 1000) return;
       if (editingLabelIdx === i) return;
       const isPH = !sess.task;
-      const text = isPH ? '＋ Add Task' : sess.task;
-      if (!labelBirthTimes[i]) labelBirthTimes[i] = now;
-      const ang = getAngleForDate(new Date((sess.start + sess.end) / 2));
-      const cA = Math.cos(ang), sA = Math.sin(ang);
-      const pad = animPadFor(style, isPH);
-      // Shrink this label's font until it fits the WINDOW at the required
-      // outside-orbit distance (east side may use the todo-panel area).
-      let cur = baseFont, bW = 0, bH = 0, cdX = 0, cdY = 0;
+      const text = isPH ? '+' : sess.task;
+      const mid = getAngleForDate(new Date((sess.start + sess.end) / 2));
+      const upper = Math.sin(mid) < 0;
+      let cur = baseFont, chars = null, total = 0, lineH = 0, R = 0, half = 0;
+      // Shrink this label's font until its arc fits the WINDOW at the
+      // required outside-orbit distance (east may use the todo-panel area).
       for (let a = 0; a < 12; a++) {
         X.font = `600 ${cur}px Inter, system-ui, sans-serif`;
-        const tw = X.measureText(text).width;
-        const del = isPH ? 0 : (Math.max(3.5, Math.round(cur * 0.4)) * 2 + 3 + 10);
-        bW = Math.ceil(tw + padX * 2 + del);
-        bH = Math.ceil(cur + 12);
-        const proj = Math.abs((bW / 2) * cA) + Math.abs((bH / 2) * sA);
-        const cd = orbitR + outerGap + proj + pad;
-        cdX = cx + cA * cd; cdY = cy + sA * cd;
-        if (cdX - bW / 2 >= 2 && cdX + bW / 2 <= eastMax &&
-            cdY - bH / 2 >= 2 && cdY + bH / 2 <= H - 2) break;
-        if (cur <= 8) break;
+        lineH = cur * 1.15;
+        R = orbitR + outerGap + lineH / 2 + pad;
+        const gap = cur * 0.08;
+        chars = [...text].map(ch => ({ ch, adv: X.measureText(ch).width + gap }));
+        total = chars.reduce((s, c) => s + c.adv, 0);
+        half = (total / 2) / R;
+        let ok = true;
+        for (const th of arcSamples(upper, mid, half, 9)) {
+          for (const rr of [R - lineH / 2, R + lineH / 2]) {
+            const px = cx + Math.cos(th) * rr, py = cy + Math.sin(th) * rr;
+            if (px < 2 || px > eastMax || py < 2 || py > H - 2) { ok = false; break; }
+          }
+          if (!ok) break;
+        }
+        if (ok || cur <= 8) break;
         cur -= 1;
       }
-      // Motion class goes on the ANCHOR so the whole box animates together.
-      const el = document.createElement('div');
-      el.className = 'task-label' + (isPH ? ' placeholder hidden' : '') +
-        ' ' + (isPH ? 'm-placeholder-pulse' : mClass) +
-        ((now - labelBirthTimes[i] < 600) ? ' entering' : '');
-      el.dataset.idx = i;
-      el.style.left = cdX.toFixed(1) + 'px';
-      el.style.top = cdY.toFixed(1) + 'px';
-      el.style.fontSize = cur + 'px';
-      el.style.setProperty('--dx', cA.toFixed(3));
-      el.style.setProperty('--dy', sA.toFixed(3));
-      el.style.setProperty('--lc', sess.color || '#3b82f6');
-      el.title = text;
-      const box = document.createElement('div');
-      box.className = 'lbl-box';
-      const row = document.createElement('div');
-      row.className = 'lbl-row';
-      const sp = document.createElement('span');
-      sp.className = 'txt';
-      sp.textContent = text;
-      row.appendChild(sp);
-      if (!isPH) {
-        const xb = document.createElement('span');
-        xb.className = 'x';
-        xb.textContent = '×';
-        const fs = Math.max(11, Math.round(cur * 0.9));
-        xb.style.width = fs + 'px';
-        xb.style.height = fs + 'px';
-        xb.style.fontSize = fs + 'px';
-        xb.dataset.idx = i;
-        row.appendChild(xb);
-      }
-      box.appendChild(row);
-      el.appendChild(box);
-      labelsLayer.appendChild(el);
-      labelCenters.push({ x: cdX, y: cdY, idx: i, el, ph: isPH });
-      // Track extremes so the window can grow to fit (fixed dial).
+      labelLayouts.push({ idx: i, mid, upper, R, font: cur, lineH, chars, total, half, isPH, color: sess.color || '#3b82f6' });
+      // Track extremes so the window can grow to fit (dial stays fixed).
       // Hidden placeholders don't reserve space.
       if (!isPH) {
-        if (cdY - bH / 2 < fitMin) fitMin = cdY - bH / 2;
-        if (cdY + bH / 2 > fitMax) fitMax = cdY + bH / 2;
+        for (const th of arcSamples(upper, mid, half, 9)) {
+          for (const rr of [R - lineH / 2, R + lineH / 2]) {
+            const py = cy + Math.sin(th) * rr;
+            if (py < fitMin) fitMin = py;
+            if (py > fitMax) fitMax = py;
+          }
+        }
       }
     });
-    for (const key in labelBirthTimes) { if (!sessions[key]) delete labelBirthTimes[key]; }
-    refreshPlaceholderVisibility(null);
-    // Clear the entrance state 650ms after a batch with new labels.
-    if (labelCenters.some(c => !c.ph && (now - (labelBirthTimes[c.idx] || 0) < 600)) && !enterTimer) {
-      enterTimer = setTimeout(() => { enterTimer = null; lastLabelSig = '__entered__'; }, 650);
-    }
-    // Grow/shrink the window (not the dial) when labels overflow top/bottom.
     maybeFitWindow(4 - fitMin, fitMax - (H - 4));
   }
 
-  function refreshPlaceholderVisibility(e) {
-    let px = null, py = null;
-    if (e && typeof e.clientX === 'number') { px = e.clientX; py = e.clientY; }
-    else if (lastMouseClient) { px = lastMouseClient.x; py = lastMouseClient.y; }
-    if (px === null) return;
-    const wr = document.getElementById('clock-wrapper').getBoundingClientRect();
-    for (const c of labelCenters) {
-      if (!c.ph) continue;
-      const d = Math.hypot(px - (wr.left + c.x), py - (wr.top + c.y));
-      c.el.classList.toggle('hidden', d > 80);
+  function angDiff(a, b) {
+    let d = a - b;
+    while (d > Math.PI) d -= PI2;
+    while (d < -Math.PI) d += PI2;
+    return d;
+  }
+
+  function hitLabelArc(mx, my) {
+    const { cx, cy } = clockBounds(); // cached metrics, no reflow
+    for (let k = labelArcs.length - 1; k >= 0; k--) {
+      const A = labelArcs[k];
+      if (!A.visible) continue;
+      if (A.chip && Math.hypot(mx - A.chip.x, my - A.chip.y) < A.chip.r + 5)
+        return { kind: 'chip', arc: A };
+      const d = Math.hypot(mx - cx, my - cy);
+      if (Math.abs(d - A.R) < A.lineH * 0.8) {
+        if (Math.abs(angDiff(Math.atan2(my - cy, mx - cx), A.mid)) < A.half + 0.04)
+          return { kind: 'text', arc: A };
+      }
+    }
+    return null;
+  }
+
+  function drawCircularLabels(cx, cy) {
+    const mp = labelMotionParams(tooltipAnim || 'bounce');
+    const t = performance.now() / 1000;
+    labelArcs = [];
+    X.save();
+    X.textAlign = 'center';
+    X.textBaseline = 'middle';
+    for (const L of labelLayouts) {
+      const ax = cx + Math.cos(L.mid) * L.R, ay = cy + Math.sin(L.mid) * L.R;
+      let visible = true, alpha = 1;
+      if (L.isPH) {
+        // Placeholder '+' only surfaces when the mouse comes close.
+        visible = !!(lastMouseCanvas && Math.hypot(lastMouseCanvas.x - ax, lastMouseCanvas.y - ay) < 90);
+        alpha = 0.55 + 0.25 * Math.sin(t * 2 + L.idx);
+        if (!visible) { labelArcs.push({ idx: L.idx, isPH: true, visible: false }); continue; }
+      }
+      const s1 = Math.sin(PI2 * (mp.rf || 0.5) * t + L.idx * 1.3);
+      const s2 = Math.sin(PI2 * (mp.tf || 0.5) * t + L.idx * 2.1);
+      let radial = (mp.r || 0) * s1;
+      if (mp.hb) {
+        const ph = ((t * (mp.rf || 0.9)) + L.idx * 0.37) % 1;
+        radial += (mp.r || 0) * Math.pow(Math.max(0, Math.sin(ph * PI2)), 6);
+      }
+      let tangPx = (mp.t || 0) * s2;
+      if (mp.gl) tangPx *= (Math.sin(t * 0.7 + L.idx) > 0.6) ? 1 : 0.15; // glitch gate
+      alpha *= 1 - (mp.a || 0) * (0.5 + 0.5 * Math.sin(PI2 * (mp.af || 0.5) * t + L.idx));
+      alpha = Math.max(0, Math.min(1, alpha));
+      const R = L.R + radial;
+      const tang = tangPx / R; // tangential wobble as angular offset
+      X.font = `600 ${L.font}px Inter, system-ui, sans-serif`;
+      X.globalAlpha = alpha;
+      X.fillStyle = L.isPH ? '#e9d5ff' : '#ffffff';
+      if (mp.g) { X.shadowColor = L.color; X.shadowBlur = 10 * mp.g * (0.6 + 0.4 * s1); }
+      else X.shadowBlur = 0;
+      let acc = -L.total / 2;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      const n = L.chars.length;
+      L.chars.forEach((c, k) => {
+        const off = acc + c.adv / 2; acc += c.adv;
+        let wob = 0;
+        if (mp.w) wob = mp.w * Math.sin(PI2 * (mp.wf || 1) * t + k * 0.7 + L.idx);
+        const th = L.upper ? L.mid + (off + wob) / R + tang
+                           : L.mid - (off + wob) / R - tang;
+        const px = cx + Math.cos(th) * R, py = cy + Math.sin(th) * R;
+        if (px < x0) x0 = px; if (px > x1) x1 = px;
+        if (py < y0) y0 = py; if (py > y1) y1 = py;
+        X.save();
+        X.translate(px, py);
+        X.rotate(L.upper ? th + Math.PI / 2 : th - Math.PI / 2);
+        X.fillText(c.ch, 0, 0);
+        X.restore();
+      });
+      // Leading color dot marks the block's color.
+      const thLead = L.upper ? L.mid - L.half : L.mid + L.half;
+      const thDot = L.upper ? thLead - 9 / R : thLead + 9 / R;
+      X.save();
+      X.globalAlpha = alpha;
+      X.shadowBlur = mp.g ? 8 : 0;
+      X.shadowColor = L.color;
+      X.fillStyle = L.color;
+      X.beginPath();
+      X.arc(cx + Math.cos(thDot) * R, cy + Math.sin(thDot) * R, Math.max(2.5, L.font * 0.22), 0, PI2);
+      X.fill();
+      X.restore();
+      // Trailing × chip clears the task (sits on the reading side).
+      let chip = null;
+      if (!L.isPH) {
+        const thTrail = L.upper ? L.mid + L.half : L.mid - L.half;
+        const chipR = Math.max(8, L.font * 0.55);
+        const thChip = L.upper ? thTrail + (chipR + 6) / R : thTrail - (chipR + 6) / R;
+        const chx = cx + Math.cos(thChip) * R, chy = cy + Math.sin(thChip) * R;
+        X.save();
+        X.globalAlpha = alpha * 0.9;
+        X.shadowBlur = 0;
+        X.fillStyle = 'rgba(10,10,20,0.85)';
+        X.strokeStyle = 'rgba(239,68,68,0.8)';
+        X.lineWidth = 1;
+        X.beginPath(); X.arc(chx, chy, chipR, 0, PI2); X.fill(); X.stroke();
+        X.fillStyle = '#f87171';
+        X.font = `700 ${Math.round(chipR * 1.1)}px Inter, system-ui, sans-serif`;
+        X.fillText('×', chx, chy + 0.5);
+        X.restore();
+        chip = { x: chx, y: chy, r: chipR };
+        if (chx - chipR < x0) x0 = chx - chipR;
+        if (chx + chipR > x1) x1 = chx + chipR;
+        if (chy - chipR < y0) y0 = chy - chipR;
+        if (chy + chipR > y1) y1 = chy + chipR;
+      }
+      const padB = 4;
+      labelArcs.push({ idx: L.idx, R, mid: L.mid, half: L.half, upper: L.upper,
+        lineH: L.lineH, x0: x0 - padB, y0: y0 - padB, x1: x1 + padB, y1: y1 + padB,
+        chip, isPH: L.isPH, visible: true });
+    }
+    X.restore();
+    if (lastMouseCanvas) {
+      try { canvas.style.cursor = hitLabelArc(lastMouseCanvas.x, lastMouseCanvas.y) ? 'pointer' : ''; }
+      catch (_) {}
     }
   }
 
-  labelsLayer.addEventListener('click', e => {
-    const xBtn = e.target.closest('.x');
-    if (xBtn) {
-      e.stopPropagation();
-      const idx = parseInt(xBtn.dataset.idx);
-      if (sessions[idx]) {
-        sessions[idx].task = '';
-        save();
-        lastLabelSig = '__cleared__';
-      }
-      return;
-    }
-    const lab = e.target.closest('.task-label');
-    if (lab) {
-      e.stopPropagation();
-      const idx = parseInt(lab.dataset.idx);
-      // Anchor is zero-size — measure the visual box instead.
-      const b = lab.querySelector('.lbl-box').getBoundingClientRect();
-      const wr = document.getElementById('clock-wrapper').getBoundingClientRect();
-      startEditLabel(idx, {
-        x: b.left - wr.left, y: b.top - wr.top, w: b.width, h: b.height
-      });
-    }
-  });
-
   window.addEventListener('mousemove', e => {
-    lastMouseClient = { x: e.clientX, y: e.clientY };
-    refreshPlaceholderVisibility(e);
+    // Canvas-relative mouse for placeholder proximity + hover cursor.
+    try {
+      const rect = canvas.getBoundingClientRect();
+      lastMouseCanvas = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    } catch (_) {}
   });
 
   function drawGearIcon(cx, cy, r) {
@@ -2603,8 +2687,9 @@
       X.clearRect(0,0,w,h);
       (STYLES[style]||drawGhostPure)(cx,cy,r,hrF,minF,secF,t);
       drawSessionsOverlay(cx, cy, r);
-      drawLabelOrbit(cx, cy, r);
-      syncLabels(cx, cy, r, w, h);
+    drawLabelOrbit(cx, cy, r);
+    syncLabels(cx, cy, r, w, h);
+    drawCircularLabels(cx, cy, r);
       drawInteractiveKnob(cx, cy, r);
       drawGearIcon(cx, cy, r);
       drawTooltipSizeIndicator(cx, cy, r);
