@@ -679,6 +679,10 @@
     {
         const hit = hitLabelArc(mx, my);
         if (hit && sessions[hit.arc.idx]) {
+            // Suppress the default mousedown focus-shift: without this Chromium
+            // moves focus to the mousedown target (canvas → body), instantly
+            // blurring the edit input and killing it via the 100ms timer.
+            e.preventDefault();
             if (hit.kind === 'chip') {
                 sessions[hit.arc.idx].task = '';
                 save();
