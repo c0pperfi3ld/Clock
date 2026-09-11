@@ -4,7 +4,7 @@
 
 **A borderless, canvas-rendered desktop clock widget — tasks, time blocks & Pomodoros included.**
 
-52 dials · 16 hands · 10 themes · 26 tooltip motions · 13 todo loops · 17 orbit rings · 18 block FX
+52 dials · 22 hands · 10 themes · 26 tooltip motions · 13 todo loops · 23 orbit rings · 25 block FX
 
 ![Electron](https://img.shields.io/badge/Electron-35-47848F?style=for-the-badge&logo=electron&logoColor=white)
 ![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-8b5cf6?style=for-the-badge)
@@ -22,7 +22,7 @@
 | 🔴 **Circular task labels** | Task text rides the orbit ring itself — arches over the top half, smiles under the bottom half, always readable, never clipped |
 | 🔴 **Live task cards** | Every todo loops its selected animation forever, phase-offset so cards feel alive |
 | 🟡 **52 × 16 × 10 design genome** | Dials, hands & themes combine into millions of unique faces |
-| 🟡 **Rotating outer dial / orbit ring** | 17 ring styles, 0–5× clockwise speed (Alt+scroll), pauseable |
+| 🟡 **Rotating outer dial / orbit ring** | 23 ring styles, 0–5× clockwise speed (Alt+scroll), pauseable |
 | 🟢 **Zero-DOM clock face** | 60 FPS Canvas 2D · DPR-aware · borderless always-on-top window |
 | 🟢 **Golden Angle color engine** | 137.5° hue spacing — every new block lands on the most distinct hue |
 | 🟢 **Pomodoro + time blocks** | Elapsed/remaining dual-color wedges · click-to-spawn · drag-to-resize · 18 animated FX |

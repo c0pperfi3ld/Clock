@@ -130,6 +130,12 @@
       flex-shrink:0; transition:all 0.15s;
     }
     .opt.active .dot { background:#a78bfa; border-color:#a78bfa; box-shadow:0 0 8px rgba(167,139,250,0.6); }
+    .opt .fav-star {
+      margin-left:auto; font-size:0.82rem; opacity:0.3; cursor:pointer; user-select:none;
+      flex-shrink:0; transition:opacity 0.15s, transform 0.15s;
+    }
+    .opt .fav-star:hover { opacity:1; transform:scale(1.3); }
+    .opt .fav-star.on { opacity:1; color:#fbbf24; text-shadow:0 0 7px rgba(251,191,36,0.8); }
 
     /* ── Two-column option grids (long lists) ── */
     .opt-grid { display:grid; grid-template-columns:1fr 1fr; gap:2px; padding:0 6px 4px; }
@@ -240,6 +246,24 @@
       return (s || '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
     }
 
+    const FAV_DEFAULTS = { faces:[], hands:[], themes:[], blockFx:[], tooltipAnim:[], orbit:[], todoAnim:[] };
+    const FAV_CAT = { 'style':'faces', 'hands':'hands', 'theme':'themes', 'anim':'blockFx',
+      'tooltip-anim':'tooltipAnim', 'orbit-style':'orbit', 'todo-anim':'todoAnim' };
+    function favList() { return Object.assign({}, FAV_DEFAULTS, current.favorites || {}); }
+    function isFav(cat, val) { return (favList()[cat] || []).indexOf(val) !== -1; }
+    function optHTML(cur, label, action, id) {
+      const fv = isFav(FAV_CAT[action] || 'faces', id);
+      return `<div class="opt${cur===id?' active':''}" data-action="${action}" data-val="${id}">
+        <span class="fav-star${fv?' on':''}" data-action="${action}" data-val="${id}" title="${fv?'Remove from':'Add to'} favorites">${fv?'★':'☆'}</span>
+        <div class="dot"></div>${label}</div>`;
+    }
+    function renderOpts(list, action, cur) {
+      const cat = FAV_CAT[action] || 'faces';
+      const favs = list.filter(([id]) => isFav(cat, id));
+      const rest = list.filter(([id]) => !isFav(cat, id));
+      return [...favs, ...rest].map(([id, label]) => optHTML(cur, label, action, id)).join('');
+    }
+
     api.onUpdateState(s => { Object.assign(current, s); render(); });
 
     const ANIMS = [
@@ -247,7 +271,10 @@
       ['rainbow-glow','🌈 RB Glow'],['rainbow-pulse','🌈 RB Pulse'],['disco','🪩 Disco'],
       ['radar-sweep','📡 Radar Sweep'],['stripes','🦓 Marching Stripes'],['neon-flow','🚨 Laser Border'],
       ['particles','✨ Stardust Embers'],['wave-ripple','🌊 Wave Ripple'],['electric','⚡ Plasma Arc'],
-      ['aurora','🌌 Aurora Flow'],['sandglass','⏳ Sandglass Fill'],['glitch','👾 Cyber Glitch'],['heartbeat','💗 Heartbeat']
+      ['aurora','🌌 Aurora Flow'],['sandglass','⏳ Sandglass Fill'],['glitch','👾 Cyber Glitch'],['heartbeat','💗 Heartbeat'],
+      ['meteor','🌠 Meteor Shower'],['laser-grid','🧿 Laser Grid'],['vortex-swirl','🌀 Galaxy Swirl'],
+      ['snowfall','❄️ Snow Fall'],['ember-fly','🔥 Rising Embers'],['orbit-rings','🪐 Orbital Rings'],
+      ['strobe','⚡ Hard Strobe']
     ];
 
     const DESIGNS = {
@@ -292,7 +319,9 @@
       ['arrow','Arrow'],['spade','Spade'],['cathedral','Gothic Cathedral'],
       ['needle','Needle'],['spike','Spike'],['alpha','Alpha'],
       ['chronometer','Chronometer Vintage'],['luminous','Modern Luminous'],
-      ['minimalist_dot','Minimalist Dot'],['art_deco','Art Deco Geometric']
+      ['minimalist_dot','Minimalist Dot'],['art_deco','Art Deco Geometric'],
+      ['scalpel','Scalpel Blade'],['flame','Candle Flame'],['crystal','Faceted Crystal'],
+      ['ruler','Regatta Ruler'],['halo','Halo Lantern'],['barley','Golden Barley']
     ];
 
     const THEMES = [
@@ -376,8 +405,14 @@
                 <input type="time" class="bl-time modern-time-input" data-idx="${i}" data-key="end" value="${eStr}">
               </div>
             </div>
-            <div>
-              <input type="text" class="block-task-edit modern-task-input" data-idx="${i}" value="${esc(sess.task || '')}" placeholder="What are you doing?">
+            <div class="task-list" data-idx="${i}">
+              ${(sess.tasks && sess.tasks.length > 0 ? sess.tasks : ['']).map((t, ti) => `
+                <div style="display:flex;gap:4px;align-items:center;margin-bottom:3px;">
+                  <input type="text" class="block-task-edit modern-task-input" data-idx="${i}" data-task="${ti}" value="${esc(t || '')}" placeholder="Task ${ti+1}..." style="flex:1;">
+                  <button class="task-del-btn" data-idx="${i}" data-task="${ti}" style="background:rgba(239,68,68,0.15);border:none;color:#f87171;border-radius:3px;padding:2px 5px;cursor:pointer;font-size:0.6rem;" title="Remove task">✕</button>
+                </div>
+              `).join('')}
+              <button class="task-add-btn" data-idx="${i}" style="background:rgba(59,130,246,0.1);border:1px dashed rgba(59,130,246,0.3);color:#60a5fa;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.6rem;width:100%;margin-top:2px;">+ Add Task</button>
             </div>
             <div style="display:flex; justify-content:space-between; align-items:center; padding-top: 4px;">
                  <div style="display:flex; gap:8px; font-size:0.65rem; color:rgba(255,255,255,0.6); font-weight: 500; align-items:center;">
@@ -414,22 +449,15 @@
       for (const [group, items] of Object.entries(DESIGNS)) {
         html += `<details class="group" open><summary><span>${group}</span><span class="badge">${items.length}</span></summary><div class="opt-grid">`;
         items.forEach(([id, label]) => {
-          html += `<div class="opt${current.style===id?' active':''}" data-action="style" data-val="${id}">
-            <div class="dot"></div>${label}</div>`;
+          html += optHTML(current.style, label, 'style', id);
         });
         html += '</div></details>';
       }
-      html += `<details class="group" open><summary><span>Hand Style</span><span class="badge">16</span></summary><div class="opt-grid">`;
-      HANDS.forEach(([id, label]) => {
-        html += `<div class="opt${current.handType===id?' active':''}" data-action="hands" data-val="${id}">
-          <div class="dot"></div>${label}</div>`;
-      });
+      html += `<details class="group" open><summary><span>Hand Style</span><span class="badge">22</span></summary><div class="opt-grid">`;
+      html += renderOpts(HANDS, 'hands', current.handType);
       html += '</div></details>';
       html += `<details class="group" open><summary><span>Color Theme</span><span class="badge">10</span></summary><div class="opt-grid">`;
-      THEMES.forEach(([id, label]) => {
-        html += `<div class="opt${current.theme===id?' active':''}" data-action="theme" data-val="${id}">
-          <div class="dot"></div>${label}</div>`;
-      });
+      html += renderOpts(THEMES, 'theme', current.theme);
       html += '</div></details>';
       html += '</div>'; // End Faces Tab
 
@@ -444,7 +472,9 @@
         ['cyber-scan','🌐 Cyber Scan'],['particles','🌌 Stardust Swarm'],['pulse-wave','💫 Ripple Waves'],
         ['quantum','⚡ Quantum Arc'],['vortex','🌀 Vortex Spiral'],['gear-teeth','⚙️ Chrono Cog'],
         ['neon-chase','🏎️ Neon Tracer'],['eclipse-corona','🌑 Solar Corona'],['dna-helix','🧬 Orbit Helix'],
-        ['hex-shield','🛡️ Hex Shield']
+        ['hex-shield','🛡️ Hex Shield'],['saturn','🪐 Saturn Ring'],['lightning','⚡ Storm Bolts'],
+        ['beacon','📡 Radar Beacon'],['chains','⛓️ Chain Drive'],['hyperspace','🚀 Hyperspace'],
+        ['ferris','🎡 Ferris Wheel']
       ];
       const TODO_LEGACY = { slide:'tide-x', 'fade-up':'float', pop:'pulse', flip:'sway', bounce:'bob', 'swing-in':'wiggle', 'roll-in':'jelly' };
       const todoAnimShown = TODO_LEGACY[current.todoAnim] || current.todoAnim || 'float';
@@ -468,18 +498,12 @@
         ['pendulum', '⏳ Pendulum'], ['snake', '🐍 Snake'], ['blink', '👁️ Blink'], ['tada', '🎉 Ta-Da']
       ];
       html += '<div class="opt-grid">';
-      TT_ANIMS.forEach(([id, label]) => {
-         html += `<div class="opt${tooltipAnim===id?' active':''}" data-action="tooltip-anim" data-val="${id}">
-           <div class="dot"></div>${label}</div>`;
-      });
+      html += renderOpts(TT_ANIMS, 'tooltip-anim', tooltipAnim);
       html += '</div></details>';
 
       html += '<details class="group" open><summary><span>🃏 Task Card Loops</span><span class="badge">' + TODO_ANIMS.length + '</span></summary>';
       html += '<div class="hint">Cards loop the selected motion forever (phase-offset per card).</div><div class="opt-grid">';
-      TODO_ANIMS.forEach(([id, label]) => {
-        html += `<div class="opt${todoAnimShown===id?' active':''}" data-action="todo-anim" data-val="${id}">
-          <div class="dot"></div>${label}</div>`;
-      });
+      html += renderOpts(TODO_ANIMS, 'todo-anim', todoAnimShown);
       html += '</div></details>';
 
       html += '<details class="group" open><summary><span>⭕ Orbit Ring</span><span class="badge">' + ORBIT_STYLES.length + '</span></summary>';
@@ -487,18 +511,12 @@
         <input type="range" id="sl-orbit-speed" min="0" max="5" step="0.1" value="${orbitSpd}">
         <span class="val" id="val-orbit-speed">${orbitSpd === 0 ? 'Paused' : orbitSpd.toFixed(1) + 'x'}</span></div>`;
       html += '<div class="hint">0 = paused · Alt+scroll over the clock also changes speed.</div><div class="opt-grid">';
-      ORBIT_STYLES.forEach(([id, label]) => {
-        html += `<div class="opt${orbitStyle===id?' active':''}" data-action="orbit-style" data-val="${id}">
-          <div class="dot"></div>${label}</div>`;
-      });
+      html += renderOpts(ORBIT_STYLES, 'orbit-style', orbitStyle);
       html += '</div></details>';
 
       html += '<details class="group" open><summary><span>🧱 Time Block FX</span><span class="badge">' + ANIMS.length + '</span></summary>';
       html += '<div class="hint">Global effect for all time wedges. A single block can override this from its card in the Blocks tab.</div><div class="opt-grid">';
-      ANIMS.forEach(([id, label]) => {
-        html += `<div class="opt${curAnim.style===id?' active':''}" data-action="anim" data-val="${id}">
-          <div class="dot"></div>${label}</div>`;
-      });
+      html += renderOpts(ANIMS, 'anim', curAnim.style);
       html += `</div><div class="slider-row"><label>Speed</label>
         <input type="range" min="0.2" max="3" step="0.1" value="${curAnim.speed}" id="sl-anim-speed">
         <span class="val" id="val-anim-speed">${curAnim.speed}x</span></div>`;
@@ -525,6 +543,18 @@
       html += `<div class="slider-row"><label>Window Op</label>
         <input type="range" min="20" max="100" step="5" value="${current.opacity}" id="sl-opacity">
         <span class="val" id="val-opacity">${current.opacity}%</span></div>`;
+      const tOp = current.todoOpacity !== undefined ? current.todoOpacity : 100;
+      html += `<div class="slider-row"><label>Todo Op</label>
+        <input type="range" min="25" max="100" step="5" value="${tOp}" id="sl-todo-opacity">
+        <span class="val" id="val-todo-opacity">${tOp}%</span>
+      </div><div class="hint">Opacity of the task panel next to the clock.</div>`;
+      html += `<div class="chk-row" id="chk-todo-box"><input type="checkbox"${current.todoBoxOpaque ? ' checked' : ''}> Opaque todo boxes</div>`;
+      html += '<div class="hint">Solid card backgrounds — no glass blur behind tasks.</div>';
+      const tg = current.titleGap !== undefined ? current.titleGap : 1.0;
+      html += `<div class="slider-row"><label>Label Distance</label>
+        <input type="range" min="0.3" max="3.0" step="0.1" value="${tg}" id="sl-title-gap">
+        <span class="val" id="val-title-gap">${tg.toFixed(1)}x</span></div>
+      <div class="hint">Distance between task labels and the outer ring.</div>`;
       html += '</details>';
 
       html += '<details class="group" open><summary><span>🪟 Window</span></summary>';
@@ -580,6 +610,23 @@
         });
       });
 
+      // Bind favourite stars (★) — toggle only, never selects the option
+      body.querySelectorAll('.fav-star').forEach(star => {
+        star.addEventListener('click', e => {
+          e.stopPropagation();
+          const action = star.dataset.action;
+          const val = star.dataset.val;
+          const cat = FAV_CAT[action] || 'faces';
+          const list = favList();
+          const arr = list[cat] || (list[cat] = []);
+          const i = arr.indexOf(val);
+          if (i >= 0) arr.splice(i, 1); else arr.push(val);
+          current.favorites = list;
+          if (api.setFavorites) api.setFavorites(JSON.parse(JSON.stringify(list)));
+          render();
+        });
+      });
+
       const slOpacity = document.getElementById('sl-opacity');
       if (slOpacity) {
         slOpacity.addEventListener('input', e => {
@@ -595,6 +642,33 @@
           current.blockOpacity = parseFloat(e.target.value);
           document.getElementById('val-block-opacity').textContent = Math.round(current.blockOpacity * 100) + '%';
           api.setBlockOpacity(current.blockOpacity);
+        });
+      }
+
+      const slTodoOpacity = document.getElementById('sl-todo-opacity');
+      if (slTodoOpacity) {
+        slTodoOpacity.addEventListener('input', e => {
+          current.todoOpacity = parseInt(e.target.value);
+          document.getElementById('val-todo-opacity').textContent = current.todoOpacity + '%';
+          if (api.setTodoOpacity) api.setTodoOpacity(current.todoOpacity);
+        });
+      }
+
+      const chkTodoBox = document.getElementById('chk-todo-box');
+      if (chkTodoBox) {
+        const inp = chkTodoBox.querySelector('input');
+        inp.addEventListener('change', () => {
+          current.todoBoxOpaque = inp.checked;
+          if (api.setTodoBoxOpaque) api.setTodoBoxOpaque(inp.checked);
+        });
+      }
+
+      const slTitleGap = document.getElementById('sl-title-gap');
+      if (slTitleGap) {
+        slTitleGap.addEventListener('input', e => {
+          current.titleGap = parseFloat(e.target.value) || 1.0;
+          document.getElementById('val-title-gap').textContent = current.titleGap.toFixed(1) + 'x';
+          if (api.setTitleGap) api.setTitleGap(current.titleGap);
         });
       }
 
@@ -666,7 +740,7 @@
         btnReset.addEventListener('click', () => {
           const d = { style:'handsonly_ghost', theme:'midnight', handType:'tapered', opacity:100,
             blockOpacity:0.25, blockAnim:{ style:'pulse', speed:1.0 }, tooltipAnim:'bounce',
-            tooltipSize:1.0, orbitSpeed:1.0, orbitStyle:'dash', todoAnim:'float', windowFitAuto:true };
+            tooltipSize:1.0, orbitSpeed:1.0, orbitStyle:'dash', todoAnim:'float', windowFitAuto:true, todoOpacity:100, todoBoxOpaque:false };
           Object.assign(current, d);
           api.setStyle(d.style); api.setTheme(d.theme); api.setHands(d.handType);
           api.setOpacity(d.opacity); api.setBlockOpacity(d.blockOpacity);
@@ -674,7 +748,11 @@
           api.setTooltipSize(d.tooltipSize); api.setOrbitSpeed(d.orbitSpeed);
           api.setOrbitStyle(d.orbitStyle); api.setTodoAnim(d.todoAnim);
           if (api.setWindowFit) api.setWindowFit(true);
+          if (api.setTodoOpacity) api.setTodoOpacity(100);
+          if (api.setTodoBoxOpaque) api.setTodoBoxOpaque(false);
           api.setOnTop(true);
+          current.favorites = JSON.parse(JSON.stringify(FAV_DEFAULTS));
+          if (api.setFavorites) api.setFavorites(JSON.parse(JSON.stringify(FAV_DEFAULTS)));
           render();
         });
       }
@@ -721,9 +799,48 @@
       body.querySelectorAll('.block-task-edit').forEach(el => {
         el.addEventListener('input', e => {
           const idx = parseInt(e.target.dataset.idx);
-          if (current.sessions && current.sessions[idx]) {
-            current.sessions[idx].task = e.target.value;
+          const ti = parseInt(e.target.dataset.task || '0');
+          const sess = current.sessions && current.sessions[idx];
+          if (sess) {
+            if (!Array.isArray(sess.tasks)) sess.tasks = [];
+            while (sess.tasks.length <= ti) sess.tasks.push('');
+            sess.tasks[ti] = e.target.value;
             api.setSessions(current.sessions);
+          }
+        });
+        el.addEventListener('blur', e => {
+          const idx = parseInt(e.target.dataset.idx);
+          const ti = parseInt(e.target.dataset.task || '0');
+          const sess = current.sessions && current.sessions[idx];
+          if (sess && Array.isArray(sess.tasks) && e.target.value.trim() === '') {
+            // Remove empty non-last tasks when blurred
+            sess.tasks.splice(ti, 1);
+            api.setSessions(current.sessions);
+            render();
+          }
+        });
+      });
+      body.querySelectorAll('.task-add-btn').forEach(el => {
+        el.addEventListener('click', e => {
+          const idx = parseInt(e.target.dataset.idx);
+          const sess = current.sessions && current.sessions[idx];
+          if (sess) {
+            if (!Array.isArray(sess.tasks)) sess.tasks = [];
+            sess.tasks.push('');
+            api.setSessions(current.sessions);
+            render();
+          }
+        });
+      });
+      body.querySelectorAll('.task-del-btn').forEach(el => {
+        el.addEventListener('click', e => {
+          const idx = parseInt(e.target.dataset.idx);
+          const ti = parseInt(e.target.dataset.task || '0');
+          const sess = current.sessions && current.sessions[idx];
+          if (sess && Array.isArray(sess.tasks)) {
+            sess.tasks.splice(ti, 1);
+            api.setSessions(current.sessions);
+            render();
           }
         });
       });
@@ -881,10 +998,10 @@
         const newSessions = [];
         
         for (let i = 0; i < cycles; i++) {
-          newSessions.push({ start: currentTime, end: currentTime + work * 60000, color: color, elapsedColor: elColor, type: 'work', task: task ? `${task} (Work)` : '' });
+          newSessions.push({ start: currentTime, end: currentTime + work * 60000, color: color, elapsedColor: elColor, type: 'work', tasks: task ? [`${task} (Work)`] : [] });
           currentTime += work * 60000;
           if (i < cycles - 1) {
-            newSessions.push({ start: currentTime, end: currentTime + breakM * 60000, color: '#22c55e', elapsedColor: '#064e3b', type: 'break', task: task ? `${task} (Break)` : '' });
+            newSessions.push({ start: currentTime, end: currentTime + breakM * 60000, color: '#22c55e', elapsedColor: '#064e3b', type: 'break', tasks: task ? [`${task} (Break)`] : [] });
             currentTime += breakM * 60000;
           }
         }
@@ -920,7 +1037,7 @@
         }
         
         if (!current.sessions) current.sessions = [];
-        current.sessions.push({ start: start.getTime(), end: end.getTime(), color: color, elapsedColor: elColor, type: 'custom', task: task });
+        current.sessions.push({ start: start.getTime(), end: end.getTime(), color: color, elapsedColor: elColor, type: 'custom', tasks: task ? [task] : [] });
         api.setSessions(current.sessions);
         render();
       });

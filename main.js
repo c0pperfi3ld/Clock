@@ -50,6 +50,20 @@ function createWindow() {
   win.on('resize', () => { if (win) win.webContents.send('window-resized', {}); });
   win.on('moved', () => { const s = loadSettings(); s.windowBounds = win.getBounds(); saveSettings(s); });
   win.on('closed', () => { win = null; if (panel && !panel.isDestroyed()) panel.close(); });
+  applyOnTop(); // enforce topmost level (creation flag alone is droppable on Win)
+  win.on('blur', applyOnTop); // re-assert: fullscreen apps/UAC can strip topmost
+}
+
+// ── Always-on-top: 'screen-saver' outranks other topmost windows (Task
+// Manager, launchers). Re-asserted on blur; honors the panel checkbox.
+let onTopWanted = true;
+function applyOnTop() {
+  if (win && !win.isDestroyed()) {
+    try { win.setAlwaysOnTop(onTopWanted, 'screen-saver'); } catch (_) {}
+  }
+  if (panel && !panel.isDestroyed()) {
+    try { panel.setAlwaysOnTop(true, 'screen-saver'); } catch (_) {}
+  }
 }
 
 function showPanel(currentState) {
@@ -125,6 +139,27 @@ ipcMain.on('drag-end', () => {
   if (win) { const s = loadSettings(); s.windowBounds = win.getBounds(); saveSettings(s); }
 });
 
+// ── IPC: Clock Resize (bottom-right handle, top-left anchored) ──
+let resizeStart = null;
+ipcMain.on('resize-start', () => {
+  if (!win) return;
+  const cursor = screen.getCursorScreenPoint();
+  const b = win.getBounds();
+  resizeStart = { sx: cursor.x, sy: cursor.y, x: b.x, y: b.y, w: b.width, h: b.height };
+});
+ipcMain.on('resize-move', () => {
+  if (!win || !resizeStart) return;
+  const cursor = screen.getCursorScreenPoint();
+  const [minW, minH] = win.getMinimumSize();
+  const nw = Math.max(minW, resizeStart.w + (cursor.x - resizeStart.sx));
+  const nh = Math.max(minH, resizeStart.h + (cursor.y - resizeStart.sy));
+  win.setBounds({ x: resizeStart.x, y: resizeStart.y, width: nw, height: nh });
+});
+ipcMain.on('resize-end', () => {
+  if (win) { const s = loadSettings(); s.windowBounds = win.getBounds(); saveSettings(s); }
+  resizeStart = null;
+});
+
 // ── IPC: Panel Open ──
 ipcMain.on('show-panel', (_, currentState) => {
   showPanel(currentState);
@@ -144,6 +179,15 @@ ipcMain.on('panel-set-orbit-speed', (_, v) => { if (win && !win.isDestroyed()) w
 ipcMain.on('panel-set-orbit-style', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-orbit-style', v); });
 ipcMain.on('panel-set-todo-anim', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-todo-anim', v); });
 ipcMain.on('panel-set-window-fit', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-window-fit', v); });
+ipcMain.on('panel-set-title-gap', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-title-gap', v); });
+ipcMain.on('panel-set-favorites', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-favorites', v); });
+ipcMain.on('panel-set-todo-opacity', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-todo-opacity', v); });
+ipcMain.on('panel-set-todo-box-opaque', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-todo-box-opaque', v); });
+ipcMain.on('set-ignore-mouse', (_, b) => {
+  if (win && !win.isDestroyed()) {
+    try { win.setIgnoreMouseEvents(!!b, { forward: true }); } catch (_) {}
+  }
+});
 
 // ── Window auto-fit: grow the window height so task labels never clip ──
 // Grow-only (never auto-shrinks: restoring a smaller size would reintroduce
@@ -169,7 +213,7 @@ ipcMain.on('fit-window', (_, need) => {
 ipcMain.on('panel-focus-time', (_, data) => { if (win && !win.isDestroyed()) win.webContents.send('focus-time', data); });
 ipcMain.on('panel-blur-time', () => { if (win && !win.isDestroyed()) win.webContents.send('blur-time'); });
 ipcMain.on('clock-update-time', (_, data) => { if (panel && !panel.isDestroyed()) panel.webContents.send('update-time', data); });
-ipcMain.on('panel-set-ontop', (_, v) => { if (win) win.setAlwaysOnTop(v); });
+ipcMain.on('panel-set-ontop', (_, v) => { onTopWanted = !!v; applyOnTop(); });
 ipcMain.on('panel-close', () => { if (panel && !panel.isDestroyed()) panel.close(); });
 ipcMain.on('close-app', () => app.quit());
 
