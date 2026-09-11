@@ -36,11 +36,16 @@
   let orbitSpeed = 1.0;
   let orbitStyle = 'dash';
   let todoAnim = 'float';
+  let titleGap = 1.0; // multiplier for title-to-ring distance
+  let todoOpacity = 100; // todo panel opacity %; 0-100
+  let favorites = { faces:[], hands:[], themes:[], blockFx:[], tooltipAnim:[], orbit:[], todoAnim:[] };
+  let editingTaskIdx = -1; // task index within session for multi-task editing
   let windowFitAuto = true; // grow/shrink the window so labels never clip
   // Legacy entrance-only ids map to their nearest continuous loop.
   const TODO_ANIM_LEGACY = { slide:'tide-x', 'fade-up':'float', pop:'pulse', flip:'sway', bounce:'bob', 'swing-in':'wiggle', 'roll-in':'jelly' };
   function todoAnimEff() { return TODO_ANIM_LEGACY[todoAnim] || todoAnim || 'float'; }
   const saved = api.loadSettings();
+  if (saved.favorites) favorites = Object.assign({}, favorites, saved.favorites);
   if (saved.clockStyle) style=saved.clockStyle;
   if (saved.theme) theme=saved.theme;
   if (saved.handType) handType=saved.handType;
@@ -54,8 +59,63 @@
   if (saved.orbitStyle) orbitStyle=saved.orbitStyle;
   if (saved.todoAnim) todoAnim=saved.todoAnim;
   if (typeof saved.windowFitAuto === 'boolean') windowFitAuto=saved.windowFitAuto;
-  let todos = []; // [{id, text, done, createdAt, priority, color}]
-  if (Array.isArray(saved.todos)) todos = saved.todos;
+  if (typeof saved.titleGap === 'number') titleGap=saved.titleGap;
+  if (typeof saved.todoOpacity === 'number') todoOpacity = saved.todoOpacity;
+  let todoLists = []; // [{id, name, todos:[...]}] — zero or more task lists (tabs)
+  let activeTodoList = 0;
+  if (Array.isArray(saved.todoLists) && saved.todoLists.length) {
+    todoLists = saved.todoLists.map((l, i) => ({
+      id: l.id || ('list-' + (i + 1)),
+      name: l.name || ('List ' + (i + 1)),
+      todos: Array.isArray(l.todos) ? l.todos : []
+    }));
+    if (typeof saved.activeTodoList === 'number' && todoLists[saved.activeTodoList]) activeTodoList = saved.activeTodoList;
+  } else {
+    // Legacy single list: keep old `todos` shape as the first tab.
+    todoLists = [{ id: 'list-1', name: 'List 1', todos: (saved.todos || []) }];
+  }
+  let todos = todoLists[activeTodoList].todos; // alias for the ACTIVE list's array
+  let todoBoxOpaque = !!saved.todoBoxOpaque;
+  // Derive a muted darker variant of an #rrggbb color (for elapsed wedges).
+  function deriveElapsedColor(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec((hex || '').trim());
+    if (!m) return hex;
+    const n = parseInt(m[1], 16);
+    let r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0, l = (max + min) / 2;
+    const d = max - min;
+    if (d !== 0) {
+      s = d / (1 - Math.abs(2 * l - 1));
+      if (max === r) h = ((g - b) / d) % 6;
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60; if (h < 0) h += 360;
+    }
+    const l2 = Math.max(0.22, l - 0.22);          // darker
+    const s2 = Math.min(1, Math.max(0.25, s * 0.75)); // desaturated
+    const f = k => {
+      const kk = (k + h / 30) % 12;
+      const a = s2 * Math.min(l2, 1 - l2);
+      const c = l2 - a * Math.max(Math.min(kk - 3, 9 - kk, 1), -1);
+      return Math.round(255 * c).toString(16).padStart(2, '0');
+    };
+    return `#${f(0)}${f(8)}${f(4)}`;
+  }
+  // Normalize session tasks: single string → array
+  function normalizeSessions() {
+    sessions.forEach(s => {
+      if (!s) return;
+      if (!Array.isArray(s.tasks)) {
+        s.tasks = (s.task && typeof s.task === 'string') ? [s.task] : [];
+      }
+      delete s.task;
+      // Guarantee remaining ≠ elapsed color from the start (legacy sessions
+      // predate elapsedColor — backfill a muted darker tone of the same hue).
+      if (s.color && !s.elapsedColor) s.elapsedColor = deriveElapsedColor(s.color);
+    });
+  }
+  normalizeSessions();
   // Debounced settings writer: sliders/keystrokes queue patches, one
   // synchronous file write per 300ms burst. Flushed on unload so quit
   // never loses the trailing edge.
@@ -69,18 +129,22 @@
     Object.assign(savePending, patch);
     if (!saveTimer) saveTimer = setTimeout(flushSave, 300);
   }
-  function saveTodos() { queueSave({ todos }); }
+  function saveTodos() { queueSave({ todoLists, activeTodoList }); }
   window.addEventListener('beforeunload', flushSave);
 
   function applyOpacity() { canvas.style.opacity=opacity/100; }
+  function applyTodoOpacity() { const p = document.getElementById('todo-panel'); if (p) p.style.opacity = todoOpacity / 100; }
+  function applyTodoBoxOpaque() { const p = document.getElementById('todo-panel'); if (p) p.dataset.boxOpaque = todoBoxOpaque ? '1' : '0'; }
+  applyTodoOpacity();
+  applyTodoBoxOpaque();
   applyOpacity();
-  function save() { queueSave({clockStyle:style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,windowFitAuto}); }
+  function save() { queueSave({clockStyle:style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque}); }
 
   api.onSetStyle(s => { style=s; save(); });
   api.onSetTheme(t => { theme=t; save(); });
   api.onSetOpacity(o => { opacity=o; applyOpacity(); save(); });
   api.onSetHands(h => { handType=h; save(); });
-  api.onSetSessions(s => { sessions=s; save(); });
+  api.onSetSessions(s => { sessions=s; normalizeSessions(); save(); });
   api.onSetBlockOpacity(o => { blockOpacity=o; save(); });
   api.onSetBlockAnim(a => { blockAnim=a; save(); });
   api.onSetTooltipAnim(a => { tooltipAnim=a; save(); });
@@ -89,6 +153,10 @@
   if (api.onSetOrbitStyle) api.onSetOrbitStyle(s => { orbitStyle=s; save(); });
   if (api.onSetTodoAnim) api.onSetTodoAnim(s => { todoAnim=s; applyTodoAnim(); save(); });
   if (api.onSetWindowFit) api.onSetWindowFit(v => { windowFitAuto = !!v; save(); lastFitSent = { t: -1, b: -1 }; });
+  if (api.onSetTitleGap) api.onSetTitleGap(v => { titleGap = v; save(); });
+  if (api.onSetFavorites) api.onSetFavorites(f => { favorites = f || favorites; save(); });
+  if (api.onSetTodoOpacity) api.onSetTodoOpacity(v => { todoOpacity = v; applyTodoOpacity(); save(); });
+  if (api.onSetTodoBoxOpaque) api.onSetTodoBoxOpaque(v => { todoBoxOpaque = !!v; applyTodoBoxOpaque(); renderTodos(); save(); });
 
   // ── Tooltip font resize (Ctrl + scroll) / Orbit speed (Alt + scroll) ──
   let tooltipResizePulse = 0;
@@ -638,6 +706,16 @@
 
   let dragging=false;
   
+  // Edit-mode UI cluster (knobs / delete / color pickers) auto-hides when the
+  // window loses focus or the cursor leaves the cluster.
+  let windowFocused = true;
+  window.addEventListener('focus', () => { windowFocused = true; });
+  window.addEventListener('blur', () => { windowFocused = false; });
+
+  // Click-through state: cursor over fully transparent pixels → window
+  // forwards clicks to apps underneath (setIgnoreMouseEvents + forward).
+  let ignoreMouseActive = false;
+  
   let interactiveMode = null;
   let interactiveDate = null;
   let draggingKnob = false;
@@ -669,25 +747,178 @@
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
     
+    // Exit × (hover button, top-left of dial) → close the app
+    if (isOnExitButton(mx, my)) {
+        api.closeApp();
+        return;
+    }
+
+    // Resize handle (dial bottom-right) → always resize the window
+    if (isOnResizeHandle(mx, my)) {
+        resizing = true;
+        api.resizeStart();
+        return;
+    }
+
     // Check gear icon click first
     if (isClickOnGear(mx, my)) {
-        api.showPanel({style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,windowFitAuto});
+        api.showPanel({style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque});
        return;
+    }
+
+    // Grab handle → always drag the window
+    if (isOnGrabHandle(mx, my)) {
+        dragging = true;
+        api.dragStart();
+        return;
     }
 
     // ── Circular ring labels: × chip clears the task, text opens the editor ──
     {
         const hit = hitLabelArc(mx, my);
         if (hit && sessions[hit.arc.idx]) {
-            // Suppress the default mousedown focus-shift: without this Chromium
-            // moves focus to the mousedown target (canvas → body), instantly
-            // blurring the edit input and killing it via the 100ms timer.
             e.preventDefault();
             if (hit.kind === 'chip') {
-                sessions[hit.arc.idx].task = '';
-                save();
+                const sess = sessions[hit.arc.idx];
+                const ti = hit.arc.taskIdx;
+                if (ti >= 0 && Array.isArray(sess.tasks)) {
+                    sess.tasks.splice(ti, 1);
+                    save();
+} else if (st === 'saturn') {
+      // Oblique ringed-planet band (tilted ellipse) + orbiting moon dot.
+      X.save();
+      X.translate(cx, cy); X.rotate(0.42); X.scale(1, 0.42);
+      for (const [rr, col, lw] of [
+        [or - 4, 'rgba(245,158,11,0.25)', 4],
+        [or, 'rgba(245,158,11,0.9)', 2],
+        [or + 5, 'rgba(245,158,11,0.3)', 3]
+      ]) {
+        X.beginPath(); X.arc(0, 0, rr, 0, PI2);
+        X.strokeStyle = col; X.lineWidth = lw; X.stroke();
+      }
+      X.restore();
+      const moonA = rot / or;
+      X.beginPath();
+      X.arc(cx + Math.cos(moonA) * or, cy + Math.sin(moonA) * or, 3, 0, PI2);
+      X.fillStyle = '#fbbf24';
+      X.fill();
+    } else if (st === 'lightning') {
+      // Zig-zag bolts crackling radially off the ring.
+      const tSec = nowMs / 1000;
+      const baseA = rot / or;
+      const bolts = 7;
+      for (let b = 0; b < bolts; b++) {
+        const seed = Math.floor(tSec * 8) + b * 29;
+        const ang = baseA + (b / bolts) * PI2;
+        const lit = Math.sin(tSec * 11 + b * 1.9) > 0.55;
+        X.beginPath();
+        for (let j = 0; j <= 6; j++) {
+          const rr = or - 6 + j * 2;
+          const jat = ang + Math.sin(seed * 5 + j * 2.3) * 0.16;
+          const px = cx + Math.cos(jat) * rr, py = cy + Math.sin(jat) * rr;
+          if (j === 0) X.moveTo(px, py); else X.lineTo(px, py);
+        }
+        X.strokeStyle = lit ? 'rgba(250,204,21,0.95)' : 'rgba(250,204,21,0.3)';
+        X.lineWidth = lit ? 2 : 1;
+        try { if (lit) { X.shadowColor = '#fde047'; X.shadowBlur = 10; } } catch (_) {}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch (_) {}
+      }
+    } else if (st === 'beacon') {
+      // Rotating radar beacon sweep restricted to the gap band near the ring.
+      const baseA = rot / or;
+      X.beginPath();
+      X.arc(cx, cy, or - 20, 0, PI2);
+      X.strokeStyle = 'rgba(56,189,248,0.22)';
+      X.lineWidth = 1;
+      X.stroke();
+      const segs = 16;
+      for (let s = 0; s < segs; s++) {
+        const a0 = baseA - (s / segs) * 1.4;
+        const a1 = baseA - ((s + 1) / segs) * 1.4;
+        const aa = 1 - s / segs;
+        X.beginPath();
+        X.arc(cx, cy, or - 12, a1, a0);
+        X.strokeStyle = `rgba(56,189,248,${(aa * 0.7).toFixed(3)})`;
+        X.lineWidth = 9 - aa * 6;
+        X.stroke();
+      }
+      X.beginPath(); X.arc(cx, cy, 3, 0, PI2);
+      X.fillStyle = '#7dd3fc';
+      X.fill();
+    } else if (st === 'chains') {
+      // Overlapping chain links with pins, wink in sequence behind the sweep.
+      const tSec = nowMs / 1000;
+      const links = 14;
+      const baseA = rot / or;
+      for (let i = 0; i < links; i++) {
+        const a0 = baseA + (i / links) * PI2;
+        const a1 = a0 + (1.5 / links) * PI2;
+        const wink = 0.55 + 0.45 * Math.sin(tSec * 3 + i * 0.9);
+        X.beginPath();
+        X.arc(cx, cy, or, a0, a1);
+        X.strokeStyle = `rgba(93,127,160,${wink.toFixed(3)})`;
+        X.lineWidth = 2;
+        X.stroke();
+        const pa = a0 + 0.001;
+        X.beginPath();
+        X.arc(cx + Math.cos(pa) * or, cy + Math.sin(pa) * or, 1.8, 0, PI2);
+        X.fillStyle = '#cbd5e1';
+        X.fill();
+      }
+    } else if (st === 'hyperspace') {
+      // Warp-speed radial streaks + deterministic star points.
+      const tSec = nowMs / 1000;
+      const baseA = (rot * 1.8) / or;
+      const rays = 26;
+      for (let i = 0; i < rays; i++) {
+        const a = baseA + (i / rays) * PI2;
+        const stretch = 1.4 + 2.6 * (0.5 + 0.5 * Math.sin(tSec * 7 + i * 2.7));
+        const cosA = Math.cos(a), sinA = Math.sin(a);
+        X.beginPath();
+        X.moveTo(cx + cosA * (or - 14), cy + sinA * (or - 14));
+        X.lineTo(cx + cosA * (or + 14), cy + sinA * (or + 14));
+        X.strokeStyle = `rgba(224,242,254,${(0.25 * stretch).toFixed(3)})`;
+        X.lineWidth = 0.8 + stretch * 0.4;
+        X.stroke();
+        const pr = or - 8 - ((i * 13) % 10);
+        X.beginPath();
+        X.arc(cx + cosA * pr, cy + sinA * pr, 1.1, 0, PI2);
+        X.fillStyle = '#e0f2fe';
+        X.fill();
+      }
+    } else if (st === 'ferris') {
+      // Ferris wheel: hub, cabin spokes and rotating cars.
+      const cabins = 8;
+      const baseA = rot / or;
+      const hubR = 14;
+      X.beginPath(); X.arc(cx, cy, or - hubR, 0, PI2);
+      X.strokeStyle = 'rgba(148,210,185,0.2)'; X.lineWidth = 1; X.stroke();
+      for (let i = 0; i < cabins; i++) {
+        const a = baseA + (i / cabins) * PI2;
+        const cosA = Math.cos(a), sinA = Math.sin(a);
+        X.beginPath();
+        X.moveTo(cx + cosA * hubR, cy + sinA * hubR);
+        X.lineTo(cx + cosA * (or - hubR), cy + sinA * (or - hubR));
+        X.strokeStyle = 'rgba(148,210,185,0.45)';
+        X.lineWidth = 1.2;
+        X.stroke();
+        X.beginPath();
+        X.arc(cx + cosA * (or - hubR), cy + sinA * (or - hubR), 2.4, 0, PI2);
+        X.fillStyle = '#a7f3d0';
+        X.fill();
+      }
+      X.beginPath(); X.arc(cx, cy, hubR, 0, PI2);
+      X.strokeStyle = 'rgba(148,210,185,0.5)';
+      X.lineWidth = 1.4;
+      X.stroke();
+    } else {
+                    // placeholder — clear all tasks
+                    sess.tasks = [];
+                    save();
+                }
             } else {
-                startEditLabel(hit.arc.idx, {
+                startEditLabel(hit.arc.idx, hit.arc.taskIdx, {
                     x: hit.arc.x0, y: hit.arc.y0,
                     w: hit.arc.x1 - hit.arc.x0, h: hit.arc.y1 - hit.arc.y0
                 });
@@ -840,14 +1071,14 @@
              return `#${f(0)}${f(8)}${f(4)}`;
            };
            
-           sessions.push({
-               start: start.getTime(),
-               end: end.getTime(),
-               color: hslToHex(hue, 85, 60),
-               elapsedColor: hslToHex(hue, 60, 40),
-               type: 'custom',
-               task: ''
-           });
+sessions.push({
+                start: start.getTime(),
+                end: end.getTime(),
+                color: hslToHex(hue, 85, 60),
+                elapsedColor: hslToHex(hue, 60, 40),
+                type: 'custom',
+                tasks: []
+            });
            
            save();
            interactiveMode = `edit-${sessions.length - 1}-both`;
@@ -863,6 +1094,7 @@
 
   window.addEventListener('mousemove', e => { 
     if(dragging) api.dragMove(); 
+    else if (resizing) api.resizeMove(); 
     else if (draggingKnob && interactiveMode && interactiveMode !== 'none') {
        if (interactiveMode.endsWith('-both')) return; // Just displaying both, not dragging
        const rect = canvas.getBoundingClientRect();
@@ -910,6 +1142,7 @@
   });
 
   window.addEventListener('mouseup', () => { 
+    if(resizing){resizing=false;api.resizeEnd();} 
     if(dragging){dragging=false;api.dragEnd();} 
     if(draggingKnob) {
       draggingKnob = false;
@@ -927,6 +1160,10 @@
   let lastMouseMove = 0;
   let lastMouseX = null, lastMouseY = null;
   let gearX = 0, gearY = 0, gearR = 14;
+  let handleX = 0, handleY = 0, handleOpacity = 0;
+  let resizing = false;
+  let resizeHandleX = 0, resizeHandleY = 0, resizeOpacity = 0;
+  let exitX = 0, exitY = 0, exitOpacity = 0;
 
   // Track the label currently being edited (its ring text hides meanwhile)
   let editingLabelIdx = -1;
@@ -936,9 +1173,50 @@
   const todoList = document.getElementById('todo-list');
   const todoAddBox = document.getElementById('todo-add-box');
   const todoAddPlus = document.getElementById('todo-add-plus');
+  const todoTabs = document.getElementById('todo-tabs');
+  const todoTabAdd = document.getElementById('todo-tab-add');
+
+  // Dot tabs: one dot per list; active dot is filled. Click switches tab.
+  function renderTodoTabs() {
+    if (!todoTabs) return;
+    todoTabs.innerHTML = '';
+    todoLists.forEach((l, i) => {
+      const dot = document.createElement('button');
+      dot.className = 'todo-tab' + (i === activeTodoList ? ' active' : '');
+      dot.title = l.name + ' (' + l.todos.length + ' items)';
+      dot.addEventListener('click', () => switchTodoList(i));
+      todoTabs.appendChild(dot);
+    });
+  }
+
+  function switchTodoList(i) {
+    if (i === activeTodoList) return;
+    activeTodoList = i;
+    todos = todoLists[i].todos;
+    renderTodoTabs();
+    renderTodos();
+    saveTodos();
+  }
+
+  todoTabAdd.addEventListener('click', () => {
+    todoLists.push({ id: 'list-' + Date.now(), name: 'List ' + (todoLists.length + 1), todos: [] });
+    activeTodoList = todoLists.length - 1;
+    todos = todoLists[activeTodoList].todos;
+    renderTodoTabs();
+    renderTodos();
+    saveTodos();
+    todoAddBox.focus();
+  });
 
   // Inline SVG flag
   const FLAG_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 3v18h2v-7h11l-2-4 2-4H7V3H5z"/></svg>';
+
+  // Priority ranks (high first). Stable sort = same-priority tasks keep the
+  // newest-first order in which they were added.
+  const PRIO_ORDER = { high: 0, medium: 1, low: 2, none: 3 };
+  function sortTodos() {
+    todos.sort((a, b) => (PRIO_ORDER[a.priority || 'none']) - (PRIO_ORDER[b.priority || 'none']));
+  }
 
   function escapeHtml(s) {
     return (s || '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
@@ -952,14 +1230,12 @@
       // Two animations: entrance (no delay) + infinite loop (phase offset).
       li.style.animationDelay = '0s, ' + (-(idx * 0.3)).toFixed(2) + 's';
       li.dataset.id = t.id;
-      const colorStyle = t.color ? `--todo-color:${t.color};background:${t.color}88;` : '';
+      const colorStyle = t.color ? `--todo-color:${t.color};background:${t.color}${todoBoxOpaque ? '' : '88'};` : '';
       li.innerHTML = `
         <div class="todo-check ${t.done ? 'checked' : ''}" data-action="toggle" data-id="${t.id}"></div>
-        <label class="todo-color ${t.color ? 'has-color' : ''}" data-action="color" data-id="${t.id}" style="${colorStyle}" title="Color">
-          <input type="color" value="${t.color || '#8b5cf6'}" data-id="${t.id}" />
-        </label>
+        <label class="todo-color ${t.color ? 'has-color' : ''}" data-action="color" data-id="${t.id}" style="${colorStyle}" title="Color"></label>
         <div class="todo-text" data-action="edit" data-id="${t.id}">${escapeHtml(t.text)}</div>
-        <button class="todo-priority" data-action="priority" data-id="${t.id}" data-priority="${t.priority || 'none'}" title="Priority: ${t.priority || 'none'} (click to cycle)">${FLAG_SVG}</button>
+        <button class="todo-priority" data-action="priority" data-id="${t.id}" data-priority="${t.priority || 'none'}" title="Priority: ${t.priority || 'none'}">${FLAG_SVG}</button>
         <button class="todo-del" data-action="del" data-id="${t.id}" title="Delete">×</button>
       `;
       todoList.appendChild(li);
@@ -974,21 +1250,23 @@
       text: t, done: false, createdAt: Date.now(),
       priority: null, color: null
     });
+    sortTodos();
     saveTodos();
     renderTodos();
   }
 
   function removeTodo(id) {
     const li = todoList.querySelector(`.todo-item[data-id="${id}"]`);
+    const dropFromList = () => {
+      todos = todos.filter(t => t.id !== id);
+      todoLists[activeTodoList].todos = todos; // keep the tab's array in sync
+      saveTodos(); renderTodos();
+    };
     if (li) {
       li.classList.add('removing');
-      setTimeout(() => {
-        todos = todos.filter(t => t.id !== id);
-        saveTodos(); renderTodos();
-      }, 260);
+      setTimeout(dropFromList, 260);
     } else {
-      todos = todos.filter(t => t.id !== id);
-      saveTodos(); renderTodos();
+      dropFromList();
     }
   }
 
@@ -999,14 +1277,69 @@
     saveTodos(); renderTodos();
   }
 
-  function cyclePriority(id) {
+  function setPriority(id, p) {
     const t = todos.find(x => x.id === id);
     if (!t) return;
-    const order = [null, 'low', 'medium', 'high'];
-    const i = order.indexOf(t.priority || null);
-    t.priority = order[(i + 1) % order.length];
+    t.priority = (p && p !== 'none') ? p : null;
+    sortTodos();
     saveTodos(); renderTodos();
   }
+
+  // ── Priority dropdown (menu-style, replaces cycle-through) ──
+  const PRIO_OPTIONS = [
+    { v: 'high',   label: 'High',   color: '#ef4444' },
+    { v: 'medium', label: 'Medium', color: '#f59e0b' },
+    { v: 'low',    label: 'Low',    color: '#38bdf8' },
+    { v: 'none',   label: 'None',   color: '' }
+  ];
+  let prioPop = null, prioId = null;
+
+  function ensurePrioPop() {
+    if (prioPop) return prioPop;
+    const pop = document.createElement('div');
+    pop.className = 'prio-pop';
+    pop.innerHTML = PRIO_OPTIONS.map(o =>
+      `<button class="prio-opt" data-p="${o.v}"><span class="prio-dot" style="${o.color ? ('background:' + o.color) : ''}"></span>${o.label}</button>`
+    ).join('');
+    pop.addEventListener('click', e => {
+      const b = e.target.closest('.prio-opt');
+      if (!b) return;
+      setPriority(prioId, b.dataset.p);
+      closePrioPop();
+    });
+    document.body.appendChild(pop);
+    prioPop = pop;
+    return pop;
+  }
+
+  function openPrioMenu(anchor, id) {
+    prioId = id;
+    const pop = ensurePrioPop();
+    const ar = anchor.getBoundingClientRect();
+    const ph = pop.offsetHeight || 120;
+    let left = ar.left;
+    let top = ar.bottom + 4;
+    if (top + ph > window.innerHeight - 8) top = ar.top - ph - 4;
+    left = Math.max(8, Math.min(left, window.innerWidth - (pop.offsetWidth || 120) - 8));
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+    const t = todos.find(x => x.id === id);
+    const active = t ? (t.priority || 'none') : 'none';
+    pop.querySelectorAll('.prio-opt').forEach(b => b.classList.toggle('active', b.dataset.p === active));
+    pop.classList.add('open');
+    document.addEventListener('mousedown', onPrioOutside, true);
+    document.addEventListener('keydown', onPrioKey, true);
+  }
+
+  function closePrioPop() {
+    if (!prioPop) return;
+    prioPop.classList.remove('open');
+    document.removeEventListener('mousedown', onPrioOutside, true);
+    document.removeEventListener('keydown', onPrioKey, true);
+  }
+
+  function onPrioOutside(e) { if (prioPop && !prioPop.contains(e.target)) closePrioPop(); }
+  function onPrioKey(e) { if (e.key === 'Escape') closePrioPop(); }
 
   function setColor(id, color) {
     const t = todos.find(x => x.id === id);
@@ -1051,18 +1384,14 @@
 
   // List interactions (event delegation)
   todoList.addEventListener('click', e => {
-    // If the click landed on the color input itself, let the native picker open.
-    // Do NOT swallow the event with closest('[data-action]') in that case.
-    if (e.target.tagName === 'INPUT' && e.target.type === 'color') {
-      return; // native color picker will open
-    }
     const el = e.target.closest('[data-action]');
     if (!el) return;
     const action = el.dataset.action;
     const id = el.dataset.id;
     if (action === 'toggle') { toggleTodo(id); return; }
     if (action === 'del')    { e.stopPropagation(); removeTodo(id); return; }
-    if (action === 'priority') { e.stopPropagation(); cyclePriority(id); return; }
+    if (action === 'priority') { e.stopPropagation(); openPrioMenu(el, id); return; }
+    if (action === 'color')  { e.stopPropagation(); openTodoColorPop(el, id); return; }
     if (action === 'edit') {
       el.setAttribute('contenteditable', 'true');
       el.focus();
@@ -1087,13 +1416,65 @@
     }
   });
 
-  // Color picker — listen for input events on the hidden color inputs
-  todoList.addEventListener('input', e => {
-    if (e.target.matches('input[type="color"]')) {
-      setColor(e.target.dataset.id, e.target.value);
-    }
-  });
+  // ── Custom color popover for todo dots (closes on outside click / Escape) ──
+  const TODO_PALETTE = [
+    '#8b5cf6', '#6366f1', '#3b82f6', '#0ea5e9', '#06b6d4', '#14b8a6',
+    '#10b981', '#84cc16', '#eab308', '#f59e0b', '#f97316', '#ef4444',
+    '#f43f5e', '#ec4899', '#d946ef', '#a855f7', '#64748b', '#ffffff'
+  ];
+  let todoColorPop = null;
+  let todoColorId = null;
 
+  function ensureTodoColorPop() {
+    if (todoColorPop) return todoColorPop;
+    const pop = document.createElement('div');
+    pop.className = 'todo-color-pop';
+    pop.innerHTML = '<div class="tcp-swatch clear" data-color="" title="No color">✕</div>' +
+      TODO_PALETTE.map(c => `<div class="tcp-swatch" data-color="${c}" style="background:${c}" title="${c}"></div>`).join('');
+    pop.addEventListener('click', e => {
+      const sw = e.target.closest('.tcp-swatch');
+      if (!sw) return;
+      setColor(todoColorId, sw.dataset.color || null);
+      closeTodoColorPop();
+    });
+    document.body.appendChild(pop);
+    todoColorPop = pop;
+    return pop;
+  }
+
+  function openTodoColorPop(anchor, id) {
+    todoColorId = id;
+    const pop = ensureTodoColorPop();
+    const ar = anchor.getBoundingClientRect();
+    const pw = pop.offsetWidth || 160, ph = pop.offsetHeight || 120;
+    let left = ar.left + ar.width / 2 - pw / 2;
+    let top = ar.bottom + 6;
+    if (top + ph > window.innerHeight - 8) top = ar.top - ph - 6;
+    left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+    pop.classList.add('open');
+    document.addEventListener('mousedown', onTodoColorOutside, true);
+    document.addEventListener('keydown', onTodoColorKey, true);
+  }
+
+  function closeTodoColorPop() {
+    if (!todoColorPop) return;
+    todoColorPop.classList.remove('open');
+    document.removeEventListener('mousedown', onTodoColorOutside, true);
+    document.removeEventListener('keydown', onTodoColorKey, true);
+  }
+
+  function onTodoColorOutside(e) {
+    if (todoColorPop && !todoColorPop.contains(e.target)) closeTodoColorPop();
+  }
+
+  function onTodoColorKey(e) {
+    if (e.key === 'Escape') closeTodoColorPop();
+  }
+
+  sortTodos();
+  renderTodoTabs();
   renderTodos();
   applyTodoAnim();
 
@@ -1104,19 +1485,24 @@
     lastMouseY = e.clientY - rect.top;
   });
 
-  function startEditLabel(idx, box) {
-     if (editingLabelIdx === idx && editInput) return;
+  function startEditLabel(idx, taskIdx, box) {
+     if (editingLabelIdx === idx && editingTaskIdx === taskIdx && editInput) return;
      stopEditLabel(true);
      editingLabelIdx = idx;
+     editingTaskIdx = taskIdx;
      lastLabelSig = '__editing__';
      
      const sizeScale = tooltipSize || 1.0;
      const fontPx = Math.round(11 * sizeScale);
+     const sess = sessions[idx];
+     const tasks = sess ? (sess.tasks || []) : [];
+     const isPlaceholder = taskIdx === -1;
+     const currentText = isPlaceholder ? '' : (tasks[taskIdx] || '');
 
      editInput = document.createElement('input');
      editInput.type = 'text';
-     editInput.value = sessions[idx].task || '';
-     editInput.placeholder = 'Task name...';
+     editInput.value = currentText;
+     editInput.placeholder = isPlaceholder ? 'New task...' : 'Task name...';
      Object.assign(editInput.style, {
         position: 'absolute',
         left: box.x + 'px',
@@ -1124,7 +1510,7 @@
         width: Math.max(box.w, 64) + 'px',
         height: box.h + 'px',
         background: 'rgba(10,10,20,0.96)',
-        border: '1px solid ' + (sessions[idx].color || '#3b82f6'),
+        border: '1px solid ' + (sess ? sess.color : '#3b82f6'),
         borderRadius: '3px',
         color: '#fff',
         fontSize: fontPx + 'px',
@@ -1137,15 +1523,40 @@
         pointerEvents: 'auto'
      });
      editInput.addEventListener('input', () => {
-        if (sessions[idx]) {
-           sessions[idx].task = editInput.value;
-           save();
-        }
+        if (!sessions[idx]) return;
+        const t = sessions[idx].tasks || [];
+        if (isPlaceholder) return; // handled on blur/enter
+        t[taskIdx] = editInput.value;
+        save();
      });
      editInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter' || e.key === 'Escape') stopEditLabel();
+        if (e.key === 'Enter') {
+           const val = editInput.value.trim();
+           if (isPlaceholder && val && sessions[idx]) {
+              if (!sessions[idx].tasks) sessions[idx].tasks = [];
+              sessions[idx].tasks.push(val);
+              save();
+           }
+           stopEditLabel();
+        }
+        if (e.key === 'Escape') stopEditLabel();
      });
-     editInput.addEventListener('blur', () => setTimeout(stopEditLabel, 100));
+     editInput.addEventListener('blur', () => setTimeout(() => {
+        if (!editInput) return;
+        const val = editInput.value.trim();
+        if (isPlaceholder && val && sessions[idx]) {
+           if (!sessions[idx].tasks) sessions[idx].tasks = [];
+           sessions[idx].tasks.push(val);
+           save();
+        } else if (!isPlaceholder && sessions[idx]) {
+           // If user cleared the text, remove the task
+           if (!val && sessions[idx].tasks) {
+              sessions[idx].tasks.splice(taskIdx, 1);
+              save();
+           }
+        }
+        stopEditLabel();
+     }, 100));
      editInput.addEventListener('mousedown', e => e.stopPropagation());
      document.getElementById('clock-wrapper').appendChild(editInput);
      editInput.focus();
@@ -1154,6 +1565,7 @@
 
   function stopEditLabel(silent) {
      editingLabelIdx = -1;
+     editingTaskIdx = -1;
      if (editInput && editInput.parentNode) editInput.parentNode.removeChild(editInput);
      editInput = null;
      if (!silent) lastLabelSig = '__editdone__';
@@ -1215,9 +1627,9 @@
   }
 
   function labelSig(cx, cy, r, W, H) {
-    return [cx|0, cy|0, r|0, W, H, tooltipSize, tooltipAnim,
-      sessions.map(s => s.start + ':' + s.end + ':' + (s.task || '') + ':' + (s.color || '')).join('|'),
-      editingLabelIdx].join('~');
+    return [cx|0, cy|0, r|0, W, H, tooltipSize, tooltipAnim, titleGap,
+      sessions.map(s => s.start + ':' + s.end + ':' + JSON.stringify(s.tasks||[]) + ':' + (s.color || '')).join('|'),
+      editingLabelIdx + ':' + editingTaskIdx].join('~');
   }
 
   function syncLabels(cx, cy, r, W, H) {
@@ -1234,7 +1646,7 @@
   setInterval(() => {
     try {
       const now = Date.now();
-      const vs = sessions.map(s => (s && s.end > now - 300000 && s.task ? '1' : '0')).join('');
+      const vs = sessions.map(s => (s && s.end > now - 300000 && s.tasks && s.tasks.length ? '1' : '0')).join('');
       if (vs !== lastVisSig) { lastVisSig = vs; lastLabelSig = '__expiry__'; }
     } catch (_) {}
   }, 10000);
@@ -1258,50 +1670,61 @@
     const mp = labelMotionParams(tooltipAnim || 'bounce');
     const pad = motionPad(mp);
     const orbitR = orbitRadius(r);
-    const outerGap = Math.max(OUTER_GAP_BASE, Math.round(10 * sizeScale));
+    const outerGap = Math.max(OUTER_GAP_BASE * titleGap, Math.round(10 * sizeScale));
     const wrapRect0 = document.getElementById('clock-wrapper').getBoundingClientRect();
     const eastMax = window.innerWidth - (wrapRect0.left || 0) - 4;
-    let fitMin = Infinity, fitMax = -Infinity; // arc extremes for window auto-fit
+    let fitMin = Infinity, fitMax = -Infinity;
     sessions.forEach((sess, i) => {
       if (!sess || sess.end < now - 5 * 60 * 1000) return;
-      if (editingLabelIdx === i) return;
-      const isPH = !sess.task;
-      const text = isPH ? '+' : sess.task;
+      const tasks = sess.tasks || [];
+      const hasTasks = tasks.length > 0;
+      // Multi-task stacks radially: every task shares the block midpoint
+      // angle, each row sits one line-height further out — one below another.
       const mid = getAngleForDate(new Date((sess.start + sess.end) / 2));
-      const upper = Math.sin(mid) < 0;
-      let cur = baseFont, chars = null, total = 0, lineH = 0, R = 0, half = 0;
-      // Shrink this label's font until its arc fits the WINDOW at the
-      // required outside-orbit distance (east may use the todo-panel area).
-      for (let a = 0; a < 12; a++) {
-        X.font = `600 ${cur}px Inter, system-ui, sans-serif`;
-        lineH = cur * 1.15;
-        R = orbitR + outerGap + lineH / 2 + pad;
-        const gap = cur * 0.08;
-        chars = [...text].map(ch => ({ ch, adv: X.measureText(ch).width + gap }));
-        total = chars.reduce((s, c) => s + c.adv, 0);
-        half = (total / 2) / R;
-        let ok = true;
-        for (const th of arcSamples(upper, mid, half, 9)) {
-          for (const rr of [R - lineH / 2, R + lineH / 2]) {
-            const px = cx + Math.cos(th) * rr, py = cy + Math.sin(th) * rr;
-            if (px < 2 || px > eastMax || py < 2 || py > H - 2) { ok = false; break; }
+      const rowGap = Math.max(3, Math.round(4 * sizeScale));
+      let stackY = 0; // accumulated radial offset for rows below
+      const emit = (taskText, t, isPH, addMarker) => {
+        if (!taskText) return;
+        const itemTaskIdx = (isPH || addMarker) ? -1 : t;
+        if (editingLabelIdx === i && editingTaskIdx === itemTaskIdx) return;
+        const upper = Math.sin(mid) < 0;
+        let cur = addMarker ? Math.max(9, baseFont * 0.78) : baseFont, chars = null, total = 0, lineH = 0, R = 0, half = 0;
+        for (let a = 0; a < 12; a++) {
+          X.font = `600 ${cur}px Inter, system-ui, sans-serif`;
+          lineH = cur * 1.15;
+          R = orbitR + outerGap + stackY + lineH / 2 + pad;
+          const gap = cur * 0.08;
+          chars = [...taskText].map(ch => ({ ch, adv: X.measureText(ch).width + gap }));
+          total = chars.reduce((s, c) => s + c.adv, 0);
+          half = (total / 2) / R;
+          let ok = true;
+          for (const th of arcSamples(upper, mid, half, 9)) {
+            for (const rr of [R - lineH / 2, R + lineH / 2]) {
+              const px = cx + Math.cos(th) * rr, py = cy + Math.sin(th) * rr;
+              if (px < 2 || px > eastMax || py < 2 || py > H - 2) { ok = false; break; }
+            }
+            if (!ok) break;
           }
-          if (!ok) break;
+          if (ok || cur <= 8) break;
+          cur -= 1;
         }
-        if (ok || cur <= 8) break;
-        cur -= 1;
-      }
-      labelLayouts.push({ idx: i, mid, upper, R, font: cur, lineH, chars, total, half, isPH, color: sess.color || '#3b82f6' });
-      // Track extremes so the window can grow to fit (dial stays fixed).
-      // Hidden placeholders don't reserve space.
-      if (!isPH) {
-        for (const th of arcSamples(upper, mid, half, 9)) {
-          for (const rr of [R - lineH / 2, R + lineH / 2]) {
-            const py = cy + Math.sin(th) * rr;
-            if (py < fitMin) fitMin = py;
-            if (py > fitMax) fitMax = py;
+        labelLayouts.push({ idx: i, taskIdx: itemTaskIdx, mid, upper, R, font: cur, lineH, chars, total, half, isPH, addMarker, color: sess.color || '#3b82f6' });
+        stackY += lineH + rowGap;
+        if (!isPH && !addMarker) {
+          for (const th of arcSamples(upper, mid, half, 9)) {
+            for (const rr of [R - lineH / 2, R + lineH / 2]) {
+              const py = cy + Math.sin(th) * rr;
+              if (py < fitMin) fitMin = py;
+              if (py > fitMax) fitMax = py;
+            }
           }
         }
+      };
+      if (!hasTasks) {
+        emit('+', 0, true, false); // single centered placeholder for empty block
+      } else {
+        tasks.forEach((txt, t) => emit(txt, t, false, false));
+        emit('+', tasks.length, false, true); // trailing add-more marker
       }
     });
     maybeFitWindow(4 - fitMin, fitMax - (H - 4));
@@ -1346,22 +1769,24 @@
         alpha = 0.55 + 0.25 * Math.sin(t * 2 + L.idx);
         if (!visible) { labelArcs.push({ idx: L.idx, isPH: true, visible: false }); continue; }
       }
-      const s1 = Math.sin(PI2 * (mp.rf || 0.5) * t + L.idx * 1.3);
-      const s2 = Math.sin(PI2 * (mp.tf || 0.5) * t + L.idx * 2.1);
+      const seed = L.idx * 100 + (L.taskIdx >= 0 ? L.taskIdx : 0);
+      const s1 = Math.sin(PI2 * (mp.rf || 0.5) * t + seed * 1.3);
+      const s2 = Math.sin(PI2 * (mp.tf || 0.5) * t + seed * 2.1);
       let radial = (mp.r || 0) * s1;
       if (mp.hb) {
-        const ph = ((t * (mp.rf || 0.9)) + L.idx * 0.37) % 1;
+        const ph = ((t * (mp.rf || 0.9)) + seed * 0.37) % 1;
         radial += (mp.r || 0) * Math.pow(Math.max(0, Math.sin(ph * PI2)), 6);
       }
       let tangPx = (mp.t || 0) * s2;
-      if (mp.gl) tangPx *= (Math.sin(t * 0.7 + L.idx) > 0.6) ? 1 : 0.15; // glitch gate
-      alpha *= 1 - (mp.a || 0) * (0.5 + 0.5 * Math.sin(PI2 * (mp.af || 0.5) * t + L.idx));
+      if (mp.gl) tangPx *= (Math.sin(t * 0.7 + seed) > 0.6) ? 1 : 0.15; // glitch gate
+      alpha *= 1 - (mp.a || 0) * (0.5 + 0.5 * Math.sin(PI2 * (mp.af || 0.5) * t + seed));
       alpha = Math.max(0, Math.min(1, alpha));
       const R = L.R + radial;
       const tang = tangPx / R; // tangential wobble as angular offset
       X.font = `600 ${L.font}px Inter, system-ui, sans-serif`;
       X.globalAlpha = alpha;
-      X.fillStyle = L.isPH ? '#e9d5ff' : '#ffffff';
+      X.fillStyle = L.isPH ? '#e9d5ff' : (L.addMarker ? 'rgba(255,255,255,0.38)' : '#ffffff');
+      if (L.addMarker) X.globalAlpha = alpha * 0.75;
       if (mp.g) { X.shadowColor = L.color; X.shadowBlur = 10 * mp.g * (0.6 + 0.4 * s1); }
       else X.shadowBlur = 0;
       let acc = -L.total / 2;
@@ -1370,7 +1795,7 @@
       L.chars.forEach((c, k) => {
         const off = acc + c.adv / 2; acc += c.adv;
         let wob = 0;
-        if (mp.w) wob = mp.w * Math.sin(PI2 * (mp.wf || 1) * t + k * 0.7 + L.idx);
+        if (mp.w) wob = mp.w * Math.sin(PI2 * (mp.wf || 1) * t + k * 0.7 + seed);
         const th = L.upper ? L.mid + (off + wob) / R + tang
                            : L.mid - (off + wob) / R - tang;
         const px = cx + Math.cos(th) * R, py = cy + Math.sin(th) * R;
@@ -1383,20 +1808,22 @@
         X.restore();
       });
       // Leading color dot marks the block's color.
-      const thLead = L.upper ? L.mid - L.half : L.mid + L.half;
-      const thDot = L.upper ? thLead - 9 / R : thLead + 9 / R;
-      X.save();
-      X.globalAlpha = alpha;
-      X.shadowBlur = mp.g ? 8 : 0;
-      X.shadowColor = L.color;
-      X.fillStyle = L.color;
-      X.beginPath();
-      X.arc(cx + Math.cos(thDot) * R, cy + Math.sin(thDot) * R, Math.max(2.5, L.font * 0.22), 0, PI2);
-      X.fill();
-      X.restore();
+      if (!L.addMarker) {
+        const thLead = L.upper ? L.mid - L.half : L.mid + L.half;
+        const thDot = L.upper ? thLead - 9 / R : thLead + 9 / R;
+        X.save();
+        X.globalAlpha = alpha;
+        X.shadowBlur = mp.g ? 8 : 0;
+        X.shadowColor = L.color;
+        X.fillStyle = L.color;
+        X.beginPath();
+        X.arc(cx + Math.cos(thDot) * R, cy + Math.sin(thDot) * R, Math.max(2.5, L.font * 0.22), 0, PI2);
+        X.fill();
+        X.restore();
+      }
       // Trailing × chip clears the task (sits on the reading side).
       let chip = null;
-      if (!L.isPH) {
+      if (!L.isPH && !L.addMarker) {
         const thTrail = L.upper ? L.mid + L.half : L.mid - L.half;
         const chipR = Math.max(8, L.font * 0.55);
         const thChip = L.upper ? thTrail + (chipR + 6) / R : thTrail - (chipR + 6) / R;
@@ -1419,9 +1846,9 @@
         if (chy + chipR > y1) y1 = chy + chipR;
       }
       const padB = 4;
-      labelArcs.push({ idx: L.idx, R, mid: L.mid, half: L.half, upper: L.upper,
+      labelArcs.push({ idx: L.idx, taskIdx: L.taskIdx, R, mid: L.mid, half: L.half, upper: L.upper,
         lineH: L.lineH, x0: x0 - padB, y0: y0 - padB, x1: x1 + padB, y1: y1 + padB,
-        chip, isPH: L.isPH, visible: true });
+        chip, isPH: L.isPH, addMarker: L.addMarker, visible: true });
     }
     X.restore();
     if (lastMouseCanvas) {
@@ -1436,12 +1863,48 @@
       const rect = canvas.getBoundingClientRect();
       lastMouseCanvas = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     } catch (_) {}
+
+    // Click-through: transparent pixels (no glyph drawn) forward clicks to
+    // apps underneath; opaque clock content and the todo panel stay fully
+    // interactive. Only re-armed on state change to avoid IPC spam.
+    try {
+      const mx = e.clientX, my = e.clientY;
+      // DOM UI stays interactive: task panel, popovers, floating pickers, inputs.
+      const tgt = document.elementFromPoint(mx, my);
+      if (tgt && tgt.closest('#todo-panel, .prio-pop, .todo-color-pop, .floating-picker, input, button, textarea')) {
+        if (ignoreMouseActive) { ignoreMouseActive = false; api.setIgnoreMouse(false); }
+        return;
+      }
+      // Canvas hover buttons (resize grip / exit ×): keep the hit zones
+      // interactive even where painted strokes have transparent gaps.
+      const lm = lastMouseCanvas;
+      if (lm && (isOnResizeHandle(lm.x, lm.y) || isOnExitButton(lm.x, lm.y))) {
+        if (ignoreMouseActive) { ignoreMouseActive = false; api.setIgnoreMouse(false); }
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      const px = Math.floor(mx - rect.left);
+      const py = Math.floor(my - rect.top);
+      let alpha = 255;
+      if (px >= 0 && py >= 0 && px < canvas.width && py < canvas.height) {
+        alpha = X.getImageData(px, py, 1, 1).data[3];
+      }
+      const shouldIgnore = alpha < 10;
+      if (shouldIgnore !== ignoreMouseActive) {
+        ignoreMouseActive = shouldIgnore;
+        api.setIgnoreMouse(shouldIgnore);
+      }
+    } catch (_) {
+      if (ignoreMouseActive) { ignoreMouseActive = false; api.setIgnoreMouse(false); }
+    }
   });
 
   function drawGearIcon(cx, cy, r) {
-    // Position: top-right of clock circle
-    gearX = cx + r * 0.65;
-    gearY = cy - r * 0.65;
+    // Positioned OUTSIDE the dial — past the orbit ring, top-right diagonal.
+    const gearAngle = -Math.PI / 4;
+    const gearRadius = r + ORBIT_GAP + 26;
+    gearX = cx + Math.cos(gearAngle) * gearRadius;
+    gearY = cy + Math.sin(gearAngle) * gearRadius;
     
     const elapsed = Date.now() - lastMouseMove;
     const targetOp = elapsed < 1800 ? 0.7 : 0;
@@ -1494,6 +1957,89 @@
 
   function isClickOnGear(mx, my) {
     return gearOpacity > 0.1 && Math.hypot(mx - gearX, my - gearY) < gearR + 4;
+  }
+
+  // -- Bottom grip: always drags the window, no matter what's underneath --
+  function drawGrabHandle(cx, cy, r) {
+    handleX = cx;
+    handleY = cy + r + 30;
+    const elapsed = Date.now() - lastMouseMove;
+    const targetOp = elapsed < 1800 ? 0.55 : 0;
+    handleOpacity += (targetOp - handleOpacity) * 0.1;
+    if (handleOpacity < 0.02) return;
+    X.save();
+    X.globalAlpha = handleOpacity;
+    const w = 60, h = 8;
+    X.beginPath();
+    X.roundRect(handleX - w / 2, handleY - h / 2, w, h, h / 2);
+    X.fillStyle = 'rgba(255,255,255,0.10)';
+    X.fill();
+    X.strokeStyle = 'rgba(255,255,255,0.25)';
+    X.lineWidth = 1;
+    X.stroke();
+    X.fillStyle = 'rgba(255,255,255,0.55)';
+    for (let i = 0; i < 5; i++) X.fillRect(handleX - 20 + i * 10, handleY - 1, 5, 2);
+    X.restore();
+  }
+
+  function isOnGrabHandle(mx, my) {
+    return handleOpacity > 0.1 && Math.hypot(mx - handleX, my - handleY) < 34;
+  }
+
+  // -- Resize grip (dial bottom-right): drags a diagonal arrow → window grows --
+  function isOnResizeHandle(mx, my) {
+    return Math.hypot(mx - resizeHandleX, my - resizeHandleY) < 18;
+  }
+  function drawResizeHandle(cx, cy, r) {
+    resizeHandleX = cx + r + 34;
+    resizeHandleY = cy + r + 34;
+    // Reveal on hover (pinned while the cursor is over it) or recent mouse use.
+    const over = lastMouseCanvas && isOnResizeHandle(lastMouseCanvas.x, lastMouseCanvas.y);
+    const elapsed = Date.now() - lastMouseMove;
+    const targetOp = (over || elapsed < 1800) ? 0.7 : 0;
+    resizeOpacity += (targetOp - resizeOpacity) * 0.18;
+    if (resizeOpacity < 0.02) return;
+    X.save();
+    X.globalAlpha = resizeOpacity;
+    X.beginPath(); X.arc(resizeHandleX, resizeHandleY, 14, 0, PI2);
+    X.fillStyle = 'rgba(10,10,20,0.7)'; X.fill();
+    X.lineWidth = 1; X.strokeStyle = 'rgba(255,255,255,0.35)'; X.stroke();
+    X.strokeStyle = 'rgba(255,255,255,0.75)';
+    X.lineWidth = 2;
+    for (let i = 0; i < 3; i++) {
+      X.beginPath();
+      X.moveTo(resizeHandleX - 11 + i * 4, resizeHandleY + 11 - i * 4);
+      X.lineTo(resizeHandleX - 4 + i * 4, resizeHandleY + 4 - i * 4);
+      X.stroke();
+    }
+    X.restore();
+  }
+
+  // -- Exit × (dial top-left, hover button): closes the app --
+  function isOnExitButton(mx, my) {
+    return Math.hypot(mx - exitX, my - exitY) < 16;
+  }
+  function drawExitButton(cx, cy, r) {
+    exitX = cx - r - 34;
+    exitY = cy - r - 34;
+    const over = lastMouseCanvas && isOnExitButton(lastMouseCanvas.x, lastMouseCanvas.y);
+    const elapsed = Date.now() - lastMouseMove;
+    const targetOp = (over || elapsed < 1800) ? 0.7 : 0;
+    exitOpacity += (targetOp - exitOpacity) * 0.18;
+    if (exitOpacity < 0.02) return;
+    X.save();
+    X.globalAlpha = exitOpacity;
+    X.beginPath(); X.arc(exitX, exitY, 13, 0, PI2);
+    X.fillStyle = 'rgba(10,10,20,0.78)'; X.fill();
+    X.lineWidth = 1.5; X.strokeStyle = 'rgba(239,68,68,0.8)'; X.stroke();
+    X.strokeStyle = '#ef4444';
+    X.lineWidth = 2;
+    const s = 5.5;
+    X.beginPath();
+    X.moveTo(exitX - s, exitY - s); X.lineTo(exitX + s, exitY + s);
+    X.moveTo(exitX + s, exitY - s); X.lineTo(exitX - s, exitY + s);
+    X.stroke();
+    X.restore();
   }
 
   // ── Tooltip size indicator (brief flash after Ctrl+scroll) ──
@@ -1865,6 +2411,160 @@
           X.lineTo(w*0.6,-len*0.7);X.lineTo(w*0.25,-len*0.7);X.lineTo(0,-len);
           X.lineTo(-w*0.25,-len*0.7);X.lineTo(-w*0.6,-len*0.7);X.lineTo(-w*0.6,-len*0.35);X.lineTo(-w,-len*0.35);
           X.closePath();X.fillStyle=col;X.fill();X.restore();
+        }
+      },
+      scalpel: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=5;
+          X.beginPath();X.moveTo(0,len*0.55);X.lineTo(-len*0.008,len*0.5);
+          X.lineTo(-len*0.006,-len*0.3);X.lineTo(0,-len);X.lineTo(len*0.006,-len*0.3);X.lineTo(len*0.008,len*0.5);X.closePath();
+          X.fillStyle=col;X.fill();
+          X.beginPath();X.arc(0,len*0.48,len*0.012,0,PI2);X.fillStyle='rgba(255,255,255,0.5)';X.fill();
+          X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.3)';X.shadowBlur=4;
+          X.beginPath();X.moveTo(0,len*0.55);X.lineTo(-len*0.005,len*0.51);
+          X.lineTo(-len*0.004,-len*0.35);X.lineTo(0,-len);X.lineTo(len*0.004,-len*0.35);X.lineTo(len*0.005,len*0.51);X.closePath();
+          X.fillStyle=col;X.fill();
+          X.beginPath();X.arc(0,len*0.5,len*0.008,0,PI2);X.fillStyle='rgba(255,255,255,0.5)';X.fill();
+          X.restore();
+        }
+      },
+      flame: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(239,68,68,0.55)';X.shadowBlur=9;
+          X.beginPath();X.moveTo(0,len*0.2);
+          X.quadraticCurveTo(-len*0.055,-len*0.4,0,-len);
+          X.quadraticCurveTo(len*0.03,-len*0.5,len*0.035,len*0.05);
+          X.quadraticCurveTo(len*0.028,len*0.3,0,len*0.2);
+          X.closePath();X.fillStyle=col;X.fill();
+          X.beginPath();X.moveTo(0,len*0.15);
+          X.quadraticCurveTo(-len*0.018,-len*0.35,0,-len*0.82);
+          X.quadraticCurveTo(len*0.012,-len*0.3,0,len*0.15);
+          X.fillStyle='rgba(255,255,255,0.28)';X.fill();
+          X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(239,68,68,0.5)';X.shadowBlur=7;
+          X.beginPath();X.moveTo(0,len*0.2);
+          X.quadraticCurveTo(-len*0.042,-len*0.42,0,-len);
+          X.quadraticCurveTo(len*0.024,-len*0.52,len*0.028,len*0.05);
+          X.quadraticCurveTo(len*0.022,len*0.3,0,len*0.2);
+          X.closePath();X.fillStyle=col;X.fill();
+          X.beginPath();X.moveTo(0,len*0.15);
+          X.quadraticCurveTo(-len*0.014,-len*0.36,0,-len*0.84);
+          X.quadraticCurveTo(len*0.01,-len*0.3,0,len*0.15);
+          X.fillStyle='rgba(255,255,255,0.28)';X.fill();
+          X.restore();
+        }
+      },
+      crystal: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.4)';X.shadowBlur=5;
+          const gr=X.createLinearGradient(-len*0.05,0,len*0.05,0);
+          gr.addColorStop(0,'rgba(255,255,255,0.7)');gr.addColorStop(0.25,col);gr.addColorStop(1,col);
+          X.beginPath();X.moveTo(0,len*0.35);X.lineTo(-len*0.02,len*0.05);X.lineTo(-len*0.055,-len*0.5);
+          X.lineTo(0,-len);X.lineTo(len*0.055,-len*0.5);X.lineTo(len*0.02,len*0.05);X.closePath();
+          X.fillStyle=gr;X.fill();
+          X.lineWidth=0.6;X.strokeStyle='rgba(255,255,255,0.35)';
+          X.beginPath();X.moveTo(-len*0.018,-len*0.15);X.lineTo(len*0.018,-len*0.15);X.stroke();
+          X.beginPath();X.moveTo(-len*0.03,-len*0.45);X.lineTo(len*0.03,-len*0.45);X.stroke();
+          X.beginPath();X.moveTo(-len*0.012,-len*0.75);X.lineTo(len*0.012,-len*0.75);X.stroke();
+          X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=4;
+          const gr=X.createLinearGradient(-len*0.04,0,len*0.04,0);
+          gr.addColorStop(0,'rgba(255,255,255,0.7)');gr.addColorStop(0.25,col);gr.addColorStop(1,col);
+          X.beginPath();X.moveTo(0,len*0.35);X.lineTo(-len*0.015,len*0.05);X.lineTo(-len*0.042,-len*0.52);
+          X.lineTo(0,-len);X.lineTo(len*0.042,-len*0.52);X.lineTo(len*0.015,len*0.05);X.closePath();
+          X.fillStyle=gr;X.fill();
+          X.lineWidth=0.6;X.strokeStyle='rgba(255,255,255,0.35)';
+          X.beginPath();X.moveTo(-len*0.013,-len*0.15);X.lineTo(len*0.013,-len*0.15);X.stroke();
+          X.beginPath();X.moveTo(-len*0.022,-len*0.45);X.lineTo(len*0.022,-len*0.45);X.stroke();
+          X.beginPath();X.moveTo(-len*0.008,-len*0.76);X.lineTo(len*0.008,-len*0.76);X.stroke();
+          X.restore();
+        }
+      },
+      ruler: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.4)';X.shadowBlur=5;
+          const w=len*0.045;
+          X.beginPath();X.roundRect(-w,len*0.08,w*2,-len*1.1,w*0.5);X.fillStyle=col;X.fill();
+          X.strokeStyle='rgba(255,255,255,0.6)';X.lineWidth=0.7;
+          for (let i=0;i<12;i++){
+            const yy=len*0.08-(i+1)*len*0.09;
+            X.beginPath();X.moveTo(-w,yy);X.lineTo(-w + (i%3===0?w*2: (i%3===1?w*1.2:w*0.6)),yy);X.stroke();
+          }
+          X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=4;
+          const w=len*0.035;
+          X.beginPath();X.roundRect(-w,len*0.08,w*2,-len*1.1,w*0.4);X.fillStyle=col;X.fill();
+          X.strokeStyle='rgba(255,255,255,0.6)';X.lineWidth=0.6;
+          for (let i=0;i<10;i++){
+            const yy=len*0.08-(i+1)*len*0.095;
+            X.beginPath();X.moveTo(-w,yy);X.lineTo(-w + (i%3===0?w*2: (i%3===1?w*1.2:w*0.6)),yy);X.stroke();
+          }
+          X.restore();
+        }
+      },
+      halo: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=5;
+          const w=len*0.03;
+          X.beginPath();X.roundRect(-w,len*0.1,w*2,-len*0.85,w*0.5);X.fillStyle=col;X.fill();
+          X.beginPath();X.arc(0,-len,len*0.1,0,PI2);X.strokeStyle=col;X.lineWidth=w*1.3;X.stroke();
+          X.beginPath();X.arc(0,-len,1.6,0,PI2);X.fillStyle=col;X.fill();
+          X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.3)';X.shadowBlur=4;
+          const w=len*0.022;
+          X.beginPath();X.roundRect(-w,len*0.1,w*2,-len*0.87,w*0.4);X.fillStyle=col;X.fill();
+          X.beginPath();X.arc(0,-len,len*0.078,0,PI2);X.strokeStyle=col;X.lineWidth=w*1.3;X.stroke();
+          X.beginPath();X.arc(0,-len,1.3,0,PI2);X.fillStyle=col;X.fill();
+          X.restore();
+        }
+      },
+      barley: {
+        hour: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=5;
+          X.beginPath();X.moveTo(0,len*0.25);
+          X.quadraticCurveTo(-len*0.022,0,-len*0.022,-len*0.6);
+          X.quadraticCurveTo(-len*0.045,-len*0.8,0,-len);
+          X.quadraticCurveTo(len*0.045,-len*0.8,len*0.022,-len*0.6);
+          X.quadraticCurveTo(len*0.022,0,0,len*0.25);
+          X.closePath();
+          const gr=X.createLinearGradient(0,len*0.2,0,-len);
+          gr.addColorStop(0,col);gr.addColorStop(1,'rgba(255,255,255,0.45)');
+          X.fillStyle=gr;X.fill();
+          X.fillStyle='rgba(255,255,255,0.5)';
+          for (let i=0;i<6;i++){
+            const yy=len*0.1-(i+1)*len*0.14;
+            X.beginPath();X.arc((i%2?len*0.02:-len*0.02),yy,len*0.007,0,PI2);X.fill();
+          }
+          X.restore();
+        },
+        minute: (cx,cy,a,len,col) => {
+          X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.3)';X.shadowBlur=4;
+          X.beginPath();X.moveTo(0,len*0.25);
+          X.quadraticCurveTo(-len*0.017,0,-len*0.017,-len*0.62);
+          X.quadraticCurveTo(-len*0.035,-len*0.82,0,-len);
+          X.quadraticCurveTo(len*0.035,-len*0.82,len*0.017,-len*0.62);
+          X.quadraticCurveTo(len*0.017,0,0,len*0.25);
+          X.closePath();
+          const gr=X.createLinearGradient(0,len*0.2,0,-len);
+          gr.addColorStop(0,col);gr.addColorStop(1,'rgba(255,255,255,0.45)');
+          X.fillStyle=gr;X.fill();
+          X.fillStyle='rgba(255,255,255,0.5)';
+          for (let i=0;i<5;i++){
+            const yy=len*0.12-(i+1)*len*0.15;
+            X.beginPath();X.arc((i%2?len*0.015:-len*0.015),yy,len*0.006,0,PI2);X.fill();
+          }
+          X.restore();
         }
       }
     };
@@ -2293,6 +2993,13 @@
         const hb = Math.pow(Math.max(0, Math.sin(t * 3)), 16) + 0.6 * Math.pow(Math.max(0, Math.sin(t * 3 - 0.45)), 16);
         return { opMul: 0.75 + hb * 0.4, rOff: hb * 3.5, blur: hb * 10 };
       }
+      case 'meteor': return { opMul: 0.85, rOff: 0, blur: 3 };
+      case 'laser-grid': return { opMul: 0.88, rOff: 0, blur: 2 };
+      case 'vortex-swirl': return { opMul: 0.85, rOff: 0, blur: 4 };
+      case 'snowfall': return { opMul: 0.88, rOff: 0, blur: 1 };
+      case 'ember-fly': return { opMul: 0.85, rOff: 0, blur: 3 };
+      case 'orbit-rings': return { opMul: 0.9, rOff: 0, blur: 2 };
+      case 'strobe': return { opMul: Math.sin(t * 14) > 0 ? 1 : 0.3, rOff: 0, blur: 0 };
       default: return { opMul: 1, rOff: 0, blur: 0 };
     }
   }
@@ -2471,6 +3178,101 @@
         X.stroke();
         try { X.shadowBlur = 0; } catch (_) {}
       }
+    } else if (style === 'meteor') {
+      // Shooting streaks racing from core to rim, fanning across the block.
+      const count = 6;
+      for (let b = 0; b < count; b++) {
+        const p = ((t * 0.7 + b / count) % 1);
+        const ang = startA + (((b * 53) % 100) / 100) * angleSpan;
+        const headR = p * r;
+        const tailR = headR - r * 0.22;
+        const a = Math.sin(p * Math.PI) * 0.85;
+        X.beginPath();
+        X.moveTo(cx + Math.cos(ang) * tailR, cy + Math.sin(ang) * tailR);
+        X.lineTo(cx + Math.cos(ang) * headR, cy + Math.sin(ang) * headR);
+        X.strokeStyle = `rgba(255,255,255,${a.toFixed(3)})`;
+        X.lineWidth = 2.2;
+        X.stroke();
+        X.beginPath();
+        X.arc(cx + Math.cos(ang) * headR, cy + Math.sin(ang) * headR, 2, 0, PI2);
+        X.fillStyle = '#ffffff';
+        X.fill();
+      }
+    } else if (style === 'laser-grid') {
+      // Crosshatched neon grid sweeping diagonally.
+      const spacing = 18;
+      const off = (t * 26) % spacing;
+      X.lineWidth = 1;
+      X.strokeStyle = 'rgba(56,189,248,0.15)';
+      const maxD = r * 1.5;
+      for (let d = -maxD + off; d < maxD; d += spacing) {
+        X.beginPath(); X.moveTo(cx + d - r, cy - r); X.lineTo(cx + d + r, cy + r); X.stroke();
+        X.beginPath(); X.moveTo(cx + d - r, cy + r); X.lineTo(cx + d + r, cy - r); X.stroke();
+      }
+    } else if (style === 'vortex-swirl') {
+      // Hypnotic twin spiral arms curling inward.
+      const midA = (startA + endA) * 0.5;
+      for (let k = 0; k < 2; k++) {
+        X.beginPath();
+        for (let s = 0; s <= 16; s++) {
+          const frac = s / 16;
+          const curR = frac * r * 0.95;
+          const curA = midA + frac * 2.2 + k * Math.PI + t * 0.9;
+          const px = cx + Math.cos(curA) * curR, py = cy + Math.sin(curA) * curR;
+          if (s === 0) X.moveTo(px, py); else X.lineTo(px, py);
+        }
+        X.strokeStyle = `rgba(255,255,255,${(0.55 - k * 0.15).toFixed(3)})`;
+        X.lineWidth = 1.6;
+        X.stroke();
+      }
+    } else if (style === 'snowfall') {
+      // Gentle snow drifting down with lateral sway.
+      const count = 24;
+      for (let i = 0; i < count; i++) {
+        const px0 = ((i * 37) % 100) / 100;
+        const py0 = ((i * 61) % 100) / 100;
+        const y = ((py0 * r + t * 26 + i * 7) % (r * 2)) - r;
+        const x = (px0 * r * 2 - r) + Math.sin(t * 0.7 + i * 1.3) * r * 0.1;
+        const a = 0.4 + 0.4 * Math.sin(t + i);
+        X.beginPath();
+        X.arc(cx + x, cy + y, 1.3, 0, PI2);
+        X.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
+        X.fill();
+      }
+    } else if (style === 'ember-fly') {
+      // Embers rising toward the block's mid-angle with sparks on exit.
+      const count = 18;
+      const midA = (startA + endA) * 0.5;
+      for (let i = 0; i < count; i++) {
+        const px = ((i * 31) % 100) / 100;
+        const life = ((t * 0.5 + i / count) % 1);
+        const rise = life * r;
+        const wob = Math.sin(t * 3 + i * 2.4) * r * 0.08;
+        const y = cy + Math.sin(midA) * (r - rise);
+        const x = cx + Math.cos(midA) * (r - rise) + wob;
+        const a = Math.sin(life * Math.PI) * 0.9;
+        X.beginPath();
+        X.arc(x, y, Math.max(0.8, (1 - life) * 1.4), 0, PI2);
+        X.fillStyle = `rgba(251,146,60,${a.toFixed(3)})`;
+        X.fill();
+        if (life > 0.88) {
+          X.beginPath(); X.moveTo(x, y); X.lineTo(x - wob * 0.6, y - r * 0.06);
+          X.strokeStyle = `rgba(251,146,60,${(0.6 * (1 - life)).toFixed(3)})`;
+          X.lineWidth = 1; X.stroke();
+        }
+      }
+    } else if (style === 'orbit-rings') {
+      // Concentric orbiting ring arcs, dashes marching along the wedge.
+      for (let k = 0; k < 3; k++) {
+        X.beginPath();
+        X.arc(cx, cy, r * (0.25 + k * 0.22), startA, endA);
+        X.strokeStyle = `rgba(255,255,255,${(0.18 + k * 0.1).toFixed(3)})`;
+        X.lineWidth = 1.5;
+        X.setLineDash([6, 5]);
+        try { X.lineDashOffset = -t * 40; } catch (_) {}
+        X.stroke();
+      }
+      X.setLineDash([]);
     }
 
     X.restore();
@@ -2586,6 +3388,15 @@
   }
 
   function drawInteractiveKnob(cx, cy, r) {
+    // DOM center converted to canvas coordinates + hover distance test.
+    function nearCanvas(el, mx, my, pad) {
+      if (!el) return false;
+      const rc = el.getBoundingClientRect();
+      const cc = canvas.getBoundingClientRect();
+      const hx = rc.left + rc.width / 2 - cc.left;
+      const hy = rc.top + rc.height / 2 - cc.top;
+      return Math.hypot(mx - hx, my - hy) < (pad || 30);
+    }
     if (!interactiveMode) {
        if (pWrapS) pWrapS.style.display = 'none';
        if (pWrapE) pWrapE.style.display = 'none';
@@ -2606,6 +3417,36 @@
        const aE = getAngleForDate(dE);
        const kxE = cx + Math.cos(aE) * (r - 12);
        const kyE = cy + Math.sin(aE) * (r - 12);
+
+       // Delete Block Button (Trash)
+       const midTime = (sess.start + sess.end) / 2;
+       const midA = getAngleForDate(new Date(midTime));
+       const delX = cx + Math.cos(midA) * (r - 35);
+       const delY = cy + Math.sin(midA) * (r - 35);
+
+       // Position the DOM color pickers inside the ring (before hover test)
+       if (pWrapS) {
+           pWrapS.style.left = (cx + Math.cos(aS) * (r - 50) - 11) + 'px';
+           pWrapS.style.top = (cy + Math.sin(aS) * (r - 50) - 11) + 'px';
+       }
+       if (pWrapE) {
+           pWrapE.style.left = (cx + Math.cos(aE) * (r - 50) - 11) + 'px';
+           pWrapE.style.top = (cy + Math.sin(aE) * (r - 50) - 11) + 'px';
+       }
+
+       // Auto-hide the whole cluster unless focused AND cursor is over it.
+       const mx = lastMouseCanvas ? lastMouseCanvas.x : -999;
+       const my = lastMouseCanvas ? lastMouseCanvas.y : -999;
+       const overS = Math.hypot(mx - kxS, my - kyS) < 26;
+       const overE = Math.hypot(mx - kxE, my - kyE) < 26;
+       const overDel = Math.hypot(mx - delX, my - delY) < 18;
+       const hoverHere = windowFocused && (draggingKnob || overS || overE || overDel ||
+          nearCanvas(pWrapS, mx, my, 30) || nearCanvas(pWrapE, mx, my, 30));
+       if (!hoverHere) {
+           if (pWrapS) pWrapS.style.display = 'none';
+           if (pWrapE) pWrapE.style.display = 'none';
+           return;
+       }
        
        X.save();
        // Start Handle
@@ -2619,11 +3460,6 @@
        X.lineWidth = 2; X.strokeStyle = '#ef4444'; X.stroke(); X.shadowBlur = 0;
        
        // Delete Block Button (Trash)
-       const midTime = (sess.start + sess.end) / 2;
-       const midA = getAngleForDate(new Date(midTime));
-       const delX = cx + Math.cos(midA) * (r - 35);
-       const delY = cy + Math.sin(midA) * (r - 35);
-       
        X.beginPath(); X.arc(delX, delY, 12, 0, PI2);
        X.fillStyle = 'rgba(10,10,20,0.8)'; X.fill();
        X.lineWidth = 1; X.strokeStyle = 'rgba(239,68,68,0.8)'; X.stroke();
@@ -2633,21 +3469,13 @@
        
        X.restore();
        
-       // Position DOM Pickers inside the ring
+       // Show DOM Pickers inside the ring
        if (pWrapS && pInputS) {
            pWrapS.style.display = 'block';
-           const pxS = cx + Math.cos(aS) * (r - 50);
-           const pyS = cy + Math.sin(aS) * (r - 50);
-           pWrapS.style.left = (pxS - 11) + 'px';
-           pWrapS.style.top = (pyS - 11) + 'px';
            if (!pWrapS.matches(':focus-within')) pInputS.value = sess.color;
        }
        if (pWrapE && pInputE) {
            pWrapE.style.display = 'block';
-           const pxE = cx + Math.cos(aE) * (r - 50);
-           const pyE = cy + Math.sin(aE) * (r - 50);
-           pWrapE.style.left = (pxE - 11) + 'px';
-           pWrapE.style.top = (pyE - 11) + 'px';
            if (!pWrapE.matches(':focus-within')) pInputE.value = sess.elapsedColor || sess.color;
        }
     } else if (interactiveDate) {
@@ -2696,6 +3524,9 @@
     drawCircularLabels(cx, cy, r);
       drawInteractiveKnob(cx, cy, r);
       drawGearIcon(cx, cy, r);
+      drawGrabHandle(cx, cy, r);
+      drawResizeHandle(cx, cy, r);
+      drawExitButton(cx, cy, r);
       drawTooltipSizeIndicator(cx, cy, r);
       drawOrbitSpeedIndicator(cx, cy, r);
     }
