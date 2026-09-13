@@ -10,7 +10,7 @@
   const X = canvas.getContext('2d');
   
   window.addEventListener('error', e => {
-     api.saveSettings({ _lastError: e.error ? e.error.stack : e.message });
+     api.saveSettings({ _lastError: new Date().toISOString() + ' | ' + (e.error ? e.error.stack : e.message) });
   });
 
   const PI2 = Math.PI * 2;
@@ -26,7 +26,13 @@
     graphite:  { accent:'#14b8a6', sec:'#f97316', glow:'rgba(20,184,166,0.5)' },
     onyx:      { accent:'#f97316', sec:'#06b6d4', glow:'rgba(249,115,22,0.5)' },
     shadow:    { accent:'#a855f7', sec:'#ec4899', glow:'rgba(168,85,247,0.5)' },
-    abyss:     { accent:'#06b6d4', sec:'#10b981', glow:'rgba(6,182,212,0.5)' }
+    abyss:     { accent:'#06b6d4', sec:'#10b981', glow:'rgba(6,182,212,0.5)' },
+    glacier:   { accent:'#7dd3fc', sec:'#f8fafc', glow:'rgba(125,211,252,0.52)' },
+    orchid:    { accent:'#d8b4fe', sec:'#fb7185', glow:'rgba(216,180,254,0.52)' },
+    ember:     { accent:'#fb923c', sec:'#fef3c7', glow:'rgba(251,146,60,0.52)' },
+    forest:    { accent:'#4ade80', sec:'#a7f3d0', glow:'rgba(74,222,128,0.52)' },
+    solar:     { accent:'#facc15', sec:'#fb7185', glow:'rgba(250,204,21,0.52)' },
+    ocean:     { accent:'#22d3ee', sec:'#818cf8', glow:'rgba(34,211,238,0.52)' }
   };
 
   let style='handsonly_ghost', theme='midnight', handType='tapered', opacity=100, sessions=[], blockOpacity=0.25;
@@ -35,7 +41,13 @@
   let tooltipSize = 1.0;
   let orbitSpeed = 1.0;
   let orbitStyle = 'dash';
-  let todoAnim = 'float';
+  // Time allocations (sessions) master switch. Data is always preserved;
+  // when false only rendering + creation/selection are gated off.
+  const SESSIONS_ENABLED = true;
+  // Keep task cards still by default. Motion remains available from the
+  // customization panel, but a calm default is easier to scan and cheaper
+  // to render when a list becomes long.
+  let todoAnim = 'none';
   let titleGap = 1.0; // multiplier for title-to-ring distance
   let todoOpacity = 100; // todo panel opacity %; 0-100
   let favorites = { faces:[], hands:[], themes:[], blockFx:[], tooltipAnim:[], orbit:[], todoAnim:[] };
@@ -61,21 +73,79 @@
   if (typeof saved.windowFitAuto === 'boolean') windowFitAuto=saved.windowFitAuto;
   if (typeof saved.titleGap === 'number') titleGap=saved.titleGap;
   if (typeof saved.todoOpacity === 'number') todoOpacity = saved.todoOpacity;
-  let todoLists = []; // [{id, name, todos:[...]}] — zero or more task lists (tabs)
-  let activeTodoList = 0;
-  if (Array.isArray(saved.todoLists) && saved.todoLists.length) {
-    todoLists = saved.todoLists.map((l, i) => ({
-      id: l.id || ('list-' + (i + 1)),
-      name: l.name || ('List ' + (i + 1)),
-      todos: Array.isArray(l.todos) ? l.todos : []
-    }));
-    if (typeof saved.activeTodoList === 'number' && todoLists[saved.activeTodoList]) activeTodoList = saved.activeTodoList;
-  } else {
-    // Legacy single list: keep old `todos` shape as the first tab.
-    todoLists = [{ id: 'list-1', name: 'List 1', todos: (saved.todos || []) }];
+  // ── Per-date todo workspaces ──
+  // Each calendar date owns its own tab set: todosByDate[YYYY-MM-DD] = { lists, active }.
+  // todoLists / activeTodoList / todos stay live aliases of the SELECTED date's
+  // workspace so all existing todo code works untouched.
+  function dateKeyOf(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
+  function normalizeLists(raw, fb) {
+    if (Array.isArray(raw) && raw.length) {
+      return raw.map((l, i) => ({
+        id: l.id || ('list-' + (i + 1)),
+        name: l.name || ('List ' + (i + 1)),
+        todos: Array.isArray(l.todos) ? l.todos : []
+      }));
+    }
+    return fb;
+  }
+  const TODAY_KEY = dateKeyOf(new Date());
+  let todosByDate = {};
+  let selectedTodoDate = TODAY_KEY;
+  let todoCalOpen = false;
+  if (saved.todosByDate && typeof saved.todosByDate === 'object') {
+    Object.keys(saved.todosByDate).forEach(k => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(k)) return;
+      const ws = saved.todosByDate[k] || {};
+      todosByDate[k] = {
+        lists: normalizeLists(ws.lists, [{ id: 'list-1', name: 'List 1', todos: [] }]),
+        active: (typeof ws.active === 'number' && ws.active >= 0) ? ws.active : 0
+      };
+      if (!todosByDate[k].lists[todosByDate[k].active]) todosByDate[k].active = 0;
+    });
+  }
+  if (typeof saved.selectedTodoDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(saved.selectedTodoDate)) {
+    selectedTodoDate = saved.selectedTodoDate;
+  }
+  if (typeof saved.todoCalOpen === 'boolean') todoCalOpen = saved.todoCalOpen;
+  if (!todosByDate[selectedTodoDate]) {
+    // Legacy migration: pre-date single tab set becomes today's workspace.
+    let legacy = normalizeLists(saved.todoLists, null);
+    if (!legacy) legacy = [{ id: 'list-1', name: 'List 1', todos: (saved.todos || []) }];
+    let legacyActive = (typeof saved.activeTodoList === 'number' && legacy[saved.activeTodoList]) ? saved.activeTodoList : 0;
+    todosByDate[selectedTodoDate] = { lists: legacy, active: legacyActive };
+  }
+  let todoLists = todosByDate[selectedTodoDate].lists;
+  let activeTodoList = todosByDate[selectedTodoDate].active;
   let todos = todoLists[activeTodoList].todos; // alias for the ACTIVE list's array
+  function syncDateAliases() {
+    todoLists = todosByDate[selectedTodoDate].lists;
+    activeTodoList = todosByDate[selectedTodoDate].active;
+    todos = todoLists[activeTodoList].todos;
+  }
+  function dateTodoCount(k) {
+    const ws = todosByDate[k];
+    if (!ws) return 0;
+    return ws.lists.reduce((n, l) => n + l.todos.length +
+      l.todos.reduce((m, t) => m + (Array.isArray(t.subtasks) ? t.subtasks.length : 0), 0), 0);
+  }
+  // ── Per-date time blocks: sessions stays a live alias of the SELECTED date ──
+  let sessionsByDate = {};
+  if (saved.sessionsByDate && typeof saved.sessionsByDate === 'object') {
+    Object.keys(saved.sessionsByDate).forEach(k => {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(k) && Array.isArray(saved.sessionsByDate[k])) sessionsByDate[k] = saved.sessionsByDate[k];
+    });
+  }
+  if (!sessionsByDate[selectedTodoDate]) sessionsByDate[selectedTodoDate] = sessions; // legacy global → selected date
+  sessions = sessionsByDate[selectedTodoDate];
+  function syncSessionAlias() { sessions = sessionsByDate[selectedTodoDate]; }
+  function setSessions(arr) { sessions = arr; sessionsByDate[selectedTodoDate] = arr; }
   let todoBoxOpaque = !!saved.todoBoxOpaque;
+  let todoBoxOpacity = 100; // task-card transparency %; multiplies weight-tint alphas
+  if (typeof saved.todoBoxOpacity === 'number') todoBoxOpacity = saved.todoBoxOpacity;
+  let calAnim = 'pop'; // calendar entrance animation (unique to the mini calendar)
+  if (typeof saved.calAnim === 'string') calAnim = saved.calAnim;
   // Derive a muted darker variant of an #rrggbb color (for elapsed wedges).
   function deriveElapsedColor(hex) {
     const m = /^#?([0-9a-f]{6})$/i.exec((hex || '').trim());
@@ -92,8 +162,8 @@
       else h = (r - g) / d + 4;
       h *= 60; if (h < 0) h += 360;
     }
-    const l2 = Math.max(0.22, l - 0.22);          // darker
-    const s2 = Math.min(1, Math.max(0.25, s * 0.75)); // desaturated
+    const l2 = Math.max(0.15, l - 0.35);          // much darker
+    const s2 = Math.min(1, Math.max(0.15, s * 0.40)); // much more desaturated
     const f = k => {
       const kk = (k + h / 30) % 12;
       const a = s2 * Math.min(l2, 1 - l2);
@@ -103,9 +173,11 @@
     return `#${f(0)}${f(8)}${f(4)}`;
   }
   // Normalize session tasks: single string → array
+  function genId(p) { return (p || 'id') + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
   function normalizeSessions() {
     sessions.forEach(s => {
       if (!s) return;
+      if (!s.id) s.id = genId('s'); // stable id for todo linking
       if (!Array.isArray(s.tasks)) {
         s.tasks = (s.task && typeof s.task === 'string') ? [s.task] : [];
       }
@@ -129,7 +201,9 @@
     Object.assign(savePending, patch);
     if (!saveTimer) saveTimer = setTimeout(flushSave, 300);
   }
-  function saveTodos() { queueSave({ todoLists, activeTodoList }); }
+  function saveTodos() { queueSave({ todosByDate, selectedTodoDate, todoCalOpen, todoLists, activeTodoList }); }
+  // One-time switch: the outer arc defaults to flowing rainbow (user keeps control after).
+  if (!saved.orbitFlowDefaulted) { orbitStyle = 'rainbow-flow'; queueSave({ orbitStyle, orbitFlowDefaulted: true }); }
   window.addEventListener('beforeunload', flushSave);
 
   function applyOpacity() { canvas.style.opacity=opacity/100; }
@@ -138,13 +212,12 @@
   applyTodoOpacity();
   applyTodoBoxOpaque();
   applyOpacity();
-  function save() { queueSave({clockStyle:style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque}); }
-
+  function save() { queueSave({clockStyle:style,theme,handType,opacity,sessions,sessionsByDate,selectedTodoDate,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque,todoBoxOpacity,calAnim}); }
   api.onSetStyle(s => { style=s; save(); });
   api.onSetTheme(t => { theme=t; save(); });
   api.onSetOpacity(o => { opacity=o; applyOpacity(); save(); });
   api.onSetHands(h => { handType=h; save(); });
-  api.onSetSessions(s => { sessions=s; normalizeSessions(); save(); });
+  api.onSetSessions(s => { setSessions(s); normalizeSessions(); pruneTodoLinks(); save(); });
   api.onSetBlockOpacity(o => { blockOpacity=o; save(); });
   api.onSetBlockAnim(a => { blockAnim=a; save(); });
   api.onSetTooltipAnim(a => { tooltipAnim=a; save(); });
@@ -157,6 +230,12 @@
   if (api.onSetFavorites) api.onSetFavorites(f => { favorites = f || favorites; save(); });
   if (api.onSetTodoOpacity) api.onSetTodoOpacity(v => { todoOpacity = v; applyTodoOpacity(); save(); });
   if (api.onSetTodoBoxOpaque) api.onSetTodoBoxOpaque(v => { todoBoxOpaque = !!v; applyTodoBoxOpaque(); renderTodos(); save(); });
+  if (api.onSetTodoBoxOpacity) api.onSetTodoBoxOpacity(v => { todoBoxOpacity = v; applyTodoBoxOpacity(); save(); });
+  function applyCalAnim() {
+    const cal = document.getElementById('todo-cal-wrap');
+    if (cal) cal.dataset.calanim = calAnim || 'pop';
+  }
+  if (api.onSetCalAnim) api.onSetCalAnim(v => { calAnim = v || 'pop'; applyCalAnim(); save(); });
 
   // ── Tooltip font resize (Ctrl + scroll) / Orbit speed (Alt + scroll) ──
   let tooltipResizePulse = 0;
@@ -165,7 +244,7 @@
     if (e.altKey) {
       e.preventDefault();
       const step = e.deltaY < 0 ? 0.1 : -0.1;
-      orbitSpeed = Math.max(0, Math.min(5.0, Math.round(((orbitSpeed || 0) + step) * 10) / 10));
+      orbitSpeed = Math.max(0, Math.min(10.0, Math.round(((orbitSpeed || 0) + step) * 10) / 10));
       save();
       orbitSpeedPulse = performance.now();
       return;
@@ -210,7 +289,13 @@
     // Canvas fills the clock wrapper (left square area). The todo panel lives
     // in the right side of the window and is HTML-based, so it has its own
     // layout. The renderer only needs to track the wrapper's size.
-    const dpr = window.devicePixelRatio || 1; // re-read: stale across monitors
+    // A canvas above 2× has a steep fill-rate cost with little visible gain
+    // for this small floating widget. Re-read on resize because DPI can change
+    // when moving between monitors.
+    // 1.5× keeps small text crisp while using ~44% less canvas memory than a
+    // 2× backing store. This matters because transparent canvases are kept in
+    // GPU memory for the widget's entire lifetime.
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     const wrap = document.getElementById('clock-wrapper');
     const w = Math.max(80, wrap.clientWidth || 0);
     const h = Math.max(80, wrap.clientHeight || 0);
@@ -238,8 +323,11 @@
   function orbitRadius(r) { return r + ORBIT_GAP; }
 
   function applyTodoAnim() {
+    const eff = todoAnimEff();
     const panel = document.getElementById('todo-panel');
-    if (panel) panel.dataset.anim = todoAnimEff();
+    if (panel) panel.dataset.anim = eff;
+    const cal = document.getElementById('todo-cal-wrap');
+    if (cal) cal.dataset.anim = eff;
   }
 
   function clockBounds() {
@@ -249,7 +337,7 @@
     // FIXED SIZE: the dial never shrinks, no matter how many labels exist.
     // Ring-text labels shrink their own font down to 8px to fit; the
     // window auto-fit grows the window instead of touching the dial.
-    const margin = 90;
+    const margin = 70;
     const r = Math.max(50, Math.min(cx, cy) - margin);
     return { cx, cy, r, w, h };
   }
@@ -259,7 +347,7 @@
     // Clockwise rotation scaled by orbitSpeed. 1.0x ~= 20px/s. 0 = paused.
     const spd = (typeof orbitSpeed === 'number' ? orbitSpeed : 1.0);
     const nowMs = performance.now();
-    const rot = (nowMs / 1000) * 20 * spd;
+    const rot = (nowMs / 1000) * 20 * (spd * spd);
     const st = orbitStyle || 'dash';
     X.save();
     if (st === 'double') {
@@ -287,6 +375,20 @@
       try { X.shadowColor = 'rgba(148,210,185,0.7)'; X.shadowBlur = 10 + 6 * spd; } catch (_) {}
       X.stroke();
       try { X.shadowBlur = 0; } catch (_) {}
+    } else if (st === 'rainbow-flow') {
+      // Single arc line, rainbow gradient flowing start -> end around the dial.
+      const segs = 72;
+      const flow = (nowMs / 1000) * (40 + 80 * spd); // hue drift deg/s
+      for (let i = 0; i < segs; i++) {
+        const a0 = (i / segs) * PI2;
+        const a1 = ((i + 1.02) / segs) * PI2;
+        const hue = (((i / segs) * 360 + flow) % 360 + 360) % 360;
+        X.beginPath();
+        X.arc(cx, cy, or, a0, a1);
+        X.strokeStyle = `hsl(${hue.toFixed(1)}, 90%, 60%)`;
+        X.lineWidth = 2.5;
+        X.stroke();
+      }
     } else if (st === 'comet') {
       // Faint full ring + bright comet arc sweeping clockwise.
       X.beginPath();
@@ -657,134 +759,7 @@
           X.fill();
         });
       }
-    } else {
-      // 'dash' — classic clockwise rotating dotted ring.
-      X.beginPath();
-      X.arc(cx, cy, or, 0, PI2);
-      X.setLineDash([8, 8]);
-      try { X.lineDashOffset = -rot; } catch (_) {}
-      X.strokeStyle = 'rgba(148,210,185,0.65)';
-      X.lineWidth = 1.5;
-      X.stroke();
-      X.setLineDash([]);
-    }
-    try { X.lineDashOffset = 0; } catch (_) {}
-    X.restore();
-  }
-
-  // ── Orbit-speed indicator (brief flash after Alt+scroll / slider) ──
-  function drawOrbitSpeedIndicator(cx, cy, r) {
-    if (!orbitSpeedPulse) return;
-    const elapsed = performance.now() - orbitSpeedPulse;
-    if (elapsed > 1200) { orbitSpeedPulse = 0; return; }
-    const fade = 1 - (elapsed / 1200);
-    const spd = (typeof orbitSpeed === 'number' ? orbitSpeed : 1.0);
-    const label = spd === 0 ? 'Orbit Paused' : `Orbit ${spd.toFixed(1)}×`;
-    X.save();
-    X.globalAlpha = fade;
-    X.font = '700 12px Inter, system-ui, sans-serif';
-    const tw = X.measureText(label).width;
-    const padX = 12, padY = 6;
-    const bw = tw + padX * 2, bh = 12 + padY * 2;
-    const bx = cx - bw / 2;
-    const by = Math.max(4, cy - r + 8);
-    X.beginPath();
-    const pr = bh / 2;
-    X.roundRect(bx, by, bw, bh, pr);
-    X.closePath();
-    X.fillStyle = 'rgba(45,212,191,0.92)';
-    X.shadowColor = 'rgba(45,212,191,0.5)';
-    X.shadowBlur = 14;
-    X.fill();
-    X.shadowBlur = 0;
-    X.fillStyle = '#fff';
-    X.textAlign = 'center';
-    X.textBaseline = 'middle';
-    X.fillText(label, cx, by + pr);
-    X.restore();
-  }
-
-  let dragging=false;
-  
-  // Edit-mode UI cluster (knobs / delete / color pickers) auto-hides when the
-  // window loses focus or the cursor leaves the cluster.
-  let windowFocused = true;
-  window.addEventListener('focus', () => { windowFocused = true; });
-  window.addEventListener('blur', () => { windowFocused = false; });
-
-  // Click-through state: cursor over fully transparent pixels → window
-  // forwards clicks to apps underneath (setIgnoreMouseEvents + forward).
-  let ignoreMouseActive = false;
-  
-  let interactiveMode = null;
-  let interactiveDate = null;
-  let draggingKnob = false;
-  let dragLastAngle = 0;
-  let dragCurrentTimeMs = 0;
-
-  api.onFocusTime(data => {
-    interactiveMode = data.type;
-    const [h, m] = data.timeStr.split(':');
-    const d = new Date();
-    d.setHours(parseInt(h) || 0, parseInt(m) || 0, 0, 0);
-    interactiveDate = d;
-  });
-
-  api.onBlurTime(() => {
-    if (!draggingKnob) interactiveMode = null;
-  });
-
-  function getAngleForDate(d) {
-    const msIn12h = (d.getHours() % 12) * 3600000 + d.getMinutes() * 60000;
-    return (msIn12h / 43200000) * PI2 - (Math.PI / 2);
-  }
-
-  canvas.addEventListener('mousedown', e => { 
-    if(e.button !== 0) return;
-    
-    // Convert to canvas-local coordinates
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    
-    // Exit × (hover button, top-left of dial) → close the app
-    if (isOnExitButton(mx, my)) {
-        api.closeApp();
-        return;
-    }
-
-    // Resize handle (dial bottom-right) → always resize the window
-    if (isOnResizeHandle(mx, my)) {
-        resizing = true;
-        api.resizeStart();
-        return;
-    }
-
-    // Check gear icon click first
-    if (isClickOnGear(mx, my)) {
-        api.showPanel({style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque});
-       return;
-    }
-
-    // Grab handle → always drag the window
-    if (isOnGrabHandle(mx, my)) {
-        dragging = true;
-        api.dragStart();
-        return;
-    }
-
-    // ── Circular ring labels: × chip clears the task, text opens the editor ──
-    {
-        const hit = hitLabelArc(mx, my);
-        if (hit && sessions[hit.arc.idx]) {
-            e.preventDefault();
-            if (hit.kind === 'chip') {
-                const sess = sessions[hit.arc.idx];
-                const ti = hit.arc.taskIdx;
-                if (ti >= 0 && Array.isArray(sess.tasks)) {
-                    sess.tasks.splice(ti, 1);
-                    save();
-} else if (st === 'saturn') {
+    } else if (st === 'saturn') {
       // Oblique ringed-planet band (tilted ellipse) + orbiting moon dot.
       X.save();
       X.translate(cx, cy); X.rotate(0.42); X.scale(1, 0.42);
@@ -912,7 +887,208 @@
       X.strokeStyle = 'rgba(148,210,185,0.5)';
       X.lineWidth = 1.4;
       X.stroke();
+    } else if (st === 'binary-orbit') {
+      const baseA = rot / or;
+      X.beginPath(); X.arc(cx, cy, or, 0, PI2);
+      X.strokeStyle = 'rgba(255,255,255,0.05)'; X.lineWidth = 1; X.stroke();
+      const localRot = (nowMs / 1000) * 4 * spd;
+      const px = cx + Math.cos(baseA) * or; const py = cy + Math.sin(baseA) * or;
+      const rOff = 8;
+      X.beginPath(); X.arc(px + Math.cos(localRot) * rOff, py + Math.sin(localRot) * rOff, 3.5, 0, PI2);
+      X.fillStyle = '#38bdf8'; X.fill();
+      X.beginPath(); X.arc(px + Math.cos(localRot + Math.PI) * rOff, py + Math.sin(localRot + Math.PI) * rOff, 3.5, 0, PI2);
+      X.fillStyle = '#f43f5e'; X.fill();
+    } else if (st === 'shockwave') {
+      const period = 2000 / (spd || 1);
+      const phase = (nowMs % period) / period;
+      X.beginPath(); X.arc(cx, cy, or, 0, PI2);
+      X.strokeStyle = 'rgba(16, 185, 129, 0.4)'; X.lineWidth = 2; X.stroke();
+      X.beginPath(); X.arc(cx, cy, or + phase * 30, 0, PI2);
+      X.strokeStyle = 'rgba(16, 185, 129, ' + ((1 - phase) * 0.8) + ')';
+      X.lineWidth = 2 * (1 - phase); X.stroke();
+    } else if (st === 'constellation') {
+      const pts = 7; const baseA = rot / or;
+      X.beginPath();
+      for (let i = 0; i < pts; i++) {
+        const a = baseA + (i / pts) * PI2;
+        const rVar = or + Math.sin(nowMs/500 + i) * 6;
+        const px = cx + Math.cos(a) * rVar; const py = cy + Math.sin(a) * rVar;
+        if (i === 0) X.moveTo(px, py); else X.lineTo(px, py);
+      }
+      X.closePath();
+      X.strokeStyle = 'rgba(236, 72, 153, 0.6)'; X.lineWidth = 1.5; X.stroke();
+      for (let i = 0; i < pts; i++) {
+        const a = baseA + (i / pts) * PI2;
+        const rVar = or + Math.sin(nowMs/500 + i) * 6;
+        X.beginPath(); X.arc(cx + Math.cos(a) * rVar, cy + Math.sin(a) * rVar, 2.5, 0, PI2);
+        X.fillStyle = '#fbcfe8'; X.fill();
+      }
+    } else if (st === 'fireflies') {
+      const count = 12; const baseA = rot * 0.5 / or;
+      for (let i = 0; i < count; i++) {
+        const a = baseA + (i / count) * PI2 + Math.sin(nowMs/1000 + i) * 0.2;
+        const rVar = or + Math.cos(nowMs/800 + i*2) * 12;
+        const px = cx + Math.cos(a) * rVar; const py = cy + Math.sin(a) * rVar;
+        X.beginPath(); X.arc(px, py, 2, 0, PI2); X.fillStyle = '#fbbf24';
+        try { X.shadowColor = '#f59e0b'; X.shadowBlur = 8; } catch(_) {}
+        X.fill();
+        try { X.shadowBlur = 0; } catch(_) {}
+        X.beginPath(); X.arc(px, py, 10, 0, PI2); X.fillStyle = 'rgba(251, 191, 36, 0.1)'; X.fill();
+      }
+    } else if (st === 'matrix-rain') {
+      const lines = 24;
+      for (let i = 0; i < lines; i++) {
+        const a = (i / lines) * PI2;
+        const speedOff = i * 123;
+        const drop = ((nowMs + speedOff) * (0.05 * spd)) % 30;
+        X.beginPath();
+        X.moveTo(cx + Math.cos(a) * (or - 15 + drop), cy + Math.sin(a) * (or - 15 + drop));
+        X.lineTo(cx + Math.cos(a) * (or - 5 + drop), cy + Math.sin(a) * (or - 5 + drop));
+        X.strokeStyle = 'rgba(74, 222, 128, ' + (1 - drop/30) + ')';
+        X.lineWidth = 2; X.stroke();
+      }
+    } else if (st === 'aurora-band') {
+      const pts = 60; X.beginPath();
+      for (let i = 0; i <= pts; i++) {
+        const a = (i / pts) * PI2;
+        const rVar = or + Math.sin(a * 4 + nowMs/600 * spd) * 8;
+        const px = cx + Math.cos(a) * rVar; const py = cy + Math.sin(a) * rVar;
+        if (i === 0) X.moveTo(px, py); else X.lineTo(px, py);
+      }
+      X.closePath();
+      const grad = X.createLinearGradient(cx - or, cy - or, cx + or, cy + or);
+      grad.addColorStop(0, 'rgba(16, 185, 129, 0.7)');
+      grad.addColorStop(0.5, 'rgba(56, 189, 248, 0.7)');
+      grad.addColorStop(1, 'rgba(139, 92, 246, 0.7)');
+      X.strokeStyle = grad; X.lineWidth = 4; X.stroke();
     } else {
+      // 'dash' — classic clockwise rotating dotted ring.
+      X.beginPath();
+      X.arc(cx, cy, or, 0, PI2);
+      X.setLineDash([8, 8]);
+      try { X.lineDashOffset = -rot; } catch (_) {}
+      X.strokeStyle = 'rgba(148,210,185,0.65)';
+      X.lineWidth = 1.5;
+      X.stroke();
+      X.setLineDash([]);
+    }
+    try { X.lineDashOffset = 0; } catch (_) {}
+    X.restore();
+  }
+
+  // ── Orbit-speed indicator (brief flash after Alt+scroll / slider) ──
+  function drawOrbitSpeedIndicator(cx, cy, r) {
+    if (!orbitSpeedPulse) return;
+    const elapsed = performance.now() - orbitSpeedPulse;
+    if (elapsed > 1200) { orbitSpeedPulse = 0; return; }
+    const fade = 1 - (elapsed / 1200);
+    const spd = (typeof orbitSpeed === 'number' ? orbitSpeed : 1.0);
+    const label = spd === 0 ? 'Orbit Paused' : `Orbit ${spd.toFixed(1)}×`;
+    X.save();
+    X.globalAlpha = fade;
+    X.font = '700 12px Inter, system-ui, sans-serif';
+    const tw = X.measureText(label).width;
+    const padX = 12, padY = 6;
+    const bw = tw + padX * 2, bh = 12 + padY * 2;
+    const bx = cx - bw / 2;
+    const by = Math.max(4, cy - r + 8);
+    X.beginPath();
+    const pr = bh / 2;
+    X.roundRect(bx, by, bw, bh, pr);
+    X.closePath();
+    X.fillStyle = 'rgba(45,212,191,0.92)';
+    X.shadowColor = 'rgba(45,212,191,0.5)';
+    X.shadowBlur = 14;
+    X.fill();
+    X.shadowBlur = 0;
+    X.fillStyle = '#fff';
+    X.textAlign = 'center';
+    X.textBaseline = 'middle';
+    X.fillText(label, cx, by + pr);
+    X.restore();
+  }
+
+  let dragging=false;
+  
+  // Edit-mode UI cluster (knobs / delete / color pickers) auto-hides when the
+  // window loses focus or the cursor leaves the cluster.
+  let windowFocused = true;
+  window.addEventListener('focus', () => { windowFocused = true; });
+  window.addEventListener('blur', () => { windowFocused = false; });
+
+  // Click-through state: cursor over fully transparent pixels → window
+  // forwards clicks to apps underneath (setIgnoreMouseEvents + forward).
+  let ignoreMouseActive = false;
+  
+  let interactiveMode = null;
+  let interactiveDate = null;
+  let draggingKnob = false;
+  let dragLastAngle = 0;
+  let dragCurrentTimeMs = 0;
+
+  api.onFocusTime(data => {
+    interactiveMode = data.type;
+    const [h, m] = data.timeStr.split(':');
+    const d = new Date();
+    d.setHours(parseInt(h) || 0, parseInt(m) || 0, 0, 0);
+    interactiveDate = d;
+  });
+
+  api.onBlurTime(() => {
+    if (!draggingKnob) interactiveMode = null;
+  });
+
+  function getAngleForDate(d) {
+    const msIn12h = (d.getHours() % 12) * 3600000 + d.getMinutes() * 60000;
+    return (msIn12h / 43200000) * PI2 - (Math.PI / 2);
+  }
+
+  canvas.addEventListener('mousedown', e => { 
+    if(e.button !== 0) return;
+    
+    // Convert to canvas-local coordinates
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    
+    // Exit × (hover button, top-left of dial) → close the app
+    if (isOnExitButton(mx, my)) {
+        api.closeApp();
+        return;
+    }
+
+    // Resize handle (dial bottom-right) → always resize the window
+    if (isOnResizeHandle(mx, my)) {
+        resizing = true;
+        api.resizeStart();
+        return;
+    }
+
+    // Check gear icon click first
+    if (isClickOnGear(mx, my)) {
+        api.showPanel({style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque,todoBoxOpacity,calAnim});
+       return;
+    }
+
+    // Grab handle → always drag the window
+    if (isOnGrabHandle(mx, my)) {
+        dragging = true;
+        api.dragStart();
+        return;
+    }
+
+    // ── Circular ring labels: × chip clears the task, text opens the editor ──
+    {
+        const hit = hitLabelArc(mx, my);
+        if (hit && sessions[hit.arc.idx]) {
+            e.preventDefault();
+            if (hit.kind === 'chip') {
+                const sess = sessions[hit.arc.idx];
+                const ti = hit.arc.taskIdx;
+                if (ti >= 0 && Array.isArray(sess.tasks)) {
+                    sess.tasks.splice(ti, 1);
+                    save();
+} else {
                     // placeholder — clear all tasks
                     sess.tasks = [];
                     save();
@@ -936,13 +1112,20 @@
        const idx = parseInt(interactiveMode.split('-')[1]);
        const sess = sessions[idx];
        if (sess) {
-           // Delete block button (only in -both mode)
-           if (interactiveMode.endsWith('-both')) {
-               const midTime = (sess.start + sess.end) / 2;
-               const midA = getAngleForDate(new Date(midTime));
-               const delBtnX = cx + Math.cos(midA) * (r - 35);
-               const delBtnY = cy + Math.sin(midA) * (r - 35);
-               if (Math.hypot(mx - delBtnX, my - delBtnY) < 18) {
+           // Delete block button (only in -both mode; sits at the END angle
+           // so mid-wedge clicks select/toggle instead of deleting)
+if (interactiveMode.endsWith('-both')) {
+                // Delete sits at the wedge midpoint so mid-wedge clicks delete
+                const dDelS = new Date(sess.start);
+                const dDelE = new Date(sess.end);
+                const midA = getAngleForDate(new Date((dDelS.getTime() + dDelE.getTime()) / 2));
+                const delBtnX = cx + Math.cos(midA) * (r - 35);
+                const delBtnY = cy + Math.sin(midA) * (r - 35);
+                if (Math.hypot(mx - delBtnX, my - delBtnY) < 14) {
+                   const delId = sess && sess.id;
+                   if (delId) unlinkBlock(delId);
+                   lastDisarmedArm = null;
+                   disarmTodoLink();
                    sessions.splice(idx, 1);
                    save();
                    interactiveMode = null;
@@ -989,6 +1172,8 @@
        
        // Click missed all edit controls → exit edit mode, then continue to wedge/create check
        interactiveMode = null;
+       lastDisarmedArm = linkBlockId;
+       disarmTodoLink();
        if (pWrapS) pWrapS.style.display = 'none';
        if (pWrapE) pWrapE.style.display = 'none';
     } else if (interactiveMode && interactiveDate) {
@@ -1007,7 +1192,8 @@
     }
     
     // ── Check if clicked ON a wedge or empty outer ring ──
-    if (dist <= r) {
+    // (disabled while time allocations are off → falls through to drag)
+    if (SESSIONS_ENABLED && dist <= r) {
         let angle = Math.atan2(dy, dx) + (Math.PI / 2);
         if (angle < 0) angle += PI2; if (angle >= PI2) angle -= PI2;
         const MS_IN_12H = 43200000;
@@ -1034,6 +1220,10 @@
         
         if (foundIdx !== -1) {
            interactiveMode = `edit-${foundIdx}-both`;
+           const clicked = sessions[foundIdx];
+           // Second click on the armed block deactivates (banner goes away too).
+           if (lastDisarmedArm && clicked && clicked.id === lastDisarmedArm) lastDisarmedArm = null;
+           else { lastDisarmedArm = null; armTodoLink(clicked); }
            return;
         } else if (dist > r - 60) {
            // Clicked empty space on the outer ring -> spawn new block
@@ -1052,6 +1242,11 @@
            if (start.getTime() <= now.getTime()) {
               start = new Date(cand1);
               start.setDate(start.getDate() + 1);
+           }
+           // Planning another date: keep the clicked time-of-day, swap in the viewed date.
+           if (selectedTodoDate !== TODAY_KEY) {
+              const yp = selectedTodoDate.split('-').map(Number);
+              start = new Date(yp[0], yp[1] - 1, yp[2], start.getHours(), start.getMinutes(), 0, 0);
            }
            
            const end = new Date(start);
@@ -1082,12 +1277,16 @@ sessions.push({
            
            save();
            interactiveMode = `edit-${sessions.length - 1}-both`;
+           lastDisarmedArm = null;
+           armTodoLink(sessions[sessions.length - 1]);
            return;
         }
     }
     
     // Nothing interactive hit → drag window
     interactiveMode = null;
+    lastDisarmedArm = null;
+    disarmTodoLink();
     dragging=true; 
     api.dragStart(); 
   });
@@ -1147,12 +1346,14 @@ sessions.push({
     if(draggingKnob) {
       draggingKnob = false;
       save(); // Save once at the end of the drag
+      renderTodos(); // linked chips/timelines pick up the new times
       if (interactiveMode && interactiveMode.startsWith('edit-')) {
          const idx = interactiveMode.split('-')[1];
          interactiveMode = `edit-${idx}-both`; // Return to showing both handles
-      } else {
+} else {
          interactiveMode = null;
       }
+      if (viewMode === 'board') try { renderBoard(); } catch (_) {}
     }
   });
   // Canvas-drawn settings gear
@@ -1192,6 +1393,7 @@ sessions.push({
   function switchTodoList(i) {
     if (i === activeTodoList) return;
     activeTodoList = i;
+    todosByDate[selectedTodoDate].active = i;
     todos = todoLists[i].todos;
     renderTodoTabs();
     renderTodos();
@@ -1201,58 +1403,523 @@ sessions.push({
   todoTabAdd.addEventListener('click', () => {
     todoLists.push({ id: 'list-' + Date.now(), name: 'List ' + (todoLists.length + 1), todos: [] });
     activeTodoList = todoLists.length - 1;
+    todosByDate[selectedTodoDate].active = activeTodoList;
     todos = todoLists[activeTodoList].todos;
     renderTodoTabs();
     renderTodos();
+    renderCalendar();
     saveTodos();
     todoAddBox.focus();
   });
 
-  // Inline SVG flag
-  const FLAG_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 3v18h2v-7h11l-2-4 2-4H7V3H5z"/></svg>';
+  // ── Mini calendar: toggle, per-date counts, click switches date workspace ──
+  const todoCalToggle = document.getElementById('todo-cal-toggle');
+  const todoCalWrap = document.getElementById('todo-cal-wrap');
+  const todoCalTitle = document.getElementById('todo-cal-title');
+  const todoCalGrid = document.getElementById('todo-cal-grid');
+  const todoCalFoot = document.getElementById('todo-cal-foot');
+  const CAL_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  let calYear, calMonth;
+  { const sd = new Date(selectedTodoDate + 'T12:00:00'); calYear = sd.getFullYear(); calMonth = sd.getMonth(); }
 
-  // Priority ranks (high first). Stable sort = same-priority tasks keep the
-  // newest-first order in which they were added.
-  const PRIO_ORDER = { high: 0, medium: 1, low: 2, none: 3 };
-  function sortTodos() {
-    todos.sort((a, b) => (PRIO_ORDER[a.priority || 'none']) - (PRIO_ORDER[b.priority || 'none']));
+  function switchTodoDate(key) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return;
+    if (!todosByDate[key]) todosByDate[key] = { lists: [{ id: 'list-1', name: 'List 1', todos: [] }], active: 0 };
+    if (!sessionsByDate[key]) sessionsByDate[key] = [];
+    selectedTodoDate = key;
+    syncDateAliases();
+    syncSessionAlias();
+    normalizeSessions();
+    renderTodoTabs();
+    pruneTodoLinks(); // drops a stale arm (banner+render included), keeps a still-valid one
+    renderCalendar();
+    saveTodos();
+    save();
+  }
+
+  function renderCalendar() {
+    if (!todoCalGrid) return;
+    if (todoCalWrap) todoCalWrap.classList.toggle('open', !!todoCalOpen);
+    if (todoCalToggle) todoCalToggle.classList.toggle('active', !!todoCalOpen);
+    if (!todoCalOpen) return;
+    if (todoCalTitle) todoCalTitle.textContent = CAL_MONTHS[calMonth] + ' ' + calYear;
+    todoCalGrid.innerHTML = '';
+    ['Mo','Tu','We','Th','Fr','Sa','Su'].forEach(d => {
+      const h = document.createElement('div');
+      h.className = 'todo-cal-dow';
+      h.textContent = d;
+      todoCalGrid.appendChild(h);
+    });
+    const first = new Date(calYear, calMonth, 1);
+    let lead = (first.getDay() + 6) % 7; // Monday-first
+    for (let i = 0; i < lead; i++) {
+      const b = document.createElement('div');
+      b.className = 'todo-cal-blank';
+      todoCalGrid.appendChild(b);
+    }
+    const days = new Date(calYear, calMonth + 1, 0).getDate();
+    for (let d = 1; d <= days; d++) {
+      const key = calYear + '-' + String(calMonth + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+      const n = dateTodoCount(key);
+      const state = key < TODAY_KEY ? ' past' : key > TODAY_KEY ? ' future' : '';
+      const c = document.createElement('button');
+      c.className = 'todo-cal-day' + (key === selectedTodoDate ? ' sel' : '') + (key === TODAY_KEY ? ' today' : '') + state + (n > 0 ? ' has' : '');
+      c.title = key + ' · ' + n + ' task' + (n === 1 ? '' : 's');
+      c.style.setProperty('--ci', (lead + d - 1) % 42); // stagger index for entrance
+      c.innerHTML = '<span class="cal-cell"><span class="dnum">' + d + '</span>' + (n > 0 ? '<span class="dcnt">' + n + '</span>' : '') + '</span>';
+      if (n > 0) c.style.animationDelay = (-((d % 7) * 0.3)).toFixed(2) + 's'; // phase-offset the loop
+      c.addEventListener('click', () => switchTodoDate(key));
+      todoCalGrid.appendChild(c);
+    }
+    if (todoCalFoot) {
+      const n = dateTodoCount(selectedTodoDate);
+      const sd = new Date(selectedTodoDate + 'T12:00:00');
+      const label = sd.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+      todoCalFoot.textContent = label + ' · ' + n + ' task' + (n === 1 ? '' : 's');
+    }
+  }
+
+  if (todoCalToggle) todoCalToggle.addEventListener('click', () => {
+    todoCalOpen = !todoCalOpen;
+    renderCalendar();
+    saveTodos();
+  });
+  const todoCalPrev = document.getElementById('todo-cal-prev');
+  const todoCalNext = document.getElementById('todo-cal-next');
+  const todoCalToday = document.getElementById('todo-cal-today');
+  if (todoCalPrev) todoCalPrev.addEventListener('click', () => {
+    calMonth -= 1; if (calMonth < 0) { calMonth = 11; calYear -= 1; }
+    renderCalendar();
+  });
+  if (todoCalNext) todoCalNext.addEventListener('click', () => {
+    calMonth += 1; if (calMonth > 11) { calMonth = 0; calYear += 1; }
+    renderCalendar();
+  });
+  if (todoCalToday) todoCalToday.addEventListener('click', () => {
+    const t = new Date(); calYear = t.getFullYear(); calMonth = t.getMonth();
+    switchTodoDate(dateKeyOf(t));
+  });
+
+  // ── Block ↔ todo linking ──
+  // Clicking a clock wedge arms its session (linkBlockId); clicking a parent
+  // todo card then attaches/detaches it. Linked cards show a live countdown chip.
+  let linkBlockId = null;
+  let lastDisarmedArm = null; // arm cleared by edit-dismiss, so a wedge click can toggle off
+  const todoLinkBar = document.getElementById('todo-link-bar');
+  const todoLinkText = document.getElementById('todo-link-text');
+  const todoLinkCancel = document.getElementById('todo-link-cancel');
+  if (todoLinkCancel) todoLinkCancel.addEventListener('click', () => disarmTodoLink(true));
+
+  function fmtClock(ms) {
+    const d = new Date(ms);
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+function fmtLeft(ms) {
+    const neg = ms < 0;
+    if (neg) ms = -ms;
+    const s = Math.floor(ms / 1000);
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    return (neg ? '-' : '') + String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+  }
+  // Bare remaining number for the outside-the-box label.
+  function getRelativeSessionTimes(sess, now) {
+  if (!sess) return {start:0, end:0};
+  const sD = new Date(sess.start);
+  const nowD = new Date(now);
+  let sToday = new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate(), sD.getHours(), sD.getMinutes(), sD.getSeconds(), sD.getMilliseconds()).getTime();
+  const dur = sess.end - sess.start;
+  let diff = sToday - now;
+  let sClosest = sToday;
+  if (diff > 12 * 3600 * 1000) sClosest -= 24 * 3600 * 1000;
+  else if (diff < -12 * 3600 * 1000) sClosest += 24 * 3600 * 1000;
+  return { start: sClosest, end: sClosest + dur };
+}
+  function etimeText(sess, now) {
+    if (!sess) return '';
+    const rel = getRelativeSessionTimes(sess, now);
+    if (now < rel.start) return fmtLeft(rel.start - now);
+    if (now <= rel.end) return fmtLeft(rel.end - now);
+    return fmtLeft(rel.end - now);
+  }
+  function armTodoLink(sess) {
+    if (!sess) return;
+    if (!sess.id) { sess.id = genId('s'); save(); } // persist the id the link points at
+    linkBlockId = sess.id;
+    updateLinkBar();
+    showLinkToast('🔗 Linking ' + fmtClock(sess.start) + '–' + fmtClock(sess.end) + ' — click a todo');
+  }
+  function disarmTodoLink(silent) {
+    if (!linkBlockId) return;
+    linkBlockId = null;
+    updateLinkBar();
+    if (!silent) showLinkToast('Linking off');
+  }
+  let linkToastTimer = null;
+  function showLinkToast(txt) {
+    const t = document.getElementById('link-toast');
+    if (!t) return;
+    t.textContent = txt;
+    t.classList.add('show');
+    if (linkToastTimer) clearTimeout(linkToastTimer);
+    linkToastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+  function unlinkBlock(id) {
+    if (!id) return;
+    let changed = false;
+    const clear = (o) => {
+      if (!o) return;
+      if (o.blockId === id) { o.blockId = null; changed = true; }
+      (o.subtasks || []).forEach(clear);
+    };
+    todoLists.forEach(l => (l.todos || []).forEach(clear));
+    if (changed) { saveTodos(); renderBoard(); }
+  }
+  function pruneTodoLinks() {
+    const ids = new Set(sessions.map(s => s && s.id));
+    let changed = false;
+    const prune = (o) => {
+      if (!o) return;
+      if (o.blockId && !ids.has(o.blockId)) { o.blockId = null; changed = true; }
+      (o.subtasks || []).forEach(prune);
+    };
+    todoLists.forEach(l => (l.todos || []).forEach(prune));
+    if (changed) { saveTodos(); renderBoard(); }
+    if (linkBlockId && !ids.has(linkBlockId)) linkBlockId = null;
+    updateLinkBar();
+  }
+function toggleTodoLink(id) {
+    const t = todos.find(x => x.id === id);
+    if (!t || !linkBlockId) return;
+    t.blockId = (t.blockId === linkBlockId) ? null : linkBlockId;
+    saveTodos(); save(); renderTodos(); renderBoard();
+  }
+  function toggleSubtaskLink(pathArr) {
+    const s = getNodeByPath(pathArr);
+    if (!s || !linkBlockId) return;
+    s.blockId = (s.blockId === linkBlockId) ? null : linkBlockId;
+    saveTodos(); save(); renderTodos(); renderBoard();
+  }
+  function blockPct(sess, now) {
+    if (!sess || !(sess.end > sess.start)) return 0;
+    const rel = getRelativeSessionTimes(sess, now);
+    return Math.max(0, Math.min(100, (now - rel.start) / (rel.end - rel.start) * 100));
+  }
+  function timelineHtml(sess, now, slim, rem, el) {
+    if (!sess) return '';
+    rem = (/^#[0-9a-f]{6}$/i.test(rem || '') ? rem : '#8b5cf6');
+    el = (/^#[0-9a-f]{6}$/i.test(el || '') ? el : '#ec4899');
+    const pct = blockPct(sess, now).toFixed(1);
+    return `<div class="todo-timeline${slim ? ' slim' : ''}" data-start="${sess.start}" data-end="${sess.end}" style="background:${rem}40">` +
+      `<div class="todo-time-fill" style="width:${pct}%;background:${el}"></div></div>`;
+  }
+  function updateLinkBar() {
+    const sess = linkBlockId && sessions.find(s => s.id === linkBlockId);
+    if (todoLinkBar) todoLinkBar.hidden = !sess;
+    if (sess && todoLinkText) {
+      todoLinkText.textContent = '🔗 Linking to block ' + fmtClock(sess.start) + '–' + fmtClock(sess.end) + ' — click a todo to attach';
+    }
+    todoList.classList.toggle('link-mode', !!sess);
+    renderTodos();
+  }
+
+  // Per-task remaining/elapsed colors (golden-angle variety, like blocks).
+  function todoHsl(h, s, l) {
+    l /= 100;
+    const a = s * Math.min(l, 1 - l) / 100;
+    const f = n => {
+      const k = (n + h / 30) % 12;
+      const c = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+      return Math.round(255 * c).toString(16).padStart(2, '0');
+    };
+    return `#${f(0)}${f(8)}${f(4)}`;
+  }
+  function nextTodoHue() {
+    let n = 0;
+    Object.keys(todosByDate).forEach(k => {
+      (todosByDate[k].lists || []).forEach(l => {
+        (l.todos || []).forEach(function walk(t) { n++; (t.subtasks || []).forEach(walk); });
+      });
+    });
+    return (210 + n * 137.5) % 360;
+  }
+  // Assign distinct remaining + elapsed colors wherever missing (recursive).
+  function ensureTodoColors(t) {
+    if (!t) return;
+    if (!t.color || !t.elapsedColor) {
+      const hue = nextTodoHue();
+      t.color = todoHsl(hue, 85, 60);
+      t.elapsedColor = deriveElapsedColor(t.color);
+    }
+    (t.subtasks || []).forEach(ensureTodoColors);
+  }
+  // Plus SVG for add subtask
+  const SUBTASK_PLUS_SVG = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+  // Position weight 0..10: +/- counter per task, top-down order. The WHOLE
+  // box takes the counter color, very visible: low = green, mid = yellow,
+  // very high = red. Pulsing outline runs off the --wc var (see CSS).
+  function clampWeight(v) { v = Math.round(typeof v === 'number' ? v : 0); return Math.max(0, Math.min(10, v)); }
+  function weightRgb(w) {
+    w = clampWeight(w) / 10 * 2; // 0..2 across 3 stops
+    const stops = [[74, 222, 128], [250, 204, 21], [239, 68, 68]];
+    const i = Math.min(1, Math.floor(w)), f = w - i;
+    return stops[i].map((v, k) => Math.round(v + (stops[i + 1][k] - v) * f));
+  }
+  function paintWeight(card, w, linked) {
+    if (!card) return;
+    w = clampWeight(w);
+    // 100% = fully opaque solid; lower values fade toward glass.
+    const op = (typeof todoBoxOpacity === 'number' ? todoBoxOpacity : 100) / 100;
+    const c = weightRgb(w);
+    const soft = `rgba(${c[0]},${c[1]},${c[2]},${(0.15 + 0.85 * op).toFixed(3)})`;
+    const mid = `rgba(${c[0]},${c[1]},${c[2]},${(0.25 + 0.75 * op).toFixed(3)})`;
+    const strong = `rgba(${c[0]},${c[1]},${c[2]},${(0.30 + 0.70 * op).toFixed(3)})`;
+    const num = card.querySelector('.todo-weight span');
+    if (num) num.textContent = w;
+    card.style.background = soft;
+    card.style.borderColor = mid;
+    card.style.boxShadow = `0 0 0 1px ${mid}, 0 0 14px rgba(${c[0]},${c[1]},${c[2]},${(0.35 * op).toFixed(3)}), 0 4px 12px rgba(0,0,0,0.2)`;
+    card.style.setProperty('--wc', strong);
+  }
+  // Repaint all visible cards when the transparency slider moves (no re-render).
+  function applyTodoBoxOpacity() {
+    todoList.querySelectorAll('.todo-item').forEach(card => {
+      const num = card.querySelector('.todo-weight span');
+      paintWeight(card, num ? +num.textContent : 0, card.classList.contains('linked'));
+    });
+  }
+  // One-time migration: legacy priority flags become weights.
+  function normalizeTodoWeights() {
+    const map = { high: 3, medium: 2, low: 1 };
+    Object.keys(todosByDate).forEach(k => {
+      (todosByDate[k].lists || []).forEach(l => {
+        (l.todos || []).forEach(t => {
+          if (typeof t.weight !== 'number') t.weight = map[t.priority] || 0;
+          t.weight = clampWeight(t.weight);
+          delete t.priority;
+          (t.subtasks || []).forEach(s => { s.weight = clampWeight(s.weight); });
+          ensureTodoColors(t); // backfill distinct remaining/elapsed colors
+        });
+      });
+    });
   }
 
   function escapeHtml(s) {
     return (s || '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
+  // ── Subtask helpers ──
+
+  function getNodeByPath(pathArr) {
+    if (!pathArr || !pathArr.length) return null;
+    let curr = todos.find(x => x.id === pathArr[0]);
+    if (!curr) return null;
+    for (let i = 1; i < pathArr.length; i++) {
+      if (!curr.subtasks) return null;
+      curr = curr.subtasks.find(x => x.id === pathArr[i]);
+      if (!curr) return null;
+    }
+    return curr;
+  }
+
+  function getParentByPath(pathArr) {
+    if (!pathArr || pathArr.length < 2) return null;
+    return getNodeByPath(pathArr.slice(0, -1));
+  }
+
+  function ensureSubtasks(t) {
+    if (!Array.isArray(t.subtasks)) t.subtasks = [];
+    return t.subtasks;
+  }
+
+  function addSubtask(pathArr, text) {
+    const t = getNodeByPath(pathArr);
+    if (!t) return;
+    ensureSubtasks(t);
+    const trimmed = (text || '').trim();
+    if (!trimmed) return;
+    const hue = nextTodoHue();
+    const col = todoHsl(hue, 85, 60);
+    t.subtasks.push({
+      id: Date.now() + '-st-' + Math.random().toString(36).slice(2,6),
+      text: trimmed,
+      done: false,
+      weight: 0,
+      color: col,
+      elapsedColor: deriveElapsedColor(col),
+      collapsed: false
+    });
+    saveTodos(); renderTodos(); renderCalendar();
+  }
+
+  function toggleSubtask(pathArr) {
+    const t = getNodeByPath(pathArr);
+    if (!t) return;
+    t.done = !t.done;
+    saveTodos(); renderTodos();
+  }
+
+  function removeSubtask(pathArr) {
+    if (pathArr.length < 2) return;
+    const p = getParentByPath(pathArr);
+    if (!p || !p.subtasks) return;
+    const subId = pathArr[pathArr.length - 1];
+    p.subtasks = p.subtasks.filter(x => x.id !== subId);
+    saveTodos(); renderTodos(); renderCalendar();
+  }
+
+  function updateSubtaskText(pathArr, text) {
+    const t = getNodeByPath(pathArr);
+    if (!t) return;
+    const v = (text || '').trim();
+    if (!v) { removeSubtask(pathArr); return; }
+    t.text = v;
+    saveTodos();
+  }
+
+  function toggleCollapse(pathArr) {
+    const t = getNodeByPath(pathArr);
+    if (!t) return;
+    t.collapsed = !t.collapsed;
+    saveTodos(); renderTodos();
+  }
+
+  let dragSub = null;
+  function moveSubtask(srcPath, dstPath, pos) {
+    const src = getNodeByPath(srcPath);
+    const dst = getNodeByPath(dstPath);
+    if (!src || !dst) return;
+    
+    const srcParent = getParentByPath(srcPath);
+    if (!srcParent || !srcParent.subtasks) return;
+    
+    const fromIdx = srcParent.subtasks.findIndex(x => x.id === src.id);
+    if (fromIdx === -1) return;
+    
+    const [moving] = srcParent.subtasks.splice(fromIdx, 1);
+    
+    if (pos === 'inside-end') {
+      ensureSubtasks(dst).push(moving);
+    } else {
+      const dstParent = getParentByPath(dstPath);
+      if (!dstParent) return;
+      let toIdx = dstParent.subtasks.findIndex(x => x.id === dst.id);
+      if (toIdx === -1) { dstParent.subtasks.push(moving); }
+      else {
+        if (pos === 'after') toIdx += 1;
+        dstParent.subtasks.splice(toIdx, 0, moving);
+      }
+    }
+    saveTodos(); renderTodos(); renderTodoTabs(); renderCalendar();
+  }
+  
+  function clearDropMarks() {
+    todoList.querySelectorAll('.drop-before,.drop-after,.drop-inside,.dragging')
+      .forEach(el => el.classList.remove('drop-before','drop-after','drop-inside','dragging'));
+  }
+
+  const CHEVRON_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="chev-svg"><polyline points="9 18 15 12 9 6"></polyline></svg>';
+  const CHEVRON_DOWN_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="chev-svg down"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+
+  function renderSubtasks(subs, parentPath, depth, baseIdx) {
+    if (!subs || !subs.length) return 0;
+    let count = 0;
+    subs.forEach((s, si) => {
+      count++;
+      const currentPath = [...parentPath, s.id];
+      const pathStr = currentPath.join(',');
+      const sli = document.createElement('li');
+      const sLinked = s.blockId && sessions.find(x => x.id === s.blockId);
+      
+      const hasChildren = s.subtasks && s.subtasks.length > 0;
+      const isCollapsed = s.collapsed;
+      
+      sli.className = 'todo-item st-block' + (s.done ? ' st-done' : '') + (sLinked ? ' linked' : '');
+      sli.dataset.path = pathStr;
+      sli.dataset.todoid = parentPath[0]; 
+      sli.dataset.stid = s.id;
+      
+      sli.draggable = true;
+      
+      const indent = Math.min(depth, 5) * 14;
+      sli.style.marginLeft = indent + 'px';
+      
+      if (todoAnimEff() !== 'none') sli.style.animationDelay = '0s, ' + (-(baseIdx * 0.3 + si * 0.15)).toFixed(2) + 's';
+      
+      const chev = hasChildren ? `<button class="st-collapse" data-action="collapse" data-path="${pathStr}">${isCollapsed ? CHEVRON_SVG : CHEVRON_DOWN_SVG}</button>` : '<span class="st-collapse-spacer" style="width:14px;display:inline-block"></span>';
+      
+      sli.innerHTML = `
+        ${chev}
+        <div class="st-check ${s.done ? 'checked' : ''}" data-action="st-toggle" data-path="${pathStr}"></div>
+        <div class="st-text" data-action="st-edit" data-path="${pathStr}">${escapeHtml(s.text)}</div>
+        <button class="st-add-trigger" data-action="st-add-focus" data-path="${pathStr}" title="Add subtask">${SUBTASK_PLUS_SVG}</button>
+        <button class="st-del" data-action="st-del" data-path="${pathStr}" title="Remove">×</button>
+        <div class="todo-weight mini" title="Position weight">
+          <button data-action="sw-plus" data-path="${pathStr}" title="Move up">▲</button><button data-action="sw-minus" data-path="${pathStr}" title="Move down">▼</button><span>${s.weight || 0}</span>
+        </div>
+            ${timelineHtml(sLinked, Date.now(), true, s.color, s.elapsedColor)}
+            ${sLinked ? '<span class="todo-etime" data-start="' + sLinked.start + '" data-end="' + sLinked.end + '">' + etimeText(sLinked, Date.now()) + '</span>' : ''}
+          `;
+      todoList.appendChild(sli);
+      paintWeight(sli, s.weight || 0, !!sLinked);
+      
+      if (hasChildren && !isCollapsed) {
+        count += renderSubtasks(s.subtasks, currentPath, depth + 1, baseIdx + count);
+      }
+    });
+    return count;
+  }
+
   function renderTodos() {
     todoList.innerHTML = '';
     todos.forEach((t, idx) => {
       const li = document.createElement('li');
-      li.className = 'todo-item' + (t.done ? ' done' : '');
-      // Two animations: entrance (no delay) + infinite loop (phase offset).
-      li.style.animationDelay = '0s, ' + (-(idx * 0.3)).toFixed(2) + 's';
+      const linkedSess = t.blockId && sessions.find(s => s.id === t.blockId);
+      const hasChildren = t.subtasks && t.subtasks.length > 0;
+      const isCollapsed = t.collapsed;
+      
+      li.className = 'todo-item' + (t.done ? ' done' : '') + (linkedSess ? ' linked' : '');
+      if (todoAnimEff() !== 'none') li.style.animationDelay = '0s, ' + (-(idx * 0.3)).toFixed(2) + 's';
       li.dataset.id = t.id;
-      const colorStyle = t.color ? `--todo-color:${t.color};background:${t.color}${todoBoxOpaque ? '' : '88'};` : '';
+      li.dataset.path = t.id;
+      const subs = ensureSubtasks(t);
+      const timeLine = timelineHtml(linkedSess, Date.now(), false, t.color, t.elapsedColor);
+
+      const chev = hasChildren ? `<button class="st-collapse" data-action="collapse" data-path="${t.id}">${isCollapsed ? CHEVRON_SVG : CHEVRON_DOWN_SVG}</button>` : '<span class="st-collapse-spacer" style="width:14px;display:inline-block"></span>';
+
       li.innerHTML = `
-        <div class="todo-check ${t.done ? 'checked' : ''}" data-action="toggle" data-id="${t.id}"></div>
-        <label class="todo-color ${t.color ? 'has-color' : ''}" data-action="color" data-id="${t.id}" style="${colorStyle}" title="Color"></label>
-        <div class="todo-text" data-action="edit" data-id="${t.id}">${escapeHtml(t.text)}</div>
-        <button class="todo-priority" data-action="priority" data-id="${t.id}" data-priority="${t.priority || 'none'}" title="Priority: ${t.priority || 'none'}">${FLAG_SVG}</button>
-        <button class="todo-del" data-action="del" data-id="${t.id}" title="Delete">×</button>
+        ${chev}
+        <div class="todo-check ${t.done ? 'checked' : ''}" data-action="toggle" data-path="${t.id}"></div>
+        <div class="todo-text" data-action="edit" data-path="${t.id}">${escapeHtml(t.text)}</div>
+        <button class="st-add-trigger" data-action="st-add-focus" data-path="${t.id}" title="Add subtask">${SUBTASK_PLUS_SVG}</button>
+        <button class="todo-del" data-action="del" data-path="${t.id}" title="Delete">×</button>
+        <div class="todo-weight" title="Position weight (higher sits on top)">
+          <button data-action="w-plus" data-path="${t.id}" title="Move up">▲</button><button data-action="w-minus" data-path="${t.id}" title="Move down">▼</button><span>${t.weight || 0}</span>
+        </div>
+        ${timeLine}
+        ${linkedSess ? '<span class="todo-etime" data-start="' + linkedSess.start + '" data-end="' + linkedSess.end + '">' + etimeText(linkedSess, Date.now()) + '</span>' : ''}
       `;
       todoList.appendChild(li);
+      paintWeight(li, t.weight || 0, !!linkedSess);
+
+      if (hasChildren && !isCollapsed) {
+        renderSubtasks(subs, [t.id], 1, idx);
+      }
     });
   }
 
   function addTodo(text) {
     const t = (text || '').trim();
     if (!t) return;
+    const hue = nextTodoHue();
+    const col = todoHsl(hue, 85, 60);
     todos.unshift({
       id: Date.now() + '-' + Math.random().toString(36).slice(2,7),
       text: t, done: false, createdAt: Date.now(),
-      priority: null, color: null
+      weight: 0, color: col, elapsedColor: deriveElapsedColor(col)
     });
-    sortTodos();
     saveTodos();
     renderTodos();
+    renderCalendar();
   }
 
   function removeTodo(id) {
@@ -1260,7 +1927,7 @@ sessions.push({
     const dropFromList = () => {
       todos = todos.filter(t => t.id !== id);
       todoLists[activeTodoList].todos = todos; // keep the tab's array in sync
-      saveTodos(); renderTodos();
+      saveTodos(); renderTodos(); renderCalendar();
     };
     if (li) {
       li.classList.add('removing');
@@ -1277,75 +1944,23 @@ sessions.push({
     saveTodos(); renderTodos();
   }
 
-  function setPriority(id, p) {
+  function bumpWeight(id, d) {
     const t = todos.find(x => x.id === id);
     if (!t) return;
-    t.priority = (p && p !== 'none') ? p : null;
-    sortTodos();
-    saveTodos(); renderTodos();
+    t.weight = clampWeight((t.weight || 0) + d);
+    saveTodos();
+    const card = todoList.querySelector(`.todo-item[data-id="${id}"]`);
+    if (card) paintWeight(card, t.weight, !!(t.blockId && sessions.find(s => s.id === t.blockId)));
   }
-
-  // ── Priority dropdown (menu-style, replaces cycle-through) ──
-  const PRIO_OPTIONS = [
-    { v: 'high',   label: 'High',   color: '#ef4444' },
-    { v: 'medium', label: 'Medium', color: '#f59e0b' },
-    { v: 'low',    label: 'Low',    color: '#38bdf8' },
-    { v: 'none',   label: 'None',   color: '' }
-  ];
-  let prioPop = null, prioId = null;
-
-  function ensurePrioPop() {
-    if (prioPop) return prioPop;
-    const pop = document.createElement('div');
-    pop.className = 'prio-pop';
-    pop.innerHTML = PRIO_OPTIONS.map(o =>
-      `<button class="prio-opt" data-p="${o.v}"><span class="prio-dot" style="${o.color ? ('background:' + o.color) : ''}"></span>${o.label}</button>`
-    ).join('');
-    pop.addEventListener('click', e => {
-      const b = e.target.closest('.prio-opt');
-      if (!b) return;
-      setPriority(prioId, b.dataset.p);
-      closePrioPop();
-    });
-    document.body.appendChild(pop);
-    prioPop = pop;
-    return pop;
-  }
-
-  function openPrioMenu(anchor, id) {
-    prioId = id;
-    const pop = ensurePrioPop();
-    const ar = anchor.getBoundingClientRect();
-    const ph = pop.offsetHeight || 120;
-    let left = ar.left;
-    let top = ar.bottom + 4;
-    if (top + ph > window.innerHeight - 8) top = ar.top - ph - 4;
-    left = Math.max(8, Math.min(left, window.innerWidth - (pop.offsetWidth || 120) - 8));
-    pop.style.left = left + 'px';
-    pop.style.top = top + 'px';
-    const t = todos.find(x => x.id === id);
-    const active = t ? (t.priority || 'none') : 'none';
-    pop.querySelectorAll('.prio-opt').forEach(b => b.classList.toggle('active', b.dataset.p === active));
-    pop.classList.add('open');
-    document.addEventListener('mousedown', onPrioOutside, true);
-    document.addEventListener('keydown', onPrioKey, true);
-  }
-
-  function closePrioPop() {
-    if (!prioPop) return;
-    prioPop.classList.remove('open');
-    document.removeEventListener('mousedown', onPrioOutside, true);
-    document.removeEventListener('keydown', onPrioKey, true);
-  }
-
-  function onPrioOutside(e) { if (prioPop && !prioPop.contains(e.target)) closePrioPop(); }
-  function onPrioKey(e) { if (e.key === 'Escape') closePrioPop(); }
-
-  function setColor(id, color) {
-    const t = todos.find(x => x.id === id);
-    if (!t) return;
-    t.color = color || null;
-    saveTodos(); renderTodos();
+  
+  function bumpSubWeight(pathArr, d) {
+    const s = getNodeByPath(pathArr);
+    if (!s) return;
+    s.weight = clampWeight((s.weight || 0) + d);
+    saveTodos();
+    const pathStr = pathArr.join(',');
+    const card = todoList.querySelector(`.todo-item[data-path="${pathStr}"]`);
+    if (card) paintWeight(card, s.weight, !!(s.blockId && sessions.find(x => x.id === s.blockId)));
   }
 
   function updateTodoText(id, text) {
@@ -1384,14 +1999,109 @@ sessions.push({
 
   // List interactions (event delegation)
   todoList.addEventListener('click', e => {
+    // Link mode: a block is armed — parent cards attach/detach the todo,
+    // subtask rows attach/detach that subtask. Delete still deletes.
+    if (linkBlockId) {
+      const delBtn = e.target.closest && (e.target.closest('[data-action="del"]') || e.target.closest('[data-action="st-del"]'));
+      if (!delBtn) {
+        const card = e.target.closest && e.target.closest('.todo-item[data-id]');
+        if (card) { e.stopPropagation(); toggleTodoLink(card.dataset.id); return; }
+        const sub = e.target.closest && e.target.closest('.todo-item[data-stid]');
+        if (sub && sub.dataset.path) { e.stopPropagation(); toggleSubtaskLink(sub.dataset.path.split(',')); return; }
+      }
+    }
     const el = e.target.closest('[data-action]');
     if (!el) return;
     const action = el.dataset.action;
-    const id = el.dataset.id;
+    const id = el.dataset.id || (el.dataset.path ? el.dataset.path.split(',')[0] : null);
+
+    if (action === 'collapse') {
+      e.stopPropagation();
+      const p = el.dataset.path ? el.dataset.path.split(',') : [id];
+      toggleCollapse(p);
+      return;
+    }
+    if (action === 'st-toggle') {
+      e.stopPropagation();
+      toggleSubtask(el.dataset.path.split(','));
+      return;
+    }
+    if (action === 'st-del') {
+      e.stopPropagation();
+      removeSubtask(el.dataset.path.split(','));
+      return;
+    }
+    if (action === 'st-add-focus') {
+      e.stopPropagation();
+      const p = el.dataset.path ? el.dataset.path.split(',') : [id];
+      const sid = Date.now() + '-st-' + Math.random().toString(36).slice(2,6);
+      
+      const targetNode = getNodeByPath(p);
+      if (!targetNode) return;
+      ensureSubtasks(targetNode).push({ id: sid, text: '', done: false, weight: 0, collapsed: false });
+      targetNode.collapsed = false; // ensure it's open to see the new task
+      saveTodos();
+      renderTodos();
+      renderCalendar();
+      
+      const newPath = el.dataset.path ? el.dataset.path + ',' + sid : id + ',' + sid;
+      const newEl = todoList.querySelector(`.st-text[data-path="${newPath}"]`);
+      if (newEl) {
+        newEl.setAttribute('contenteditable', 'true');
+        newEl.focus();
+        const finish = () => {
+          newEl.removeAttribute('contenteditable');
+          newEl.removeEventListener('blur', finish);
+          newEl.removeEventListener('keydown', onKey);
+          updateSubtaskText(newPath.split(','), newEl.textContent);
+          renderTodos();
+        };
+        const onKey = (ev) => {
+          if (ev.key === 'Enter') { ev.preventDefault(); newEl.blur(); }
+          if (ev.key === 'Escape') { newEl.textContent = ''; newEl.blur(); }
+        };
+        newEl.addEventListener('blur', finish);
+        newEl.addEventListener('keydown', onKey);
+      }
+      return;
+    }
+    if (action === 'st-edit') {
+      e.stopPropagation();
+      const p = el.dataset.path.split(',');
+      el.setAttribute('contenteditable', 'true');
+      el.focus();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      const finish = () => {
+        el.removeAttribute('contenteditable');
+        el.removeEventListener('blur', finish);
+        el.removeEventListener('keydown', onKey);
+        updateSubtaskText(p, el.textContent);
+        renderTodos();
+      };
+      const onKey = (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); el.blur(); }
+        if (ev.key === 'Escape') {
+          const t = getNodeByPath(p);
+          el.textContent = t ? t.text : '';
+          el.blur();
+        }
+      };
+      el.addEventListener('blur', finish);
+      el.addEventListener('keydown', onKey);
+      return;
+    }
+
+    // ── Original todo actions ──
     if (action === 'toggle') { toggleTodo(id); return; }
     if (action === 'del')    { e.stopPropagation(); removeTodo(id); return; }
-    if (action === 'priority') { e.stopPropagation(); openPrioMenu(el, id); return; }
-    if (action === 'color')  { e.stopPropagation(); openTodoColorPop(el, id); return; }
+    if (action === 'w-plus')  { e.stopPropagation(); bumpWeight(id, 1); return; }
+    if (action === 'w-minus') { e.stopPropagation(); bumpWeight(id, -1); return; }
+    if (action === 'sw-plus')  { e.stopPropagation(); bumpSubWeight(el.dataset.path.split(','), 1); return; }
+    if (action === 'sw-minus')  { e.stopPropagation(); bumpSubWeight(el.dataset.path.split(','), -1); return; }
     if (action === 'edit') {
       el.setAttribute('contenteditable', 'true');
       el.focus();
@@ -1416,67 +2126,79 @@ sessions.push({
     }
   });
 
-  // ── Custom color popover for todo dots (closes on outside click / Escape) ──
-  const TODO_PALETTE = [
-    '#8b5cf6', '#6366f1', '#3b82f6', '#0ea5e9', '#06b6d4', '#14b8a6',
-    '#10b981', '#84cc16', '#eab308', '#f59e0b', '#f97316', '#ef4444',
-    '#f43f5e', '#ec4899', '#d946ef', '#a855f7', '#64748b', '#ffffff'
-  ];
-  let todoColorPop = null;
-  let todoColorId = null;
+  // Subtask drag & drop: reorder within parent, or move under another parent.
+  // - Drag over a subtask = insert before/after (top/bottom half).
+  // - Drag over a parent card = append to end of that parent.
+  todoList.addEventListener('dragstart', e => {
+    const sli = e.target.closest ? e.target.closest('.st-block') : null;
+    if (!sli) return;
+    if (sli.querySelector('[contenteditable="true"]')) { e.preventDefault(); return; }
+    dragSub = { todoId: sli.dataset.todoid, subId: sli.dataset.stid };
+    try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragSub.subId); } catch (_) {}
+    requestAnimationFrame(() => sli.classList.add('dragging'));
+  });
+  todoList.addEventListener('dragover', e => {
+    if (!dragSub) return;
+    const sli = e.target.closest ? e.target.closest('.st-block') : null;
+    const pli = e.target.closest ? e.target.closest('.todo-item:not(.st-block)') : null;
+    if (!sli && !pli) return;
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = 'move'; } catch (_) {}
+    const overOwnCard = sli && sli.dataset.todoid === dragSub.todoId && sli.dataset.stid === dragSub.subId;
+    todoList.querySelectorAll('.drop-before,.drop-after,.drop-inside')
+      .forEach(el => el.classList.remove('drop-before','drop-after','drop-inside'));
+    if (sli && !overOwnCard) {
+      const rc = sli.getBoundingClientRect();
+      const after = (e.clientY - rc.top) > rc.height / 2;
+      sli.classList.add(after ? 'drop-after' : 'drop-before');
+    } else if (pli) {
+      pli.classList.add('drop-inside');
+    }
+  });
+  todoList.addEventListener('dragleave', e => {
+    const li = e.target.closest ? e.target.closest('.todo-item') : null;
+    if (li) li.classList.remove('drop-before','drop-after','drop-inside');
+  });
+  todoList.addEventListener('drop', e => {
+    if (!dragSub) return;
+    const sli = e.target.closest ? e.target.closest('.st-block') : null;
+    const pli = e.target.closest ? e.target.closest('.todo-item:not(.st-block)') : null;
+    if (sli && !(sli.dataset.todoid === dragSub.todoId && sli.dataset.stid === dragSub.subId)) {
+      e.preventDefault();
+      const rc = sli.getBoundingClientRect();
+      const after = (e.clientY - rc.top) > rc.height / 2;
+      moveSubtask(dragSub.todoId, dragSub.subId, sli.dataset.todoid, sli.dataset.stid, after ? 'after' : 'before');
+    } else if (pli && !sli) {
+      e.preventDefault();
+      moveSubtask(dragSub.todoId, dragSub.subId, pli.dataset.id, null, 'inside-end');
+    }
+    dragSub = null;
+    clearDropMarks();
+  });
+  todoList.addEventListener('dragend', () => { dragSub = null; clearDropMarks(); });
 
-  function ensureTodoColorPop() {
-    if (todoColorPop) return todoColorPop;
-    const pop = document.createElement('div');
-    pop.className = 'todo-color-pop';
-    pop.innerHTML = '<div class="tcp-swatch clear" data-color="" title="No color">✕</div>' +
-      TODO_PALETTE.map(c => `<div class="tcp-swatch" data-color="${c}" style="background:${c}" title="${c}"></div>`).join('');
-    pop.addEventListener('click', e => {
-      const sw = e.target.closest('.tcp-swatch');
-      if (!sw) return;
-      setColor(todoColorId, sw.dataset.color || null);
-      closeTodoColorPop();
-    });
-    document.body.appendChild(pop);
-    todoColorPop = pop;
-    return pop;
-  }
+  // Live timelines + outside counters: refresh in place every second so the
+  // seconds visibly tick (no re-render, never disturbs editing).
+  setInterval(() => {
+    try {
+      const now = Date.now();
+      todoList.querySelectorAll('.todo-timeline[data-start]').forEach(el => {
+        const fill = el.firstElementChild;
+        if (fill) fill.style.width = blockPct({ start: +el.dataset.start, end: +el.dataset.end }, now).toFixed(1) + '%';
+      });
+      todoList.querySelectorAll('.todo-etime[data-start]').forEach(el => {
+        const txt = etimeText({ start: +el.dataset.start, end: +el.dataset.end }, now);
+        if (el.textContent !== txt) el.textContent = txt;
+      });
+    } catch (_) {}
+  }, 1000);
 
-  function openTodoColorPop(anchor, id) {
-    todoColorId = id;
-    const pop = ensureTodoColorPop();
-    const ar = anchor.getBoundingClientRect();
-    const pw = pop.offsetWidth || 160, ph = pop.offsetHeight || 120;
-    let left = ar.left + ar.width / 2 - pw / 2;
-    let top = ar.bottom + 6;
-    if (top + ph > window.innerHeight - 8) top = ar.top - ph - 6;
-    left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
-    pop.style.left = left + 'px';
-    pop.style.top = top + 'px';
-    pop.classList.add('open');
-    document.addEventListener('mousedown', onTodoColorOutside, true);
-    document.addEventListener('keydown', onTodoColorKey, true);
-  }
-
-  function closeTodoColorPop() {
-    if (!todoColorPop) return;
-    todoColorPop.classList.remove('open');
-    document.removeEventListener('mousedown', onTodoColorOutside, true);
-    document.removeEventListener('keydown', onTodoColorKey, true);
-  }
-
-  function onTodoColorOutside(e) {
-    if (todoColorPop && !todoColorPop.contains(e.target)) closeTodoColorPop();
-  }
-
-  function onTodoColorKey(e) {
-    if (e.key === 'Escape') closeTodoColorPop();
-  }
-
-  sortTodos();
+  normalizeTodoWeights();
+  applyTodoAnim();
+  applyCalAnim();
   renderTodoTabs();
   renderTodos();
-  applyTodoAnim();
+  renderCalendar();
 
   window.addEventListener('mousemove', e => {
     lastMouseMove = Date.now();
@@ -1632,7 +2354,14 @@ sessions.push({
       editingLabelIdx + ':' + editingTaskIdx].join('~');
   }
 
+  let nextLabelCheckAt = 0;
   function syncLabels(cx, cy, r, W, H) {
+    // Serializing all label content every frame is expensive for long task
+    // lists. A four-times-per-second validation is imperceptible here and
+    // still reacts immediately to explicit resize/expiry invalidations.
+    const now = performance.now();
+    if (lastLabelSig !== '__resize__' && lastLabelSig !== '__expiry__' && now < nextLabelCheckAt) return;
+    nextLabelCheckAt = now + 250;
     // Change-driven: re-layout only when data or geometry changed.
     const sig = labelSig(cx, cy, r, W, H);
     if (sig === lastLabelSig) return;
@@ -1645,6 +2374,7 @@ sessions.push({
   let lastVisSig = '';
   setInterval(() => {
     try {
+      if (document.hidden) return;
       const now = Date.now();
       const vs = sessions.map(s => (s && s.end > now - 300000 && s.tasks && s.tasks.length ? '1' : '0')).join('');
       if (vs !== lastVisSig) { lastVisSig = vs; lastLabelSig = '__expiry__'; }
@@ -1665,6 +2395,7 @@ sessions.push({
   function layoutLabels(cx, cy, r, W, H) {
     const now = Date.now();
     labelLayouts = [];
+    if (!SESSIONS_ENABLED) return; // no ring labels while allocations are off
     const sizeScale = tooltipSize || 1.0;
     const baseFont = Math.round(12 * sizeScale);
     const mp = labelMotionParams(tooltipAnim || 'bounce');
@@ -1720,12 +2451,9 @@ sessions.push({
           }
         }
       };
-      if (!hasTasks) {
-        emit('+', 0, true, false); // single centered placeholder for empty block
-      } else {
-        tasks.forEach((txt, t) => emit(txt, t, false, false));
-        emit('+', tasks.length, false, true); // trailing add-more marker
-      }
+      // No '+' add-markers around the dial: blocks show only their real tasks.
+      // (Tasks are managed from the Blocks tab / todo panel instead.)
+      tasks.forEach((txt, t) => emit(txt, t, false, false));
     });
     maybeFitWindow(4 - fitMin, fitMax - (H - 4));
   }
@@ -1864,36 +2592,13 @@ sessions.push({
       lastMouseCanvas = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     } catch (_) {}
 
-    // Click-through: transparent pixels (no glyph drawn) forward clicks to
-    // apps underneath; opaque clock content and the todo panel stay fully
-    // interactive. Only re-armed on state change to avoid IPC spam.
+// Click-through: DISABLED — the window now has an opaque backdrop (#0e0e17),
+// so every pixel belongs to the app. Forwarding clicks based on canvas alpha
+// would create invisible holes (user sees solid panel, clicks fall through).
+// Only re-arms to interactive if some stale state left it ignoring.
     try {
-      const mx = e.clientX, my = e.clientY;
-      // DOM UI stays interactive: task panel, popovers, floating pickers, inputs.
-      const tgt = document.elementFromPoint(mx, my);
-      if (tgt && tgt.closest('#todo-panel, .prio-pop, .todo-color-pop, .floating-picker, input, button, textarea')) {
-        if (ignoreMouseActive) { ignoreMouseActive = false; api.setIgnoreMouse(false); }
-        return;
-      }
-      // Canvas hover buttons (resize grip / exit ×): keep the hit zones
-      // interactive even where painted strokes have transparent gaps.
-      const lm = lastMouseCanvas;
-      if (lm && (isOnResizeHandle(lm.x, lm.y) || isOnExitButton(lm.x, lm.y))) {
-        if (ignoreMouseActive) { ignoreMouseActive = false; api.setIgnoreMouse(false); }
-        return;
-      }
-      const rect = canvas.getBoundingClientRect();
-      const px = Math.floor(mx - rect.left);
-      const py = Math.floor(my - rect.top);
-      let alpha = 255;
-      if (px >= 0 && py >= 0 && px < canvas.width && py < canvas.height) {
-        alpha = X.getImageData(px, py, 1, 1).data[3];
-      }
-      const shouldIgnore = alpha < 10;
-      if (shouldIgnore !== ignoreMouseActive) {
-        ignoreMouseActive = shouldIgnore;
-        api.setIgnoreMouse(shouldIgnore);
-      }
+      if (ignoreMouseActive) { ignoreMouseActive = false; api.setIgnoreMouse(false); }
+      return;
     } catch (_) {
       if (ignoreMouseActive) { ignoreMouseActive = false; api.setIgnoreMouse(false); }
     }
@@ -1959,31 +2664,38 @@ sessions.push({
     return gearOpacity > 0.1 && Math.hypot(mx - gearX, my - gearY) < gearR + 4;
   }
 
-  // -- Bottom grip: always drags the window, no matter what's underneath --
+  // -- Bottom grip: big round drag button, always drags the window --
   function drawGrabHandle(cx, cy, r) {
     handleX = cx;
-    handleY = cy + r + 30;
+    handleY = cy + r + 36;
     const elapsed = Date.now() - lastMouseMove;
-    const targetOp = elapsed < 1800 ? 0.55 : 0;
+    const targetOp = elapsed < 1800 ? 0.6 : 0;
     handleOpacity += (targetOp - handleOpacity) * 0.1;
     if (handleOpacity < 0.02) return;
     X.save();
     X.globalAlpha = handleOpacity;
-    const w = 60, h = 8;
+    const R = 18;
     X.beginPath();
-    X.roundRect(handleX - w / 2, handleY - h / 2, w, h, h / 2);
+    X.arc(handleX, handleY, R, 0, PI2);
     X.fillStyle = 'rgba(255,255,255,0.10)';
     X.fill();
-    X.strokeStyle = 'rgba(255,255,255,0.25)';
-    X.lineWidth = 1;
+    X.strokeStyle = 'rgba(255,255,255,0.30)';
+    X.lineWidth = 1.5;
     X.stroke();
-    X.fillStyle = 'rgba(255,255,255,0.55)';
-    for (let i = 0; i < 5; i++) X.fillRect(handleX - 20 + i * 10, handleY - 1, 5, 2);
+    // 3x3 grip dots
+    X.fillStyle = 'rgba(255,255,255,0.60)';
+    for (let gy = -1; gy <= 1; gy++) {
+      for (let gx = -1; gx <= 1; gx++) {
+        X.beginPath();
+        X.arc(handleX + gx * 7, handleY + gy * 7, 1.8, 0, PI2);
+        X.fill();
+      }
+    }
     X.restore();
   }
 
   function isOnGrabHandle(mx, my) {
-    return handleOpacity > 0.1 && Math.hypot(mx - handleX, my - handleY) < 34;
+    return handleOpacity > 0.1 && Math.hypot(mx - handleX, my - handleY) < 26;
   }
 
   // -- Resize grip (dial bottom-right): drags a diagonal arrow → window grows --
@@ -2529,6 +3241,18 @@ sessions.push({
           X.restore();
         }
       },
+      meridian: {
+        hour: (cx,cy,a,len,col) => { X.save();X.translate(cx,cy);X.rotate(a);X.beginPath();X.moveTo(-len*.055,len*.12);X.lineTo(len*.055,len*.12);X.lineTo(len*.018,-len*.78);X.lineTo(0,-len);X.lineTo(-len*.018,-len*.78);X.closePath();X.fillStyle=col;X.fill();X.restore(); },
+        minute: (cx,cy,a,len,col) => { X.save();X.translate(cx,cy);X.rotate(a);X.beginPath();X.moveTo(-len*.035,len*.1);X.lineTo(len*.035,len*.1);X.lineTo(len*.012,-len*.82);X.lineTo(0,-len);X.lineTo(-len*.012,-len*.82);X.closePath();X.fillStyle=col;X.fill();X.restore(); }
+      },
+      ribbon: {
+        hour: (cx,cy,a,len,col) => { X.save();X.translate(cx,cy);X.rotate(a);X.beginPath();X.moveTo(0,len*.15);X.bezierCurveTo(-len*.07,-len*.15,-len*.06,-len*.62,0,-len);X.bezierCurveTo(len*.06,-len*.62,len*.07,-len*.15,0,len*.15);X.fillStyle=col;X.fill();X.restore(); },
+        minute: (cx,cy,a,len,col) => { X.save();X.translate(cx,cy);X.rotate(a);X.beginPath();X.moveTo(0,len*.13);X.bezierCurveTo(-len*.045,-len*.18,-len*.04,-len*.66,0,-len);X.bezierCurveTo(len*.04,-len*.66,len*.045,-len*.18,0,len*.13);X.fillStyle=col;X.fill();X.restore(); }
+      },
+      bracket: {
+        hour: (cx,cy,a,len,col) => { X.save();X.translate(cx,cy);X.rotate(a);X.lineWidth=Math.max(2,len*.035);X.strokeStyle=col;X.lineCap='round';X.beginPath();X.moveTo(0,len*.12);X.lineTo(0,-len*.78);X.stroke();X.beginPath();X.arc(0,-len*.8,len*.12,0,Math.PI);X.stroke();X.restore(); },
+        minute: (cx,cy,a,len,col) => { X.save();X.translate(cx,cy);X.rotate(a);X.lineWidth=Math.max(1.5,len*.024);X.strokeStyle=col;X.lineCap='round';X.beginPath();X.moveTo(0,len*.1);X.lineTo(0,-len*.84);X.stroke();X.beginPath();X.arc(0,-len*.85,len*.085,0,Math.PI);X.stroke();X.restore(); }
+      },
       barley: {
         hour: (cx,cy,a,len,col) => {
           X.save();X.translate(cx,cy);X.rotate(a);X.shadowColor='rgba(0,0,0,0.35)';X.shadowBlur=5;
@@ -2940,6 +3664,34 @@ sessions.push({
     drawHandSet(cx,cy,r,ha,ma,sa,'#c084fc',t.accent,t.sec,true);
   }
 
+  // Lightweight additions to the face catalog: distinct looks without adding
+  // image assets or retaining off-screen canvases in memory.
+  function drawAurora(cx,cy,r,hrF,minF,secF,t) {
+    const g=X.createRadialGradient(cx-r*.25,cy-r*.35,r*.08,cx,cy,r);
+    g.addColorStop(0,'#1d3a4a');g.addColorStop(.58,'#102438');g.addColorStop(1,'#07131f');
+    X.beginPath();X.arc(cx,cy,r,0,PI2);X.fillStyle=g;X.fill();
+    for(let i=0;i<12;i++){const a=i*30*DEG2RAD;X.beginPath();X.arc(cx+Math.sin(a)*r*.79,cy-Math.cos(a)*r*.79,i%3===0?2.5:1.2,0,PI2);X.fillStyle=i%3===0?'#a7f3d0':'rgba(186,230,253,.7)';X.fill();}
+    const [ha,ma,sa]=angles(hrF,minF,secF);drawHandSet(cx,cy,r,ha,ma,sa,'#ecfeff','#a5f3fc',t.sec,true);
+  }
+  function drawNoir(cx,cy,r,hrF,minF,secF,t) {
+    X.beginPath();X.arc(cx,cy,r,0,PI2);X.fillStyle='#0b0c10';X.fill();
+    X.beginPath();X.arc(cx,cy,r*.92,0,PI2);X.strokeStyle='rgba(244,63,94,.45)';X.lineWidth=1.5;X.stroke();
+    ticks60(cx,cy,r,'#f8fafc','#52525b',2.2,.7);
+    const [ha,ma,sa]=angles(hrF,minF,secF);drawHandSet(cx,cy,r,ha,ma,sa,'#f8fafc','#a1a1aa','#fb7185',true);
+  }
+  function drawLumen(cx,cy,r,hrF,minF,secF,t) {
+    const g=X.createLinearGradient(cx-r,cy-r,cx+r,cy+r);g.addColorStop(0,'#f8fafc');g.addColorStop(1,'#dbeafe');
+    X.beginPath();X.arc(cx,cy,r,0,PI2);X.fillStyle=g;X.fill();
+    for(let i=0;i<12;i++){const a=i*30*DEG2RAD;X.beginPath();X.roundRect(cx+Math.sin(a)*r*.77-1.5,cy-Math.cos(a)*r*.77-5,3,10,1.5);X.fillStyle=i%3===0?'#1e3a8a':'#60a5fa';X.fill();}
+    const [ha,ma,sa]=angles(hrF,minF,secF);drawHandSet(cx,cy,r,ha,ma,sa,'#1e3a8a','#2563eb','#f43f5e');
+  }
+  function drawGridline(cx,cy,r,hrF,minF,secF,t) {
+    X.beginPath();X.arc(cx,cy,r,0,PI2);X.fillStyle='#07111f';X.fill();
+    X.save();X.beginPath();X.arc(cx,cy,r*.94,0,PI2);X.clip();X.strokeStyle='rgba(56,189,248,.14)';X.lineWidth=1;
+    for(let n=-4;n<=4;n++){X.beginPath();X.moveTo(cx-r,cy+n*r*.3);X.lineTo(cx+r,cy+n*r*.3);X.stroke();X.beginPath();X.moveTo(cx+n*r*.3,cy-r);X.lineTo(cx+n*r*.3,cy+r);X.stroke();}X.restore();
+    const [ha,ma,sa]=angles(hrF,minF,secF);drawHandSet(cx,cy,r,ha,ma,sa,'#e0f2fe','#38bdf8','#f472b6',true);
+  }
+
   /* ── Router Map (52) ── */
   const STYLES = {
     // Ghost / Hands Only (13)
@@ -2957,6 +3709,7 @@ sessions.push({
     astronomy:drawAstronomy, submariner:drawSubmariner, industrial:drawIndustrial,
     papercraft:drawPapercraft, retrodigital:drawRetroLCD, zen:drawZen,
     hologram:drawHologram, copper:drawCopper, monochrome:drawMonochrome, regatta:drawRegatta,
+    aurora:drawAurora, noir:drawNoir, lumen:drawLumen, gridline:drawGridline,
 
     // Unique Motion (14)
     orbit:drawOrbit, concentric:drawConcentric, radar:drawRadar, gradientarc:drawGradientArc,
@@ -3279,10 +4032,10 @@ sessions.push({
   }
 
   function drawSessionsOverlay(cx, cy, r) {
+    if (!SESSIONS_ENABLED) return;
     if (!sessions || sessions.length === 0) return;
-    const nowTime = performance.now();
+const nowTime = performance.now();
     const realNow = Date.now();
-    let needsCleanup = false;
     const spd = blockAnim.speed || 1.0;
     const t = (nowTime / 1000) * spd;
     
@@ -3290,10 +4043,7 @@ sessions.push({
     const MS_IN_12H = 43200000;
     
     sessions.forEach(sess => {
-       if (realNow - sess.end > MS_IN_12H) {
-           needsCleanup = true; 
-           return; 
-       }
+       if (!sess) return;
        
        let sDate = new Date(sess.start);
        let startMsIn12h = (sDate.getHours() % 12) * 3600000 + sDate.getMinutes() * 60000 + sDate.getSeconds() * 1000 + sDate.getMilliseconds();
@@ -3340,11 +4090,27 @@ sessions.push({
            // Boost elapsed opacity heavily so custom colors are undeniably visible
            X.globalAlpha = hasCustomEl ? Math.min(1.0, blockOpacity * 2.5) : blockOpacity * 0.4;
            X.shadowBlur = 0; X.shadowColor = 'transparent';
+           
+           // Base fill
            X.beginPath();
            X.moveTo(cx, cy);
            X.arc(cx, cy, r, startAngle, currentAngle);
            X.closePath();
            X.fillStyle = elColor;
+           X.fill();
+           
+           // Hatching pattern overlay
+           if (!window.hatchPattern) {
+               const hc = document.createElement('canvas');
+               hc.width = 8; hc.height = 8;
+               const hx = hc.getContext('2d');
+               hx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+               hx.lineWidth = 1;
+               hx.beginPath(); hx.moveTo(0, 8); hx.lineTo(8, 0); hx.stroke();
+               window.hatchPattern = X.createPattern(hc, 'repeat');
+           }
+           X.globalAlpha = 0.5; // faint overlay
+           X.fillStyle = window.hatchPattern;
            X.fill();
            
            X.globalAlpha = hasCustomEl ? Math.min(1.0, blockOpacity * 2.5) : blockOpacity * 0.4;
@@ -3377,14 +4143,23 @@ sessions.push({
            X.lineWidth = 1.5;
            X.stroke();
            X.shadowBlur = 0; X.shadowColor = 'transparent';
-       }
-    });
+        }
+
+        // 3) Armed-for-linking highlight: colorized pulsing outline on the wedge
+        if (linkBlockId && sess.id === linkBlockId) {
+            const pulse = 0.6 + 0.4 * Math.sin(nowTime / 300);
+            X.save();
+            X.globalAlpha = 0.55 + 0.35 * pulse;
+            X.shadowColor = activeColor; X.shadowBlur = 18;
+            X.beginPath();
+            X.arc(cx, cy, drawR + 4, startAngle, endAngle);
+            X.strokeStyle = activeColor;
+            X.lineWidth = 3;
+            X.stroke();
+            X.restore();
+        }
+});
     X.restore();
-    
-    if (needsCleanup) {
-       sessions = sessions.filter(s => nowTime - s.end <= MS_IN_12H);
-       save();
-    }
   }
 
   function drawInteractiveKnob(cx, cy, r) {
@@ -3418,11 +4193,10 @@ sessions.push({
        const kxE = cx + Math.cos(aE) * (r - 12);
        const kyE = cy + Math.sin(aE) * (r - 12);
 
-       // Delete Block Button (Trash)
-       const midTime = (sess.start + sess.end) / 2;
-       const midA = getAngleForDate(new Date(midTime));
-       const delX = cx + Math.cos(midA) * (r - 35);
-       const delY = cy + Math.sin(midA) * (r - 35);
+// Delete Block Button (Trash) at the wedge MIDPOINT — clear of both handles
+       const midD = new Date((dS.getTime() + dE.getTime()) / 2);
+       const delX = cx + Math.cos(getAngleForDate(midD)) * (r - 35);
+       const delY = cy + Math.sin(getAngleForDate(midD)) * (r - 35);
 
        // Position the DOM color pickers inside the ring (before hover test)
        if (pWrapS) {
@@ -3434,13 +4208,26 @@ sessions.push({
            pWrapE.style.top = (cy + Math.sin(aE) * (r - 50) - 11) + 'px';
        }
 
-       // Auto-hide the whole cluster unless focused AND cursor is over it.
+// Auto-hide the whole cluster unless focused AND cursor is over it.
        const mx = lastMouseCanvas ? lastMouseCanvas.x : -999;
        const my = lastMouseCanvas ? lastMouseCanvas.y : -999;
        const overS = Math.hypot(mx - kxS, my - kyS) < 26;
        const overE = Math.hypot(mx - kxE, my - kyE) < 26;
-       const overDel = Math.hypot(mx - delX, my - delY) < 18;
-       const hoverHere = windowFocused && (draggingKnob || overS || overE || overDel ||
+       const overDel = Math.hypot(mx - delX, my - delY) < 14;
+       // Hover over the wedge body itself keeps the cluster shown, so moving the
+       // cursor across a block reveals both handles + the trash instead of hiding.
+       let overWedge = false;
+       const distM = Math.hypot(mx - cx, my - cy);
+       if (distM <= r + 4) {
+         let wa = Math.atan2(my - cy, mx - cx) + (Math.PI / 2);
+         if (wa < 0) wa += PI2; if (wa >= PI2) wa -= PI2;
+         const norm = (a) => { a = a % PI2; if (a < 0) a += PI2; return a; };
+         const ws = norm(aS + (Math.PI / 2));
+         const we = norm(aE + (Math.PI / 2));
+         if (we >= ws) overWedge = (wa >= ws && wa <= we);
+         else overWedge = (wa >= ws || wa <= we);
+       }
+       const hoverHere = windowFocused && (draggingKnob || overS || overE || overDel || overWedge ||
           nearCanvas(pWrapS, mx, my, 30) || nearCanvas(pWrapE, mx, my, 30));
        if (!hoverHere) {
            if (pWrapS) pWrapS.style.display = 'none';
@@ -3508,9 +4295,372 @@ sessions.push({
     }
   }
 
-  function draw() {
-    // Hidden/minimized window: keep the loop alive but skip all paint work.
+  let frameHandle = null;
+  let renderTimer = null;
+  let lastPaintAt = 0;
+  // 20 FPS is visually smooth for an analog second hand and cuts idle
+  // canvas work by 33% compared to 30 FPS, saving battery and memory.
+  const IDLE_FRAME_MS = 1000 / 20;
+
+
+  let viewMode = 'clock';
+  // ── Rectangular day-board view (compact vertical timeline) ──
+  // The board day starts at 8am and wraps a full 24h (8..23,0..7) so the
+  // whole day stays visible. Whole 24h always fits: px-per-hour derives
+  // from the visible height, so no scrollbar is ever needed.
+  const BOARD_START_HR = 8;
+  const boardDispHr = (h) => (((h - BOARD_START_HR) % 24) + 24) % 24; // clock hr -> display row
+  const boardClockHr = (d) => (d + BOARD_START_HR) % 24; // display row -> clock hr
+  function boardHrPx() {
+    const h = (dayBoard && dayBoard.clientHeight) || 600;
+    return h / 24;
+  }
+  let boardEditing = false; // true while renaming inline (skips rebuild)
+  let boardResize = null; // {id, edge} while dragging a block edge
+  let boardMove = null; // {id, offMs, x0, y0, active} while dragging a block body
+  const viewToggleBtn = document.getElementById('view-toggle');
+  const boardExitBtn = document.getElementById('board-exit-btn');
+  if (boardExitBtn) boardExitBtn.addEventListener('click', e => { e.stopPropagation(); api.closeApp(); });
+  
+  const boardDragHandle = document.getElementById('board-drag-handle');
+  if (boardDragHandle) boardDragHandle.addEventListener('mousedown', e => { if (e.button === 0) { e.stopPropagation(); api.dragStart(); } });
+  // Board corner grip resizes the whole window (reuses the dial-resize IPC).
+  const boardResizeGrip = document.getElementById('board-resize');
+  if (boardResizeGrip) boardResizeGrip.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    resizing = true;
+    api.resizeStart();
+  });
+  const dayBoard = document.getElementById('day-board');
+  const boardTimeline = document.getElementById('board-timeline');
+  const clockCanvas = document.getElementById('clock');
+  
+  if (viewToggleBtn) {
+    viewToggleBtn.addEventListener('click', () => {
+      viewMode = viewMode === 'clock' ? 'board' : 'clock';
+      if (viewMode === 'board') {
+        viewToggleBtn.classList.add('active');
+        dayBoard.style.display = 'flex';
+        clockCanvas.style.opacity = '0';
+        clockCanvas.style.visibility = 'hidden';
+        renderBoard();
+        setTimeout(() => scrollToNow(), 100);
+      } else {
+        viewToggleBtn.classList.remove('active');
+        dayBoard.style.display = 'none';
+        clockCanvas.style.opacity = '1';
+        clockCanvas.style.visibility = 'visible';
+      }
+    });
+  }
+
+  function scrollToNow() {
+    if (!dayBoard) return;
+    const now = new Date();
+    const h = now.getHours() + now.getMinutes() / 60;
+    const px = boardHrToY(boardDispHr(h)) - dayBoard.clientHeight / 2;
+    dayBoard.scrollTo({ top: Math.max(0, px), behavior: 'smooth' });
+  }
+
+  function renderBoard() {
+    if (viewMode !== 'board' || !boardTimeline || boardEditing) return;
+    
+    const now = Date.now();
+    const msInDay = 86400000;
+    const hrPx = boardHrPx();
+    
+    let html = '';
+    
+    // 24 hour rows starting at 8am, wrapping past midnight
+    for (let i = 0; i < 24; i++) {
+      const top = i * hrPx;
+      const hh = (BOARD_START_HR + i) % 24;
+      const ampm = hh < 12 ? 'AM' : 'PM';
+      const hr = hh % 12 === 0 ? 12 : hh % 12;
+      html += `<div class="board-hour-line" style="top:${top}px"><div class="board-hour-label">${hr}:00 ${ampm}</div></div>`;
+    }
+    
+    // Now line (mapped into display rows)
+    const dNow = new Date();
+    const nowTop = boardDispHr(dNow.getHours() + dNow.getMinutes() / 60) * hrPx;
+    html += `<div class="board-now-line" style="top:${nowTop}px"></div>`;
+    
+    // Draw Sessions (mapped into display rows; clips at the 8am wrap line)
+    // Skipped entirely while time allocations are off.
+    // Overlapping sessions share the time range side-by-side (partitioned columns).
+    const items = [];
+    if (SESSIONS_ENABLED) sessions.forEach((sess, si) => {
+      if (!sess) return;
+      const sD = new Date(sess.start);
+      const eD = new Date(sess.end);
+
+      const sHr = sD.getHours() + sD.getMinutes()/60 + sD.getSeconds()/3600;
+      let eHr = eD.getHours() + eD.getMinutes()/60 + eD.getSeconds()/3600;
+      if (eD.getTime() <= sD.getTime()) eHr += 24; // Crosses midnight
+      let dS = boardDispHr(sHr), dE = boardDispHr(eHr);
+      if (dE <= dS) dE += 24;
+
+      let top = dS * hrPx;
+      let height = (dE - dS) * hrPx;
+      if (top + height > 24 * hrPx) height = 24 * hrPx - top; // clip at wrap
+      if (height < 8) height = 8; // compact min height (keeps 24h fit tight)
+      if (top >= 24 * hrPx || top + height <= 0) return; // fully outside
+      items.push({ sess, si, sD, eD, top, height });
+    });
+    // Cluster by time overlap; greedy column assignment within each cluster.
+    items.sort((a, b) => a.top - b.top);
+    const layout = new Map(); // si -> {col, cols}
+    let cluster = [], clusterEnd = -1;
+    const flushCluster = () => {
+      if (!cluster.length) return;
+      const colsEnd = [];
+      cluster.forEach(it => {
+        let c = colsEnd.findIndex(e => e <= it.top);
+        if (c === -1) { c = colsEnd.length; colsEnd.push(it.top + it.height); }
+        else colsEnd[c] = it.top + it.height;
+        layout.set(it.si, { col: c, cols: 0 });
+      });
+      const n = colsEnd.length || 1;
+      cluster.forEach(it => { layout.get(it.si).cols = n; });
+      cluster = []; clusterEnd = -1;
+    };
+    items.forEach(it => {
+      if (cluster.length && it.top >= clusterEnd) flushCluster();
+      cluster.push(it);
+      clusterEnd = Math.max(clusterEnd, it.top + it.height);
+    });
+    flushCluster();
+    items.forEach(({ sess, si, sD, eD, top, height }) => {
+      const lay = layout.get(si) || { col: 0, cols: 1 };
+      // Side-by-side lane inside the session area (CSS base is left:48px/right:12px).
+      const lane = (lay.cols > 1)
+        ? `left:calc(48px + (100% - 60px) * ${lay.col} / ${lay.cols});width:calc((100% - 60px) / ${lay.cols} - 3px);`
+        : '';
+const rel = getRelativeSessionTimes(sess, now);
+      const elapsedMs = Math.max(0, Math.min(now - rel.start, rel.end - rel.start));
+      const durMs = rel.end - rel.start;
+      const pct = (elapsedMs / (durMs || 1)) * 100;
+      
+      const elColor = sess.elapsedColor || sess.color;
+      
+      // Collect tasks (including subtasks)
+      const sessTodos = todos.filter(t => t.blockId === sess.id);
+      let titleText = sessTodos.length ? sessTodos[0].text : '';
+      if (!titleText) {
+        for (const t of todos) {
+          const st = (t.subtasks || []).find(s => s.blockId === sess.id);
+          if (st) { titleText = st.text; break; }
+        }
+      }
+      if (!titleText) titleText = (sess.tasks && sess.tasks[0] ? sess.tasks[0] : 'Time Block');
+      
+      const timeFmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
+      const timeStr = timeFmt.format(sD) + ' - ' + timeFmt.format(eD);
+      // Highlight follows LINK ARMED state (not mere selection): no glow once deactivated.
+      const isArmed = linkBlockId && sess.id === linkBlockId;
+      
+      html += `<div class="board-session${isArmed ? ' selected' : ''}" data-id="${sess.id}" style="top:${top}px; height:${height}px; border-color:${sess.color};${lane}">
+        <div class="bg-fill" style="background:${sess.color}"></div>
+        <div class="elapsed-fill" style="background:${elColor}; width:${pct}%"></div>
+        <div class="board-grip top"></div>
+        <div class="board-session-title" data-id="${sess.id}">${escapeHtml(titleText)}</div>
+        <div class="board-session-time">${timeStr}</div>
+        <div class="board-grip bot"></div>
+        ${isArmed ? `<button class="board-del" data-id="${sess.id}" title="Delete block">×</button>` : ''}
+      </div>`;
+    });
+    
+      boardTimeline.innerHTML = html;
+  }
+
+  // ── Board interactions: same powers as the circular clock ──
+  // Click empty hour = create 1h block (15min snap, selected date).
+  // Click block = select + arm todo linking. Drag top/bottom edge = resize.
+  // × on a selected block deletes. Double-click title renames.
+  function boardHourToDate(hr) {
+    hr = Math.max(0, Math.min(23.75, hr));
+    const clockHr = boardClockHr(hr);
+    const yp = selectedTodoDate.split('-').map(Number);
+    return new Date(yp[0], yp[1] - 1, yp[2], Math.floor(clockHr), Math.round((clockHr % 1) * 60), 0, 0);
+  }
+  function boardSessionIdx(id) { return sessions.findIndex(s => s && s.id === id); }
+  if (boardTimeline) {
+    boardTimeline.addEventListener('mousedown', e => {
+      if (e.button !== 0 || boardEditing || !SESSIONS_ENABLED) return;
+      // Delete FIRST (mousedown): a select here would rebuild the DOM and eat the click.
+      const delFirst = e.target.closest ? e.target.closest('.board-del') : null;
+      if (delFirst) {
+        e.stopPropagation();
+        e.preventDefault();
+        const di = boardSessionIdx(delFirst.dataset.id);
+        if (di >= 0 && sessions[di]) {
+          unlinkBlock(delFirst.dataset.id);
+          lastDisarmedArm = null;
+          disarmTodoLink();
+          sessions.splice(di, 1);
+          save();
+          interactiveMode = null;
+          renderBoard();
+        }
+        return;
+      }
+      const sel = e.target.closest ? e.target.closest('.board-session') : null;
+      if (!sel) {
+        const tlRect = boardTimeline.getBoundingClientRect();
+        const hr = Math.floor(boardYToHr(e.clientY - tlRect.top) * 4) / 4;
+        const start = boardHourToDate(hr);
+        const end = new Date(start.getTime() + 3600000);
+        const hue = (210 + sessions.length * 137.5) % 360;
+        const col = todoHsl(hue, 85, 60);
+        sessions.push({ id: genId('s'), start: start.getTime(), end: end.getTime(),
+          color: col, elapsedColor: deriveElapsedColor(col), type: 'custom', tasks: [] });
+        save();
+        interactiveMode = `edit-${sessions.length - 1}-both`;
+        armTodoLink(sessions[sessions.length - 1]);
+        renderBoard();
+        renderTodos(); // refresh any linked-todo countdown chips immediately
+        return;
+      }
+      const idx = boardSessionIdx(sel.dataset.id);
+      if (idx < 0) return;
+      const rect = sel.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      if (y < 12) { boardResize = { id: sel.dataset.id, edge: 'start' }; e.preventDefault(); }
+      else if (y > rect.height - 12) { boardResize = { id: sel.dataset.id, edge: 'end' }; e.preventDefault(); }
+      else {
+        interactiveMode = `edit-${idx}-both`;
+        // Second click on the armed block deactivates (banner goes away too).
+        if (linkBlockId && sessions[idx] && sessions[idx].id === linkBlockId) disarmTodoLink();
+        else armTodoLink(sessions[idx]);
+        renderBoard();
+        // Track a potential whole-block drag (activates past a 5px threshold).
+        const tlR = boardTimeline.getBoundingClientRect();
+        const hrPx0 = boardHrPx();
+        const ptrMs = boardHourToDate(boardYToHr(e.clientY - tlR.top)).getTime();
+        boardMove = { id: sel.dataset.id, offMs: ptrMs - sessions[idx].start, x0: e.clientX, y0: e.clientY, active: false };
+      }
+    });
+    boardTimeline.addEventListener('click', e => {
+      if (!SESSIONS_ENABLED) return;
+      const del = e.target.closest ? e.target.closest('.board-del') : null;
+      if (!del) return;
+      e.stopPropagation();
+      const idx = boardSessionIdx(del.dataset.id);
+      if (idx < 0) return;
+      unlinkBlock(del.dataset.id);
+      lastDisarmedArm = null;
+      disarmTodoLink();
+      sessions.splice(idx, 1);
+      save();
+      interactiveMode = null;
+      renderBoard();
+    });
+    boardTimeline.addEventListener('dblclick', e => {
+      if (!SESSIONS_ENABLED) return;
+      const title = e.target.closest ? e.target.closest('.board-session-title') : null;
+      if (!title) return;
+      const idx = boardSessionIdx(title.dataset.id);
+      if (idx < 0 || !sessions[idx]) return;
+      boardEditing = true;
+      title.setAttribute('contenteditable', 'true');
+      title.focus();
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(title);
+        const sel2 = window.getSelection();
+        sel2.removeAllRanges();
+        sel2.addRange(range);
+      } catch (_) {}
+      const finish = (commit) => {
+        title.removeAttribute('contenteditable');
+        if (commit) {
+          const v = (title.textContent || '').trim();
+          if (!Array.isArray(sessions[idx].tasks)) sessions[idx].tasks = [];
+          if (v) sessions[idx].tasks[0] = v;
+          else sessions[idx].tasks.splice(0, 1);
+          save();
+        }
+        boardEditing = false;
+        renderBoard();
+      };
+      title.onblur = () => finish(true);
+      title.onkeydown = (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); title.blur(); }
+        if (ev.key === 'Escape') { boardEditing = false; renderBoard(); }
+      };
+    });
+    // Hover feedback: reveal resize zones on block edges (grips are deliberately hidden)
+    boardTimeline.addEventListener('mousemove', e => {
+      if (boardEditing || !SESSIONS_ENABLED) return;
+      const sel = e.target.closest ? e.target.closest('.board-session') : null;
+      if (!sel) { if (boardTimeline.style.cursor) boardTimeline.style.cursor = ''; return; }
+      const y = e.clientY - sel.getBoundingClientRect().top;
+      boardTimeline.style.cursor = (y < 12 || y > sel.offsetHeight - 12) ? 'ns-resize' : 'grab';
+    });
+    boardTimeline.addEventListener('mouseleave', () => {
+      boardTimeline.style.cursor = '';
+    });
+  }
+  window.addEventListener('mousemove', e => {
+    if (boardMove && boardTimeline && !boardEditing) {
+      const dx = e.clientX - boardMove.x0, dy = e.clientY - boardMove.y0;
+      if (!boardMove.active && Math.hypot(dx, dy) > 5) {
+        boardMove.active = true;
+        if (dayBoard) dayBoard.style.cursor = 'grabbing';
+      }
+      if (boardMove.active) {
+        const idx = boardSessionIdx(boardMove.id);
+        if (idx >= 0 && sessions[idx]) {
+          const s = sessions[idx];
+          const dur = s.end - s.start;
+          const tlRect = boardTimeline.getBoundingClientRect();
+          const hr = boardYToHr(e.clientY - tlRect.top);
+          let t = boardHourToDate(hr).getTime() - boardMove.offMs;
+          t = Math.round(t / 900000) * 900000; // 15min snap
+          const yp = selectedTodoDate.split('-').map(Number);
+          const dayBase = new Date(yp[0], yp[1] - 1, yp[2], 0, 0, 0, 0).getTime();
+          t = Math.max(dayBase, Math.min(dayBase + 86400000 - dur, t));
+          s.start = t; s.end = t + dur;
+          renderBoard();
+          return;
+        }
+      }
+    }
+    if (!boardResize || !boardTimeline) return;
+    const idx = boardSessionIdx(boardResize.id);
+    if (idx < 0 || !sessions[idx]) { boardResize = null; return; }
+    const tlRect = boardTimeline.getBoundingClientRect();
+    const hr = Math.floor(boardYToHr(e.clientY - tlRect.top) * 4) / 4;
+    const t = boardHourToDate(Math.max(0, Math.min(23.75, hr))).getTime();
+    const s = sessions[idx];
+    if (boardResize.edge === 'start') {
+      if (t < s.end - 15 * 60000) s.start = t;
+    } else {
+      if (t > s.start + 15 * 60000) s.end = t;
+    }
+    renderBoard();
+  });
+  window.addEventListener('mouseup', () => {
+    if (boardResize) { boardResize = null; save(); renderBoard(); renderTodos(); }
+    if (boardMove) {
+      const moved = boardMove.active;
+      boardMove = null;
+      if (dayBoard) dayBoard.style.cursor = '';
+      if (moved) { save(); renderBoard(); renderTodos(); }
+    }
+  });
+  window.addEventListener('resize', () => { try { renderBoard(); } catch (_) {} });
+
+function draw() {
+    frameHandle = null;
     if (!document.hidden) {
+      if (viewMode === 'board') {
+        // In board view, clock canvas is hidden - skip all clock drawing to save CPU
+        scheduleRender();
+        return;
+      }
+      lastPaintAt = performance.now();
       const { cx, cy, r, w, h } = clockBounds();
       const now=new Date();
       const sec=now.getSeconds(),ms=now.getMilliseconds();
@@ -3519,6 +4669,7 @@ sessions.push({
       X.clearRect(0,0,w,h);
       (STYLES[style]||drawGhostPure)(cx,cy,r,hrF,minF,secF,t);
       drawSessionsOverlay(cx, cy, r);
+      if(Math.random() < 0.1) renderBoard(); // throttle
     drawLabelOrbit(cx, cy, r);
     syncLabels(cx, cy, r, w, h);
     drawCircularLabels(cx, cy, r);
@@ -3530,8 +4681,30 @@ sessions.push({
       drawTooltipSizeIndicator(cx, cy, r);
       drawOrbitSpeedIndicator(cx, cy, r);
     }
-    requestAnimationFrame(draw);
+    scheduleRender();
   }
 
-  requestAnimationFrame(draw);
+  function scheduleRender() {
+    if (document.hidden || frameHandle !== null || renderTimer !== null) return;
+    const delay = Math.max(0, IDLE_FRAME_MS - (performance.now() - lastPaintAt));
+    renderTimer = window.setTimeout(() => {
+      renderTimer = null;
+      if (!document.hidden) frameHandle = requestAnimationFrame(draw);
+    }, delay);
+  }
+  function resumeRendering() {
+    if (!document.hidden) scheduleRender();
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && frameHandle !== null) {
+      cancelAnimationFrame(frameHandle);
+      frameHandle = null;
+    }
+    if (document.hidden && renderTimer !== null) { clearTimeout(renderTimer); renderTimer = null; }
+    if (!document.hidden) resumeRendering();
+  });
+  resumeRendering();
 })();
+
+
+

@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('clockAPI', {
   onSetFavorites: (cb) => ipcRenderer.on('set-favorites', (_, v) => cb(v)),
   onSetTodoOpacity: (cb) => ipcRenderer.on('set-todo-opacity', (_, v) => cb(v)),
   onSetTodoBoxOpaque: (cb) => ipcRenderer.on('set-todo-box-opaque', (_, v) => cb(v)),
+  onSetTodoBoxOpacity: (cb) => ipcRenderer.on('set-todo-box-opacity', (_, v) => cb(v)),
+  onSetCalAnim: (cb) => ipcRenderer.on('set-cal-anim', (_, v) => cb(v)),
   setIgnoreMouse: (b) => ipcRenderer.send('set-ignore-mouse', b),
   fitWindow: (need) => ipcRenderer.send('fit-window', need),
   onWindowResized: (cb) => ipcRenderer.on('window-resized', (_, s) => cb(s)),

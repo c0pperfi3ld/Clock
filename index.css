@@ -3,7 +3,9 @@
 
 html, body {
   width: 100%; height: 100%;
-  background: transparent !important;
+  /* Opaque backdrop: the window sits always-on-top; any transparency lets
+     whatever is behind (browser toolbars etc.) show through as a "bar". */
+  background: transparent;
   overflow: hidden;
   font-family: 'Inter', system-ui, sans-serif;
   color: #fff;
@@ -14,6 +16,7 @@ html, body {
   width: 100vw;
   height: 100vh;
   align-items: stretch;
+  background: transparent;
 }
 
 /* ── Clock area (left, square) ── */
@@ -56,6 +59,27 @@ html, body {
   transform: scale(1.15);
   border-color: #fff;
 }
+/* ── Link arm/disarm toast (bottom-center of the clock) ── */
+.link-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 54px;
+  transform: translateX(-50%) translateY(8px);
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: rgba(18,18,28,0.92);
+  border: 1px solid rgba(139,92,246,0.6);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.4), 0 0 14px rgba(139,92,246,0.35);
+  color: #e4d4ff;
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease, transform 0.22s ease;
+  z-index: 30;
+}
+.link-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .floating-picker input {
   position: absolute;
   top: -10px; left: -10px;
@@ -77,7 +101,7 @@ html, body {
   border-left: none;
   box-shadow: none;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 /* No aurora — panel is invisible, tasks float in space */
 #todo-panel::before, #todo-panel::after { display: none !important; }
@@ -90,7 +114,7 @@ html, body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 12px 2px;
+  padding: 7px 10px 1px;
   flex-wrap: wrap;
 }
 .todo-tabs { display: flex; gap: 7px; align-items: center; }
@@ -122,12 +146,124 @@ html, body {
 }
 .todo-tab-add:hover { transform: scale(1.15) rotate(90deg); box-shadow: 0 4px 12px rgba(236,72,153,0.6); }
 .todo-tab-add:active { transform: scale(0.92); }
+.todo-cal-toggle {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.22);
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.65);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.18s, background 0.18s, color 0.18s, border-color 0.18s;
+}
+.todo-cal-toggle:hover { transform: scale(1.15); color: #fff; border-color: rgba(255,255,255,0.5); }
+.todo-cal-toggle.active { background: rgba(139,92,246,0.3); border-color: #8b5cf6; color: #fff; }
+
+/* ── Mini calendar (toggleable, per-date todo counts) ── */
+.todo-cal-wrap {
+  position: relative;
+  z-index: 1;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 12px 2px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.045);
+  border: 1px solid rgba(255,255,255,0.09);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+.todo-cal-wrap.open { display: flex; animation: cal-wrap-in 0.28s cubic-bezier(0.2,0.9,0.3,1.1); }
+@keyframes cal-wrap-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+/* Unique CONTINUOUS loops for calendar day cells (selected via #todo-cal-wrap[data-calanim]).
+   Loops run on the inner .cal-cell so they never fight the task loop on the button,
+   and only on .has cells (dates with tasks) — empty dates stay still. Phase sweeps
+   across the grid via --ci stagger. */
+.todo-cal-day .cal-cell {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 100%; height: 100%;
+}
+#todo-cal-wrap[data-calanim="pop"] .todo-cal-day .cal-cell { animation: cal-pop 2.2s ease-in-out infinite; animation-delay: calc(var(--ci,0)*130ms); }
+#todo-cal-wrap[data-calanim="cascade"] .todo-cal-day .cal-cell { animation: cal-cascade 2.8s ease-in-out infinite; animation-delay: calc(var(--ci,0)*130ms); }
+#todo-cal-wrap[data-calanim="flip"] .todo-cal-day .cal-cell { animation: cal-flip 3.2s ease-in-out infinite; animation-delay: calc(var(--ci,0)*130ms); }
+#todo-cal-wrap[data-calanim="sweep"] .todo-cal-day .cal-cell { animation: cal-sweep 2.6s ease-in-out infinite; animation-delay: calc(var(--ci,0)*130ms); }
+#todo-cal-wrap[data-calanim="zoom"] .todo-cal-day .cal-cell { animation: cal-zoom 2.4s ease-in-out infinite; animation-delay: calc(var(--ci,0)*130ms); }
+#todo-cal-wrap[data-calanim="fade"] .todo-cal-day .cal-cell { animation: cal-fade 3s ease-in-out infinite; animation-delay: calc(var(--ci,0)*130ms); }
+#todo-cal-wrap[data-calanim="glow"] .todo-cal-day .cal-cell { animation: cal-glow 2.4s ease-in-out infinite; animation-delay: calc(var(--ci,0)*130ms); }
+#todo-cal-wrap[data-calanim="swing"] .todo-cal-day .cal-cell { animation: cal-swing 2.8s ease-in-out infinite; animation-delay: calc(var(--ci,0)*130ms); }
+#todo-cal-wrap[data-calanim="ring"] .todo-cal-day .cal-cell { animation: cal-ring 2s ease-in-out infinite; animation-delay: calc(var(--ci,0)*130ms); }
+#todo-cal-wrap[data-calanim="blink"] .todo-cal-day .cal-cell { animation: cal-blink 3.4s ease-in-out infinite; animation-delay: calc(var(--ci,0)*130ms); }
+#todo-cal-wrap[data-calanim="hop"] .todo-cal-day .cal-cell { animation: cal-hop 1.8s ease-in-out infinite; animation-delay: calc(var(--ci,0)*130ms); }
+#todo-cal-wrap[data-calanim="glimmer"] .todo-cal-day .cal-cell { animation: cal-glimmer 2.6s ease-in-out infinite; animation-delay: calc(var(--ci,0)*130ms); }
+@keyframes cal-pop { 0%,100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+@keyframes cal-cascade { 0%,100% { transform: translateY(2px); } 50% { transform: translateY(-2px); } }
+@keyframes cal-flip { 0%,100% { transform: perspective(140px) rotateX(-10deg); } 50% { transform: perspective(140px) rotateX(10deg); } }
+@keyframes cal-sweep { 0%,100% { transform: translateX(-3px); } 50% { transform: translateX(3px); } }
+@keyframes cal-zoom { 0%,100% { transform: scale(0.94); } 50% { transform: scale(1.06); } }
+@keyframes cal-fade { 0%,100% { opacity: 0.7; } 50% { opacity: 1; } }
+@keyframes cal-glow { 0%,100% { box-shadow: 0 0 2px rgba(139,92,246,0.2); border-radius: 6px; } 50% { box-shadow: 0 0 10px rgba(139,92,246,0.75); border-radius: 6px; } }
+@keyframes cal-swing { 0%,100% { rotate: -4deg; } 50% { rotate: 4deg; } }
+@keyframes cal-ring { 0%,100% { rotate: 0deg; } 8% { rotate: 13deg; } 16% { rotate: -11deg; } 24% { rotate: 7deg; } 32% { rotate: -4deg; } 40% { rotate: 0deg; } }
+@keyframes cal-blink { 0%,90%,100% { opacity: 1; } 93% { opacity: 0.35; } 96% { opacity: 1; } }
+@keyframes cal-hop { 0%,100% { transform: translateY(0); } 28% { transform: translateY(-4px); } 48% { transform: translateY(0); } 64% { transform: translateY(-2px); } 80% { transform: translateY(0); } }
+@keyframes cal-glimmer { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.35); } }
+.todo-cal-head { display: flex; align-items: center; gap: 6px; }
+.todo-cal-title { flex: 1; text-align: center; font-size: 0.72rem; font-weight: 600; color: rgba(255,255,255,0.9); }
+.todo-cal-nav {
+  width: 20px; height: 20px;
+  border-radius: 6px; border: none;
+  background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.8);
+  font-size: 0.85rem; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s;
+}
+.todo-cal-nav:hover { background: rgba(139,92,246,0.35); }
+.todo-cal-today {
+  border: none; border-radius: 6px;
+  background: rgba(139,92,246,0.22); color: #d6bcff;
+  font-family: inherit; font-size: 0.62rem; font-weight: 600;
+  padding: 3px 8px; cursor: pointer;
+  transition: background 0.15s;
+}
+.todo-cal-today:hover { background: rgba(139,92,246,0.4); }
+.todo-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.todo-cal-dow { text-align: center; font-size: 0.58rem; font-weight: 600; color: rgba(255,255,255,0.35); padding: 1px 0; }
+.todo-cal-blank { min-height: 24px; }
+.todo-cal-day {
+  position: relative;
+  min-height: 24px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.75);
+  font-family: inherit; font-size: 0.64rem; font-weight: 500;
+  cursor: pointer; padding: 1px 0 4px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.todo-cal-day:hover { background: rgba(139,92,246,0.25); transform: scale(1.06); }
+.todo-cal-day .dnum { line-height: 1.2; }
+.todo-cal-day .dcnt {
+  font-size: 0.52rem; font-weight: 700; line-height: 1;
+  background: rgba(139,92,246,0.55); color: #fff;
+  border-radius: 8px; padding: 1px 5px; margin-top: 1px;
+}
+.todo-cal-day.today { background: rgba(56,189,248,0.32); border-color: #38bdf8; color: #fff; box-shadow: 0 0 8px rgba(56,189,248,0.45); }
+.todo-cal-day.past { opacity: 0.5; background: rgba(255,255,255,0.02); color: rgba(255,255,255,0.45); }
+.todo-cal-day.past .dcnt { background: rgba(148,163,184,0.4); }
+.todo-cal-day.future { border-color: rgba(167,139,250,0.25); }
+.todo-cal-day.sel { background: rgba(139,92,246,0.4); border-color: #8b5cf6; color: #fff; box-shadow: 0 0 8px rgba(139,92,246,0.5); opacity: 1; }
+.todo-cal-foot { text-align: center; font-size: 0.62rem; font-weight: 500; color: rgba(255,255,255,0.5); }
 
 /* ── Fully opaque boxes option (#todo-panel[data-box-opaque="1"]) ──
    Colored cards keep their full-color tint via inline style (opaque alpha);
    uncolored cards + add box drop the glass blur for a solid dark surface. */
 #todo-panel[data-box-opaque="1"] .todo-add-box,
-#todo-panel[data-box-opaque="1"] .todo-item {
+#todo-panel[data-box-opaque="1"] .todo-item,
+#todo-panel[data-box-opaque="1"] .todo-cal-wrap {
   background-color: #1e2130;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -138,6 +274,15 @@ html, body {
   background-color: #262a3c;
   box-shadow: 0 8px 18px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.07);
 }
+#todo-panel[data-box-opaque="1"] .st-block {
+  background-color: #1a1d2e;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+#todo-panel[data-box-opaque="1"] .st-block:hover {
+  background-color: #222538;
+}
 
 /* ── Add zone: + button above, input box below ── */
 .todo-add-zone {
@@ -146,11 +291,11 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 12px 12px 8px;
+  gap: 4px;
+  padding: 8px 10px 5px;
 }
 .todo-add-plus {
-  width: 30px; height: 30px;
+  width: 24px; height: 24px;
   border-radius: 50%;
   background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
   border: none;
@@ -164,9 +309,9 @@ html, body {
 .todo-add-plus:active { transform: scale(0.95); }
 .todo-add-box {
   width: 100%;
-  min-height: 30px;
-  padding: 6px 12px;
-  border-radius: 10px;
+  min-height: 24px;
+  padding: 4px 10px;
+  border-radius: 8px;
   background: rgba(255,255,255,0.045);
   backdrop-filter: blur(12px) saturate(130%);
   -webkit-backdrop-filter: blur(12px) saturate(130%);
@@ -174,7 +319,7 @@ html, body {
   box-shadow: 0 3px 10px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.04);
   color: #fff;
   font-family: inherit;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 500;
   outline: none;
   cursor: text;
@@ -184,7 +329,7 @@ html, body {
   overflow: hidden;
   white-space: pre-wrap;
   word-break: break-word;
-  line-height: 1.3;
+  line-height: 1.25;
 }
 .todo-add-box:focus {
   background: rgba(255,255,255,0.08);
@@ -198,29 +343,27 @@ html, body {
   pointer-events: none;
 }
 
-/* ── List ── */
+/* ── List (no visible scrollbars; wheel still scrolls) ── */
 .todo-list {
   position: relative;
   z-index: 1;
   list-style: none;
   flex: 1;
   overflow-y: auto;
-  padding: 2px 10px 12px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.12) transparent;
+  padding: 2px 60px 8px 22px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
-.todo-list::-webkit-scrollbar { width: 5px; }
-.todo-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
-.todo-list::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+.todo-list::-webkit-scrollbar { display: none; width: 0; }
 
-/* ── Task card (rounded box) ── */
+/* ── Task card (rounded box, extremely compact) ── */
 .todo-item {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 10px;
-  margin-bottom: 5px;
-  border-radius: 12px;
+  gap: 5px;
+  padding: 3px 8px 3px 2px;
+  margin-bottom: 3px;
+  border-radius: 9px;
   background: rgba(255,255,255,0.045);
   backdrop-filter: blur(12px) saturate(130%);
   -webkit-backdrop-filter: blur(12px) saturate(130%);
@@ -229,9 +372,18 @@ html, body {
   cursor: pointer;
   position: relative;
   transition: background 0.18s, border-color 0.18s, transform 0.22s cubic-bezier(0.2,0.9,0.3,1.2), box-shadow 0.2s, opacity 0.25s;
-  animation: item-in 0.36s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
-  overflow: hidden;
-  min-height: 34px;
+  animation: item-in 0.36s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards, weight-pulse 2.2s ease-in-out infinite;
+  overflow: visible;
+  min-height: 24px;
+  will-change: transform, opacity;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+}
+/* Perpetual weight pulse (picks up each card's --wc set inline).
+   A selected task loop overrides this, like all card motion. */
+@keyframes weight-pulse {
+  0%, 100% { outline-color: transparent; filter: brightness(1); }
+  50%      { outline-color: var(--wc, transparent); filter: brightness(1.1); }
 }
 /* Continuous task-list animations (set via #todo-panel[data-anim]).
    Every card loops its selected motion forever (phase-offset per card);
@@ -248,6 +400,37 @@ html, body {
 #todo-panel[data-anim="neon"] .todo-item { animation: item-in 0.35s ease-out backwards, todo-neon 2.2s ease-in-out infinite; }
 #todo-panel[data-anim="jelly"] .todo-item { animation: item-in 0.35s ease-out backwards, todo-jelly 2.6s ease-in-out infinite; }
 #todo-panel[data-anim="glow-drift"] .todo-item { animation: item-in 0.35s ease-out backwards, todo-glowdrift 4.5s ease-in-out infinite; }
+#todo-panel[data-anim="lift"] .todo-item { animation: item-in 0.35s ease-out backwards, todo-lift 3.8s ease-in-out infinite; }
+#todo-panel[data-anim="soft-flash"] .todo-item { animation: item-in 0.35s ease-out backwards, todo-softflash 3.2s ease-in-out infinite; }
+#todo-panel[data-anim="tilt-shift"] .todo-item { animation: item-in 0.35s ease-out backwards, todo-tiltshift 4.2s ease-in-out infinite; }
+#todo-panel[data-anim="twinkle"] .todo-item { animation: item-in 0.35s ease-out backwards, todo-twinkle 2.2s ease-in-out infinite; }
+#todo-panel[data-anim="slide-y"] .todo-item { animation: item-in 0.35s ease-out backwards, todo-slidey 3s ease-in-out infinite; }
+#todo-panel[data-anim="shake"] .todo-item { animation: item-in 0.35s ease-out backwards, todo-shake 1.4s ease-in-out infinite; }
+#todo-panel[data-anim="rise"] .todo-item { animation: item-in 0.35s ease-out backwards, todo-rise 3.6s ease-in-out infinite; }
+#todo-panel[data-anim="spin"] .todo-item { animation: item-in 0.35s ease-out backwards, todo-spin 6s linear infinite; }
+#todo-panel[data-anim="hue-cycle"] .todo-item { animation: item-in 0.35s ease-out backwards, todo-huecycle 5s ease-in-out infinite; }
+/* Calendar day cells with tasks play the same selected loop (scoped via #todo-cal-wrap[data-anim]). */
+#todo-cal-wrap[data-anim="float"] .todo-cal-day.has { animation: todo-float 3s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="pulse"] .todo-cal-day.has { animation: todo-pulse 2.4s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="sway"] .todo-cal-day.has { animation: todo-sway 3.2s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="breathe"] .todo-cal-day.has { animation: todo-breathe 4s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="shimmer"] .todo-cal-day.has { animation: todo-shimmer 2.8s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="bob"] .todo-cal-day.has { animation: todo-bob 1.8s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="wiggle"] .todo-cal-day.has { animation: todo-wiggle 1.6s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="tide-x"] .todo-cal-day.has { animation: todo-tidex 3.4s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="heartbeat"] .todo-cal-day.has { animation: todo-heart 1.8s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="neon"] .todo-cal-day.has { animation: todo-neon 2.2s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="jelly"] .todo-cal-day.has { animation: todo-jelly 2.6s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="glow-drift"] .todo-cal-day.has { animation: todo-glowdrift 4.5s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="lift"] .todo-cal-day.has { animation: todo-lift 3.8s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="soft-flash"] .todo-cal-day.has { animation: todo-softflash 3.2s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="tilt-shift"] .todo-cal-day.has { animation: todo-tiltshift 4.2s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="twinkle"] .todo-cal-day.has { animation: todo-twinkle 2.2s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="slide-y"] .todo-cal-day.has { animation: todo-slidey 3s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="shake"] .todo-cal-day.has { animation: todo-shake 1.4s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="rise"] .todo-cal-day.has { animation: todo-rise 3.6s ease-in-out infinite; }
+#todo-cal-wrap[data-anim="spin"] .todo-cal-day.has { animation: todo-spin 6s linear infinite; }
+#todo-cal-wrap[data-anim="hue-cycle"] .todo-cal-day.has { animation: todo-huecycle 5s ease-in-out infinite; }
 @keyframes todo-float {
   0%, 100% { transform: translateY(-3px); }
   50%      { transform: translateY(3px); }
@@ -302,6 +485,113 @@ html, body {
   0%, 100% { transform: translateY(2px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
   50%      { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(236,72,153,0.3); }
 }
+@keyframes todo-lift {
+  0%, 100% { transform: translateY(0); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+  50% { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(0,0,0,0.26); }
+}
+@keyframes todo-softflash {
+  0%, 100% { filter: saturate(1); }
+  50% { filter: saturate(1.16) brightness(1.10); }
+}
+@keyframes todo-tiltshift {
+  0%, 100% { transform: perspective(120px) rotateX(0deg); }
+  50% { transform: perspective(120px) rotateX(1.4deg) translateY(-1px); }
+}
+@keyframes todo-twinkle {
+  0%, 100% { opacity: 1; filter: brightness(1); }
+  25% { opacity: 0.72; filter: brightness(1.35); }
+  50% { opacity: 1; filter: brightness(1); }
+  75% { opacity: 0.84; filter: brightness(1.22); }
+}
+@keyframes todo-slidey {
+  0%, 100% { transform: translateY(-4px); }
+  50%      { transform: translateY(4px); }
+}
+@keyframes todo-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-2px); }
+  40% { transform: translateX(2px); }
+  60% { transform: translateX(-1.5px); }
+  80% { transform: translateX(1.5px); }
+}
+@keyframes todo-rise {
+  0%, 100% { transform: translateY(3px); opacity: 0.8; }
+  50%      { transform: translateY(-3px); opacity: 1; }
+}
+@keyframes todo-spin {
+  from { rotate: 0deg; }
+  to   { rotate: 360deg; }
+}
+@keyframes todo-huecycle {
+  0%, 100% { filter: hue-rotate(0deg) brightness(1); }
+  50%      { filter: hue-rotate(90deg) brightness(1.15); }
+}
+/* ── Block ↔ todo linking ── */
+.todo-link-bar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 12px 2px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(139,92,246,0.14);
+  border: 1.5px dashed rgba(139,92,246,0.6);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #d6bcff;
+}
+.todo-link-bar[hidden] { display: none; }
+.todo-link-bar span { flex: 1; }
+.todo-link-bar button {
+  border: none; border-radius: 6px;
+  background: rgba(139,92,246,0.3); color: #fff;
+  width: 18px; height: 18px; font-size: 0.75rem; line-height: 1;
+  cursor: pointer; flex: none;
+}
+.todo-link-bar button:hover { background: rgba(139,92,246,0.55); }
+.todo-list.link-mode .todo-item[data-id] { cursor: pointer; }
+.todo-list.link-mode .todo-item[data-id]:hover {
+  border-color: rgba(139,92,246,0.6);
+  box-shadow: 0 0 0 2px rgba(139,92,246,0.25), 0 4px 12px rgba(0,0,0,0.2);
+}
+.todo-item.linked {
+  border-color: rgba(139,92,246,0.45);
+  box-shadow: 0 0 0 1px rgba(139,92,246,0.3), 0 4px 12px rgba(0,0,0,0.2);
+}
+/* Elapsed/remaining timeline strip pinned to the bottom of linked cards.
+   Fill width = elapsed %; the shine sweep keeps it visibly alive. */
+.todo-item.linked { position: relative; padding-bottom: 7px; }
+.todo-item.st-block.linked { padding-bottom: 6px; }
+.todo-timeline {
+  position: absolute;
+  left: 10px; right: 10px; bottom: 4px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.09);
+  overflow: hidden;
+  pointer-events: none;
+}
+.todo-timeline.slim { left: 9px; right: 9px; bottom: 3px; height: 2px; }
+.todo-time-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8b5cf6, #ec4899);
+  transition: width 1s linear;
+  overflow: hidden;
+}
+.todo-time-fill::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+  animation: timeline-sweep 2.2s linear infinite;
+}
+@keyframes timeline-sweep {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+
 /* Livelier task window: breathing + button, shimmering add box */
 .todo-add-plus { animation: plus-breathe 2.6s ease-in-out infinite; }
 @keyframes plus-breathe {
@@ -327,14 +617,136 @@ html, body {
   100% { opacity: 1; transform: translateX(0) scale(1); }
 }
 @keyframes item-out {
-  0%   { opacity: 1; transform: translateX(0) scale(1); max-height: 60px; margin-bottom: 5px; padding-top: 6px; padding-bottom: 6px; }
+  0%   { opacity: 1; transform: translateX(0) scale(1); max-height: 200px; margin-bottom: 5px; }
   100% { opacity: 0; transform: translateX(24px) scale(0.92); max-height: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0; border-width: 0; }
 }
 
+/* ── Subtask block (separate indented card in the list) ── */
+.todo-item.st-block {
+  margin-left: 14px;
+  margin-bottom: 2px;
+  padding: 2px 7px 2px 2px;
+  min-height: 22px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.035);
+  border-color: rgba(255,255,255,0.07);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.03);
+  gap: 6px;
+}
+.todo-item.st-block:hover {
+  background: rgba(255,255,255,0.065);
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.todo-item.st-done { opacity: 0.45; }
+.todo-item.st-done .st-text {
+  text-decoration: line-through;
+  color: rgba(255,255,255,0.45);
+}
+/* ── Subtask drag & drop ── */
+.todo-item.st-block[draggable="true"] { cursor: grab; }
+.todo-item.st-block.dragging { opacity: 0.4; cursor: grabbing; }
+.todo-item.drop-before { box-shadow: 0 -2px 0 0 #8b5cf6, 0 2px 8px rgba(0,0,0,0.16); }
+.todo-item.drop-after { box-shadow: 0 2px 0 0 #8b5cf6, 0 2px 8px rgba(0,0,0,0.16); }
+.todo-item.drop-inside { outline: 1.5px dashed rgba(139,92,246,0.8); outline-offset: 2px; }
+
+/* ── Add subtask trigger (small + on parent todo row) ── */
+.st-add-trigger {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  width: 18px; height: 18px;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 4px;
+  color: rgba(255,255,255,0.2);
+  transition: all 0.18s cubic-bezier(0.2,0.9,0.3,1.2);
+  opacity: 0;
+}
+.todo-item:hover .st-add-trigger { opacity: 1; }
+.st-add-trigger:hover {
+  background: rgba(167,139,250,0.15);
+  color: rgba(167,139,250,0.8);
+  transform: scale(1.1) rotate(90deg);
+}
+
+/* ── Subtask checkbox (smaller than parent) ── */
+.st-check {
+  width: 10px; height: 10px;
+  border-radius: 3px;
+  border: 1.5px solid rgba(255,255,255,0.25);
+  background: transparent;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  cursor: pointer;
+}
+.st-block:hover .st-check { border-color: rgba(167,139,250,0.6); }
+.st-check.checked {
+  background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+  border-color: transparent;
+  box-shadow: 0 1px 5px rgba(139,92,246,0.35);
+  animation: check-bounce 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+}
+.st-check.checked::after {
+  content: '';
+  width: 2.5px; height: 5.5px;
+  border-right: 1.5px solid #fff;
+  border-bottom: 1.5px solid #fff;
+  transform: rotate(45deg) translate(-0.5px, -0.5px);
+}
+
+/* ── Subtask text ── */
+.st-text {
+  flex: 1;
+  font-size: 0.64rem;
+  font-weight: 500;
+  color: rgba(255,255,255,0.82);
+  line-height: 1.25;
+  word-break: break-word;
+  cursor: text;
+  padding: 0;
+  min-width: 0;
+}
+.st-text[contenteditable="true"] {
+  outline: none;
+  background: rgba(255,255,255,0.08);
+  border-radius: 4px;
+  padding: 1px 5px;
+  user-select: text;
+  min-height: 14px;
+}
+.st-text[contenteditable="true"]:empty::before {
+  content: "Type subtask here...";
+  color: rgba(255,255,255,0.3);
+  pointer-events: none;
+}
+/* ── Subtask delete ── */
+.st-del {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.2);
+  width: 14px; height: 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: all 0.15s;
+}
+.st-block:hover .st-del { opacity: 1; }
+.st-del:hover {
+  background: rgba(239,68,68,0.2);
+  color: #fca5a5;
+}
+
+
 /* Custom checkbox */
 .todo-check {
-  width: 15px; height: 15px;
-  border-radius: 5px;
+  width: 12px; height: 12px;
+  border-radius: 4px;
   border: 1.5px solid rgba(255,255,255,0.32);
   background: transparent;
   flex-shrink: 0;
@@ -368,108 +780,68 @@ html, body {
   100% { width: 3px; height: 7px; opacity: 1; }
 }
 
-/* Color dot (click to change) — matches the clock's floating picker style */
-.todo-color {
-  width: 22px; height: 22px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: rgba(255,255,255,0.08);
-  border: 1.5px solid rgba(255,255,255,0.25);
-  cursor: pointer;
-  position: relative;
-  transition: transform 0.18s cubic-bezier(0.2,0.9,0.3,1.2), box-shadow 0.18s, border-color 0.18s;
-  display: flex; align-items: center; justify-content: center;
-}
-.todo-color:hover {
-  transform: scale(1.15);
-  border-color: rgba(255,255,255,0.5);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
-}
-.todo-color.has-color {
-  background: var(--todo-color, rgba(255,255,255,0.08));
-  border-color: rgba(255,255,255,0.5);
-  box-shadow: 0 0 10px var(--todo-color, transparent);
-}
-/* Quick color popover — dismisses on outside click or Escape */
-.todo-color-pop {
-  position: fixed;
-  z-index: 9999;
-  display: grid;
-  grid-template-columns: repeat(6, 22px);
-  gap: 6px;
-  padding: 8px;
-  background: rgba(15,15,18,0.92);
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 10px;
-  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
-  backdrop-filter: blur(6px);
-  opacity: 0;
-  transform: translateY(-4px) scale(0.96);
-  pointer-events: none;
-  transition: opacity 0.14s ease, transform 0.14s ease;
-}
-.todo-color-pop.open {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  pointer-events: auto;
-}
-.tcp-swatch {
-  width: 22px; height: 22px;
-  border-radius: 50%;
-  cursor: pointer;
-  border: 1.5px solid rgba(255,255,255,0.25);
-  display: flex; align-items: center; justify-content: center;
-  transition: transform 0.12s ease, box-shadow 0.12s;
-}
-.tcp-swatch:hover { transform: scale(1.2); box-shadow: 0 0 10px rgba(255,255,255,0.2); }
-.tcp-swatch.clear { background: rgba(255,255,255,0.08); font-size: 0.65rem; color: rgba(255,255,255,0.6); }
-
-/* ── Priority dropdown menu ── */
-.prio-pop {
-  position: fixed;
-  top: -999px; left: -999px;
-  display: none;
-  z-index: 2147483000;
-  flex-direction: column;
-  background: rgba(22,24,34,0.97);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 10px;
-  padding: 4px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-  min-width: 112px;
-}
-.prio-pop.open { display: flex; }
-.prio-opt {
+/* ── Weight counter: ▲▼ side-by-side + count, pinned at the rightmost ── */
+.todo-weight {
   display: flex;
+  flex-direction: row;
   align-items: center;
-  gap: 9px;
-  background: none;
-  border: none;
-  color: rgba(255,255,255,0.85);
-  font-family: inherit;
-  font-size: 0.74rem;
-  font-weight: 500;
-  padding: 7px 10px;
-  border-radius: 7px;
-  cursor: pointer;
-  text-align: left;
-  transition: background 0.14s, color 0.14s;
-}
-.prio-opt:hover { background: rgba(255,255,255,0.1); }
-.prio-opt.active { background: rgba(139,92,246,0.24); color: #fff; }
-.prio-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.35);
+  gap: 1px;
   flex: none;
+  align-self: center;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 1px 2px;
+  order: 99;
+}
+.todo-weight button {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.55);
+  width: 16px; height: 16px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.5rem;
+  line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.14s, color 0.14s, transform 0.1s;
+}
+.todo-weight button:hover { background: rgba(255,255,255,0.14); color: #fff; }
+.todo-weight button:active { transform: scale(0.85); }
+.todo-weight span {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.85);
+  min-width: 14px;
+  text-align: center;
+  line-height: 1.1;
+}
+.todo-weight.mini button { width: 14px; height: 14px; font-size: 0.45rem; }
+.todo-weight.mini span { font-size: 0.55rem; min-width: 12px; }
+/* Outside-the-box remaining-time label. All rows share one right edge —
+   the list itself reserves the gutter, so linked or not every card aligns. */
+.todo-etime {
+  position: absolute;
+  right: -56px;
+  width: 52px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.55rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255,255,255,0.65);
+  text-align: left;
+  white-space: nowrap;
+  pointer-events: none;
+  padding-left: 8px;
 }
 
 .todo-text {
   flex: 1;
-  font-size: 0.76rem;
+  font-size: 0.7rem;
   font-weight: 500;
   color: rgba(255,255,255,0.92);
-  line-height: 1.3;
+  line-height: 1.25;
   word-break: break-word;
   cursor: text;
   padding: 1px 0;
@@ -484,38 +856,14 @@ html, body {
   user-select: text;
 }
 
-/* Priority flag (click to cycle) */
-.todo-priority {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  width: 20px; height: 20px;
-  flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 4px;
-  color: rgba(255,255,255,0.25);
-  transition: all 0.15s;
-}
-.todo-priority:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.6); }
-.todo-priority svg { width: 12px; height: 12px; }
-.todo-priority[data-priority="low"]    { color: #38bdf8; }
-.todo-priority[data-priority="medium"] { color: #fbbf24; }
-.todo-priority[data-priority="high"]   { color: #ef4444; animation: flag-bounce 0.4s; }
-@keyframes flag-bounce {
-  0%   { transform: scale(1); }
-  40%  { transform: scale(1.3) rotate(-8deg); }
-  100% { transform: scale(1) rotate(0); }
-}
-
 .todo-del {
   background: transparent;
   border: none;
   color: rgba(255,255,255,0.3);
-  width: 20px; height: 20px;
-  border-radius: 5px;
+  width: 16px; height: 16px;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
   opacity: 0;
@@ -529,3 +877,281 @@ html, body {
 
 /* ── Reminder banner (kept from old layout, hidden now) ── */
 #block-tooltip { display: none; }
+
+/* Respect the OS preference and avoid expensive looping effects when users
+   request less motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+
+.chev-svg { transition: transform 0.2s ease; margin-right: 4px; color: rgba(255,255,255,0.4); }
+.chev-svg:hover { color: rgba(255,255,255,0.8); }
+/* Collapse chevron pinned to the card's left edge, half-outside the box.
+   (Fully outside would be clipped: .todo-list is a scroll container, so
+   anything past its padding box is cut. This is the farthest visible spot.) */
+.todo-item > .st-collapse {
+  position: absolute;
+  left: -19px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px; height: 16px;
+  background: rgba(18,18,28,0.92);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; margin: 0;
+  z-index: 2;
+  color: rgba(255,255,255,0.6);
+}
+.todo-item > .st-collapse:hover { color: #fff; border-color: rgba(139,92,246,0.7); }
+.todo-item > .st-collapse .chev-svg { margin-right: 0; width: 10px; height: 10px; }
+.st-collapse-spacer { display: none !important; }
+
+
+/* ── Day Board View ── */
+#day-board {
+  position: absolute;
+  inset: 0;
+  background: rgba(15,15,25,0.97);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 16px;
+  margin: 0;
+  overflow: hidden;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+#day-board::-webkit-scrollbar { display: none; width: 0; }
+
+#board-timeline {
+  position: relative;
+  min-height: 100%;
+  width: 100%;
+  padding-left: 48px;
+  padding-top: 20px;
+  padding-bottom: 20px;
+}
+
+.board-hour-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 36px;
+  border-top: 1px dashed rgba(255,255,255,0.08);
+  pointer-events: none;
+}
+
+.board-hour-label {
+  position: absolute;
+  left: 8px;
+  top: -7px;
+  font-size: 0.58rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.4);
+}
+
+.board-session {
+  position: absolute;
+  left: 48px;
+  right: 12px;
+  border-radius: 7px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 3px 7px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  transition: transform 0.1s, opacity 0.1s;
+  cursor: pointer;
+}
+
+.board-session:hover {
+  transform: scale(1.01);
+  opacity: 1 !important;
+  z-index: 5;
+}
+.board-session.selected {
+  outline: 2px solid rgba(255,255,255,0.7);
+  outline-offset: 1px;
+  z-index: 6;
+}
+/* Resize grips: visible on hover/focus, clickable 12px zones */
+.board-grip {
+  position: absolute;
+  left: 0; right: 0;
+  height: 12px;
+  cursor: ns-resize;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 10;
+}
+.board-grip.top { top: 0; }
+.board-grip.bot { bottom: 0; }
+.board-session:hover .board-grip,
+.board-session:focus-within .board-grip,
+.board-session.active-resize .board-grip {
+  opacity: 0.6;
+}
+.board-grip:hover { opacity: 1; background: rgba(255,255,255,0.15); }
+/* Window resize grip: bottom-right corner of the board */
+.board-resize {
+  position: absolute;
+  right: 8px; bottom: 8px;
+  width: 16px; height: 16px;
+  cursor: nwse-resize;
+  z-index: 30;
+  opacity: 0.6;
+  border-right: 2px solid rgba(255,255,255,0.75);
+  border-bottom: 2px solid rgba(255,255,255,0.75);
+  border-bottom-right-radius: 6px;
+}
+.board-resize::after {
+  content: '';
+  position: absolute;
+  right: 3px; bottom: 3px;
+  width: 7px; height: 7px;
+  border-right: 2px solid rgba(255,255,255,0.45);
+  border-bottom: 2px solid rgba(255,255,255,0.45);
+  border-bottom-right-radius: 3px;
+}
+.board-resize:hover { opacity: 1; }
+
+/* Board drag handle: small grabber in top-left for moving window in board view */
+.board-drag-handle {
+  position: absolute;
+  top: 8px; left: 8px;
+  width: 24px; height: 24px;
+  cursor: grab;
+  z-index: 25;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  opacity: 0.5;
+  transition: opacity 0.15s, background 0.15s;
+}
+.board-drag-handle:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+.board-drag-handle:active { cursor: grabbing; }
+.board-drag-handle::before {
+  content: '';
+  width: 12px; height: 12px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M5 9l7-7 7 7'/%3E%3Cpath d='M5 15l7-7 7 7'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  opacity: 0.6;
+}
+.board-del {
+  position: absolute;
+  top: 2px; right: 4px;
+  width: 16px; height: 16px;
+  border-radius: 4px;
+  border: none;
+  background: rgba(239,68,68,0.25);
+  color: #fca5a5;
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.board-del:hover { background: rgba(239,68,68,0.5); color: #fff; }
+
+.board-session .bg-fill {
+  position: absolute;
+  inset: 0;
+  opacity: 0.2;
+  z-index: -1;
+}
+
+.board-session .elapsed-fill {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  background: var(--hatch, rgba(255,255,255,0.1));
+  opacity: 0.5;
+  z-index: -1;
+}
+
+.board-session-title {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+  padding-right: 18px;
+}
+.board-session-title[contenteditable="true"] {
+  outline: 1px dashed rgba(255,255,255,0.5);
+  border-radius: 3px;
+  white-space: normal;
+}
+
+.board-session-time {
+  font-size: 0.55rem;
+  font-weight: 500;
+  color: rgba(255,255,255,0.6);
+  margin-top: 1px;
+}
+
+.board-now-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(239,68,68,0) 0%, #ef4444 8%, #f87171 50%, #ef4444 92%, rgba(239,68,68,0) 100%);
+  z-index: 10;
+  pointer-events: none;
+  box-shadow: 0 0 10px rgba(239,68,68,0.8);
+  animation: nowline-glow 2.4s ease-in-out infinite;
+}
+.board-now-line::before {
+  content: '';
+  position: absolute;
+  left: 44px;
+  top: -5px;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fca5a5 0%, #ef4444 55%, rgba(239,68,68,0) 75%);
+  box-shadow: 0 0 12px rgba(239,68,68,0.9);
+  animation: nowline-pulse 2.4s ease-in-out infinite;
+}
+@keyframes nowline-glow {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+@keyframes nowline-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.35); }
+}
+
+.view-toggle {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.22);
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.65);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.18s;
+  margin-right: 6px;
+}
+.view-toggle:hover { transform: scale(1.15); color: #fff; border-color: rgba(255,255,255,0.5); }
+.view-toggle.active { background: rgba(56,189,248,0.3); border-color: #38bdf8; color: #fff; }
+
+.board-exit-btn { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 4px; background: rgba(239,68,68,0.2); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; font-size: 1.1rem; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 25; transition: all 0.15s; }
+.board-exit-btn:hover { background: rgba(239,68,68,0.5); color: #fff; }
