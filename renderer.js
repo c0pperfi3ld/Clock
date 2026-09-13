@@ -4309,12 +4309,13 @@ const nowTime = performance.now();
   // whole day stays visible. Whole 24h always fits: px-per-hour derives
   // from the visible height, so no scrollbar is ever needed.
   const BOARD_START_HR = 8;
-  const boardDispHr = (h) => (((h - BOARD_START_HR) % 24) + 24) % 24; // clock hr -> display row
-  const boardClockHr = (d) => (d + BOARD_START_HR) % 24; // display row -> clock hr
-  const BOARD_BOTTOM_GAP = 60;
+    const BOARD_TOP_GAP = 140;
+    const BOARD_BOTTOM_GAP = 100;
+    const boardDispHr = (h) => (((h - BOARD_START_HR) % 24) + 24) % 24; // clock hr -> display row
+    const boardClockHr = (d) => (d + BOARD_START_HR) % 24; // display row -> clock hr
     function boardHrPx() {
       const h = (dayBoard && dayBoard.clientHeight) || 600;
-      return Math.max(16, (h - BOARD_BOTTOM_GAP) / 24);
+      return Math.max(16, (h - BOARD_TOP_GAP - BOARD_BOTTOM_GAP) / 24);
     }
   let boardEditing = false; // true while renaming inline (skips rebuild)
   let boardResize = null; // {id, edge} while dragging a block edge
