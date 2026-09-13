@@ -4,13 +4,24 @@ const fs = require('fs');
 
 let win = null, panel = null;
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'clock-settings.json');
+let settingsCache = null;
+let settingsSaveTimer = null;
 
 function loadSettings() {
-  try { return fs.existsSync(SETTINGS_PATH) ? JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8')) : {}; }
-  catch (e) { return {}; }
+  if (settingsCache) return settingsCache;
+  try { settingsCache = fs.existsSync(SETTINGS_PATH) ? JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8')) : {}; }
+  catch (_) { settingsCache = {}; }
+  return settingsCache;
 }
-function saveSettings(data) {
-  try { fs.writeFileSync(SETTINGS_PATH, JSON.stringify(data, null, 2), 'utf-8'); } catch (e) {}
+function flushSettings() {
+  if (settingsSaveTimer) { clearTimeout(settingsSaveTimer); settingsSaveTimer = null; }
+  if (!settingsCache) return;
+  try { fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settingsCache, null, 2), 'utf-8'); } catch (_) {}
+}
+function saveSettings(data, immediate = false) {
+  settingsCache = data;
+  if (immediate) { flushSettings(); return; }
+  if (!settingsSaveTimer) settingsSaveTimer = setTimeout(flushSettings, 300);
 }
 // Migration: drop any legacy reminder data from the settings file
 function pruneLegacySettings() {
@@ -40,18 +51,29 @@ function createWindow() {
   win = new BrowserWindow({
     x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
     minWidth: 520, minHeight: 340, frame: false, transparent: true,
-    alwaysOnTop: true, resizable: true, skipTaskbar: false, hasShadow: false,
+    thickFrame: false, roundedCorners: false,
+    title: '', autoHideMenuBar: true,
+    alwaysOnTop: true, resizable: false, skipTaskbar: true, hasShadow: false,
     backgroundColor: '#00000000',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false }
   });
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  win.setMenuBarVisibility(false);
+  win.removeMenu();
   // No aspect-ratio lock: clock stays square on the left, todo panel fills the rest
   win.loadFile('index.html');
-  win.on('resize', () => { if (win) win.webContents.send('window-resized', {}); });
+  let resizeNotifyTimer = null;
+  win.on('resize', () => {
+    if (resizeNotifyTimer) return;
+    resizeNotifyTimer = setTimeout(() => {
+      resizeNotifyTimer = null;
+      if (win && !win.isDestroyed()) win.webContents.send('window-resized', {});
+    }, 50);
+  });
   win.on('moved', () => { const s = loadSettings(); s.windowBounds = win.getBounds(); saveSettings(s); });
   win.on('closed', () => { win = null; if (panel && !panel.isDestroyed()) panel.close(); });
   applyOnTop(); // enforce topmost level (creation flag alone is droppable on Win)
-  win.on('blur', applyOnTop); // re-assert: fullscreen apps/UAC can strip topmost
+  // Removed win.on('blur') as re-asserting alwaysOnTop on blur triggers DWM white borders
 }
 
 // ── Always-on-top: 'screen-saver' outranks other topmost windows (Task
@@ -75,7 +97,7 @@ function showPanel(currentState) {
   }
 
   const settings = loadSettings();
-  let pw = 260, ph = 560;
+  let pw = 330, ph = 620;
   let px, py;
 
   if (settings.panelBounds) {
@@ -96,12 +118,15 @@ function showPanel(currentState) {
 
   panel = new BrowserWindow({
     x: px, y: py, width: pw, height: ph,
-    minWidth: 220, minHeight: 300,
+    minWidth: 300, minHeight: 420,
     frame: false, transparent: true, alwaysOnTop: true,
-    resizable: true, skipTaskbar: true, hasShadow: false,
+    thickFrame: false, roundedCorners: false,
+    title: '', autoHideMenuBar: true,
+    resizable: false, skipTaskbar: true, hasShadow: false,
     backgroundColor: '#00000000',
     webPreferences: { preload: path.join(__dirname, 'preload_panel.js'), contextIsolation: true, nodeIntegration: false }
   });
+  panel.setMenuBarVisibility(false);
   panel.loadFile('panel.html');
   panel.webContents.on('did-finish-load', () => {
     panel.webContents.send('update-state', currentState);
@@ -183,6 +208,8 @@ ipcMain.on('panel-set-title-gap', (_, v) => { if (win && !win.isDestroyed()) win
 ipcMain.on('panel-set-favorites', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-favorites', v); });
 ipcMain.on('panel-set-todo-opacity', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-todo-opacity', v); });
 ipcMain.on('panel-set-todo-box-opaque', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-todo-box-opaque', v); });
+ipcMain.on('panel-set-todo-box-opacity', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-todo-box-opacity', v); });
+ipcMain.on('panel-set-cal-anim', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-cal-anim', v); });
 ipcMain.on('set-ignore-mouse', (_, b) => {
   if (win && !win.isDestroyed()) {
     try { win.setIgnoreMouseEvents(!!b, { forward: true }); } catch (_) {}
@@ -225,4 +252,7 @@ app.whenReady().then(() => {
   pruneLegacySettings();
   createWindow();
 });
+// The renderer flushes its final debounced patch while its window closes, so
+// write the cached aggregate at the last safe application lifecycle point.
+app.on('will-quit', flushSettings);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

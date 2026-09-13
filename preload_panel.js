@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('panelAPI', {
   setFavorites: (v) => ipcRenderer.send('panel-set-favorites', v),
   setTodoOpacity: (v) => ipcRenderer.send('panel-set-todo-opacity', v),
   setTodoBoxOpaque: (v) => ipcRenderer.send('panel-set-todo-box-opaque', v),
+  setTodoBoxOpacity: (v) => ipcRenderer.send('panel-set-todo-box-opacity', v),
+  setCalAnim: (v) => ipcRenderer.send('panel-set-cal-anim', v),
   saveSettings: (d) => ipcRenderer.send('save-settings', d),
   focusTimeInput: (type, timeStr) => ipcRenderer.send('panel-focus-time', {type, timeStr}),
   blurTimeInput: () => ipcRenderer.send('panel-blur-time'),
