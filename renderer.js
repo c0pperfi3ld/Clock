@@ -4311,10 +4311,11 @@ const nowTime = performance.now();
   const BOARD_START_HR = 8;
   const boardDispHr = (h) => (((h - BOARD_START_HR) % 24) + 24) % 24; // clock hr -> display row
   const boardClockHr = (d) => (d + BOARD_START_HR) % 24; // display row -> clock hr
-  function boardHrPx() {
-    const h = (dayBoard && dayBoard.clientHeight) || 600;
-    return h / 24;
-  }
+  const BOARD_BOTTOM_GAP = 60;
+    function boardHrPx() {
+      const h = (dayBoard && dayBoard.clientHeight) || 600;
+      return Math.max(16, (h - BOARD_BOTTOM_GAP) / 24);
+    }
   let boardEditing = false; // true while renaming inline (skips rebuild)
   let boardResize = null; // {id, edge} while dragging a block edge
   let boardMove = null; // {id, offMs, x0, y0, active} while dragging a block body
