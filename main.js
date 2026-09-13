@@ -34,7 +34,7 @@ function pruneLegacySettings() {
 function createWindow() {
   const settings = loadSettings();
   const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
-  const defaultH = 430;
+  const defaultH = 700;
   const defaultW = 690; // clock (430) + todo sidebar (260) + label headroom
   // Migration: ignore saved bounds that look like the old square (1:1) layout
   // or are too small for the new clock+sidebar layout.

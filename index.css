@@ -938,8 +938,8 @@ html, body {
   min-height: 100%;
   width: 100%;
   padding-left: 48px;
-  padding-top: 80px;
-  padding-bottom: 20px;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .board-hour-line {
