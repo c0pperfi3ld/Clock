@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('panelAPI', {
   setBgAlpha: (v) => ipcRenderer.send('panel-set-bg-alpha', v),
   setClockScale: (v) => ipcRenderer.send('panel-set-clock-scale', v),
   setAppPadding: (v) => ipcRenderer.send('panel-set-app-padding', v),
+  setTodoTopGap: (v) => ipcRenderer.send('panel-set-todo-top-gap', v),
   setPctOffset:  (v) => ipcRenderer.send('panel-set-pct-offset', v),
   setAppBorderW: (v) => ipcRenderer.send('panel-set-app-border-w', v),
   setAppBorderR: (v) => ipcRenderer.send('panel-set-app-border-r', v),

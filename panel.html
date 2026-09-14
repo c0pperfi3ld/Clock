@@ -137,6 +137,63 @@
     .opt .fav-star:hover { opacity:1; transform:scale(1.3); }
     .opt .fav-star.on { opacity:1; color:#fbbf24; text-shadow:0 0 7px rgba(251,191,36,0.8); }
 
+    /* ── Live calendar animation preview (always animating) ── */
+    .cal-preview {
+      margin: 8px 8px 4px; padding: 10px 8px 8px;
+      background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+    }
+    .cal-preview .cal-pv-head { font-size: 0.6rem; color: rgba(255,255,255,0.5);
+      text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; display:flex; justify-content:space-between; }
+    .cal-preview .cal-pv-grid {
+      display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
+    }
+    .cal-preview .cal-pv-dow { font-size: 0.55rem; text-align: center; color: rgba(255,255,255,0.4); padding-bottom: 2px; }
+    .cal-preview .cal-pv-day {
+      position: relative; aspect-ratio: 1 / 1; border-radius: 7px;
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.62rem; color: rgba(255,255,255,0.7);
+    }
+    .cal-preview .cal-pv-day.has { background: rgba(139,92,246,0.22); border-color: #8b5cf6; color: #fff; }
+    .cal-preview .cal-pv-day .cal-cell { display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; }
+    .cal-preview .cal-pv-day .dcnt { position:absolute; bottom:2px; right:3px; font-size:0.48rem; color:#c4b5fd; }
+    /* reuse the same keyframes the real mini-calendar uses, via data-calanim */
+    .cal-preview[data-calanim] .cal-pv-day.has .cal-cell { animation: var(--cal-anim, cal-pop) 2.2s ease-in-out infinite; }
+    .cal-preview[data-calanim="pop"] .cal-pv-day.has .cal-cell { animation-name: cal-pop; animation-duration:2.2s; }
+    .cal-preview[data-calanim="cascade"] .cal-pv-day.has .cal-cell { animation-name: cal-cascade; animation-duration:2.8s; }
+    .cal-preview[data-calanim="flip"] .cal-pv-day.has .cal-cell { animation-name: cal-flip; animation-duration:3.2s; }
+    .cal-preview[data-calanim="sweep"] .cal-pv-day.has .cal-cell { animation-name: cal-sweep; animation-duration:2.6s; }
+    .cal-preview[data-calanim="zoom"] .cal-pv-day.has .cal-cell { animation-name: cal-zoom; animation-duration:2.4s; }
+    .cal-preview[data-calanim="fade"] .cal-pv-day.has .cal-cell { animation-name: cal-fade; animation-duration:3s; }
+    .cal-preview[data-calanim="glow"] .cal-pv-day.has .cal-cell { animation-name: cal-glow; animation-duration:2.4s; }
+    .cal-preview[data-calanim="swing"] .cal-pv-day.has .cal-cell { animation-name: cal-swing; animation-duration:2.8s; }
+    .cal-preview[data-calanim="ring"] .cal-pv-day.has .cal-cell { animation-name: cal-ring; animation-duration:2s; }
+    .cal-preview[data-calanim="blink"] .cal-pv-day.has .cal-cell { animation-name: cal-blink; animation-duration:3.4s; }
+    .cal-preview[data-calanim="hop"] .cal-pv-day.has .cal-cell { animation-name: cal-hop; animation-duration:1.8s; }
+    .cal-preview[data-calanim="glimmer"] .cal-pv-day.has .cal-cell { animation-name: cal-glimmer; animation-duration:2.6s; }
+    /* stagger the loop across the grid so it sweeps like the real one */
+    .cal-preview .cal-pv-day.has:nth-child(7n+2) .cal-cell { animation-delay: 0.13s; }
+    .cal-preview .cal-pv-day.has:nth-child(7n+3) .cal-cell { animation-delay: 0.26s; }
+    .cal-preview .cal-pv-day.has:nth-child(7n+4) .cal-cell { animation-delay: 0.39s; }
+    .cal-preview .cal-pv-day.has:nth-child(7n+5) .cal-cell { animation-delay: 0.52s; }
+    .cal-preview .cal-pv-day.has:nth-child(7n+6) .cal-cell { animation-delay: 0.65s; }
+    .cal-preview .cal-pv-day.has:nth-child(7n+7) .cal-cell { animation-delay: 0.78s; }
+
+    /* ── Calendar preview @keyframes (referenced by .cal-preview[data-calanim] below) ── */
+    @keyframes cal-pop { 0%,100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+    @keyframes cal-cascade { 0%,100% { transform: translateY(2px); } 50% { transform: translateY(-2px); } }
+    @keyframes cal-flip { 0%,100% { transform: perspective(140px) rotateX(-10deg); } 50% { transform: perspective(140px) rotateX(10deg); } }
+    @keyframes cal-sweep { 0%,100% { transform: translateX(-3px); } 50% { transform: translateX(3px); } }
+    @keyframes cal-zoom { 0%,100% { transform: scale(0.94); } 50% { transform: scale(1.06); } }
+    @keyframes cal-fade { 0%,100% { opacity: 0.7; } 50% { opacity: 1; } }
+    @keyframes cal-glow { 0%,100% { box-shadow: 0 0 2px rgba(139,92,246,0.2); border-radius: 6px; } 50% { box-shadow: 0 0 10px rgba(139,92,246,0.75); border-radius: 6px; } }
+    @keyframes cal-swing { 0%,100% { rotate: -4deg; } 50% { rotate: 4deg; } }
+    @keyframes cal-ring { 0%,100% { rotate: 0deg; } 8% { rotate: 13deg; } 16% { rotate: -11deg; } 24% { rotate: 7deg; } 32% { rotate: -4deg; } 40% { rotate: 0deg; } }
+    @keyframes cal-blink { 0%,90%,100% { opacity: 1; } 93% { opacity: 0.35; } 96% { opacity: 1; } }
+    @keyframes cal-hop { 0%,100% { transform: translateY(0); } 28% { transform: translateY(-4px); } 48% { transform: translateY(0); } 64% { transform: translateY(-2px); } 80% { transform: translateY(0); } }
+    @keyframes cal-glimmer { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.35); } }
+
     /* ── Two-column option grids (long lists) ── */
     .opt-grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; padding:2px 4px 8px; }
     .opt-grid .opt { border-radius:9px; font-size:0.68rem; }
@@ -238,7 +295,7 @@
     const api = window.panelAPI;
     const body = document.getElementById('body');
 
-    let current = { style:'classic', theme:'midnight', handType:'tapered', opacity:100, sessions:[], windowFitAuto:true };
+    let current = { style:'classic', theme:'midnight', handType:'tapered', opacity:100, sessions:[], windowFitAuto:true, todoTopGap:7 };
     let faceQuery = '';
     let handleTimeUpdate = null; // assigned inside render(), invoked by the single IPC listener below
 
@@ -501,7 +558,8 @@
         ['beacon','📡 Radar Beacon'],['chains','⛓️ Chain Drive'],['hyperspace','🚀 Hyperspace'],
         ['ferris','🎡 Ferris Wheel'],['rainbow-flow','🌈 Rainbow Flow'],
         ['binary-orbit','🌌 Binary Orbit'],['shockwave','💥 Shockwave'],['constellation','✨ Constellation'],
-        ['fireflies','✨ Fireflies'],['matrix-rain','💻 Matrix Rain'],['aurora-band','🌌 Aurora Band']
+        ['fireflies','✨ Fireflies'],['matrix-rain','💻 Matrix Rain'],['aurora-band','🌌 Aurora Band'],
+        ['neon-pulse','Neon Pulse'],['star-trail','Star Trail'],['wave-ring','Wave Ring'],['double-helix','Double Helix'],['pulse-ring','Pulse Ring'],['laser-sweep','Laser Sweep'],['bounce-dots','Bounce Dots'],['aurora-ring','Aurora Ring']
       ];
       const TODO_LEGACY = { slide:'tide-x', 'fade-up':'float', pop:'pulse', flip:'sway', bounce:'bob', 'swing-in':'wiggle', 'roll-in':'jelly' };
       const todoAnimShown = TODO_LEGACY[current.todoAnim] || current.todoAnim || 'none';
@@ -543,6 +601,17 @@
       ];
       const calAnimShown = current.calAnim || 'pop';
       html += '<details class="group" open><summary><span>📅 Calendar Entrance</span><span class="badge">' + CAL_ANIMS.length + '</span></summary>';
+      html += '<div class="cal-preview" id="cal-preview" data-calanim="' + calAnimShown + '">';
+      html += '<div class="cal-pv-head"><span>Live Preview</span><span>' + calAnimShown + '</span></div>';
+      html += '<div class="cal-pv-grid">';
+      ['Mo','Tu','We','Th','Fr','Sa','Su'].forEach(d => { html += '<div class="cal-pv-dow">' + d + '</div>'; });
+      // Static backdrop days (no animation) + a handful of "has tasks" days that animate
+      const pvHas = { 3: 2, 7: 4, 11: 1, 14: 3, 18: 5, 21: 2, 25: 6 };
+      for (let d = 1; d <= 28; d++) {
+        const has = pvHas[d] !== undefined;
+        html += '<div class="cal-pv-day' + (has ? ' has' : '') + '"><span class="cal-cell">' + d + '</span>' + (has ? '<span class="dcnt">' + pvHas[d] + '</span>' : '') + '</div>';
+      }
+      html += '</div></div>';
       html += '<div class="hint">Unique continuous loops for mini-calendar dates with tasks.</div><div class="opt-grid">';
       html += renderOpts(CAL_ANIMS, 'cal-anim', calAnimShown);
       html += '</div></details>';
@@ -610,6 +679,11 @@
         <input type="range" min="0" max="32" step="1" value="${ap}" id="sl-app-padding">
         <span class="val" id="val-app-padding">${ap}px</span></div>
       <div class="hint">Inset between the rounded border and the clock/todo content.</div>`;
+      const ttg = current.todoTopGap !== undefined ? current.todoTopGap : 7;
+      html += `<div class="slider-row"><label>Todo Top Gap</label>
+        <input type="range" min="0" max="120" step="1" value="${ttg}" id="sl-todo-top-gap">
+        <span class="val" id="val-todo-top-gap">${ttg}px</span></div>
+      <div class="hint">Distance from the top of the todo panel down to the category dots row.</div>`;
       const abw = current.appBorderW !== undefined ? current.appBorderW : 2;
       html += `<div class="slider-row"><label>Border Width</label>
         <input type="range" min="0" max="12" step="1" value="${abw}" id="sl-app-border-w">
@@ -770,6 +844,8 @@
           if (action === 'cal-anim') {
             current.calAnim = val;
             if (api.setCalAnim) api.setCalAnim(val);
+            const pv = document.getElementById('cal-preview');
+            if (pv) { pv.dataset.calanim = val; const cap = pv.querySelector('.cal-pv-head span:last-child'); if (cap) cap.textContent = val; }
           }
           render();
         });
@@ -855,7 +931,16 @@
         });
       }
 
-      const slAppPadding = document.getElementById('sl-app-padding');
+      const slTodoTopGap = document.getElementById('sl-todo-top-gap');
+      if (slTodoTopGap) {
+        slTodoTopGap.addEventListener('input', e => {
+          current.todoTopGap = parseInt(e.target.value, 10) || 0;
+          document.getElementById('val-todo-top-gap').textContent = current.todoTopGap + 'px';
+          document.documentElement.style.setProperty('--todo-top-gap', current.todoTopGap + 'px');
+          if (api.setTodoTopGap) api.setTodoTopGap(current.todoTopGap);
+        });
+        document.documentElement.style.setProperty('--todo-top-gap', (current.todoTopGap !== undefined ? current.todoTopGap : 7) + 'px');
+      }
       if (slAppPadding) {
         slAppPadding.addEventListener('input', e => {
           current.appPadding = parseInt(e.target.value, 10) || 0;
