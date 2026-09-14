@@ -45,42 +45,24 @@ function createWindow() {
   let savedTodoW = (settings.todoPanelWidth > 0) ? settings.todoPanelWidth : 260;
   if (savedTodoW > maxTodoW) savedTodoW = maxTodoW;
   const defaultW = 430 + savedTodoW; // clock (430) + todo sidebar + label headroom
-  // Migration: ignore saved bounds that look like the old square (1:1) layout
-  // or are too small for the new clock+sidebar layout.
+  // Restore the saved geometry exactly. We keep the user's chosen size on all
+  // four sides; the only adjustment is nudging the position back on-screen if a
+  // saved window would render partially off the display. We never change the
+  // saved width/height — that was the old bug that made the size "forget".
   function pickBounds(key, fbW, fbH) {
     let bounds = settings[key] || (key !== 'windowBounds' ? settings.windowBounds : null);
-    const looksLegacy = bounds && (
-      Math.abs(bounds.width - bounds.height) < 20 || // square (old 1:1 lock)
-      bounds.width < 320 ||
-      bounds.height < 220
-    );
-    if (!bounds || looksLegacy) {
+    const invalid = !bounds || bounds.width < 320 || bounds.height < 220;
+    if (invalid) {
       bounds = { x: sw - fbW - 40, y: 40, width: fbW, height: fbH };
     }
-    // Shrink absurdly wide windows: content is exactly clock-square + todo,
-    // so anything wider than height + todo is dead space. (One-time repair
-    // for widths saved before the todo-width sync existed.)
-    const maxW = bounds.height + savedTodoW;
-    if (bounds.width > maxW + 2) {
-      bounds = { x: bounds.x, y: bounds.y, width: Math.round(maxW), height: bounds.height };
-    }
-    // Keep the window inside the screen work area — a saved x/width combo
-    // can otherwise park the right edge past the display, clipping todos.
-    if (bounds.x + bounds.width > sw - 8) {
-      bounds.width = Math.max(420, sw - 8 - bounds.x);
-    }
+    // Keep position fully on the primary work area (move only, never resize).
+    if (bounds.x + bounds.width > sw - 8) bounds.x = Math.max(8, sw - 8 - bounds.width);
     if (bounds.x < 8) bounds.x = 8;
+    if (bounds.y + bounds.height > sh - 8) bounds.y = Math.max(8, sh - 8 - bounds.height);
+    if (bounds.y < 8) bounds.y = 8;
     return bounds;
   }
   const bounds = pickBounds('windowBoundsClock', defaultW, defaultH);
-
-  // Tighten overly-wide windows saved before the fix so there is no blank
-  // strip on either side — content is exactly clock-square + todo.
-  (() => {
-    const tightW = Math.round(Math.min(bounds.width, bounds.height + savedTodoW));
-    if (bounds.width > tightW + 2 && tightW >= 460) { bounds.width = tightW; }
-  })();
-
   win = new BrowserWindow({
         x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
         frame: false, transparent: true,
@@ -122,7 +104,7 @@ function saveCurrentBounds() {
   const b = win.getBounds();
   s[boundsKey()] = b;
   s.windowBounds = b; // legacy compat
-  saveSettings(s);
+  saveSettings(s, true); // immediate flush — don't risk losing it on a fast quit
 }
 function applyOnTop() {
   if (win && !win.isDestroyed()) {
@@ -301,6 +283,7 @@ ipcMain.on('panel-set-opacity', (_, v) => { if (win && !win.isDestroyed()) win.w
 ipcMain.on('panel-set-bg-alpha', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-bg-alpha', v); });
 ipcMain.on('panel-set-clock-scale', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-clock-scale', v); });
 ipcMain.on('panel-set-app-padding', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-app-padding', v); });
+ipcMain.on('panel-set-todo-top-gap', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-todo-top-gap', v); });
 ipcMain.on('panel-set-pct-offset', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-pct-offset', v); });
 ipcMain.on('panel-set-app-border-w', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-app-border-w', v); });
 ipcMain.on('panel-set-app-border-r', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-app-border-r', v); });

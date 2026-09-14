@@ -8,6 +8,7 @@
     "dev": "electron . --dev"
   },
   "dependencies": {
-    "electron": "^35.0.0"
+    "electron": "^35.0.0",
+    "puppeteer": "^25.11.0"
   }
 }

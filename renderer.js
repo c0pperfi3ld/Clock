@@ -50,6 +50,7 @@
   // to render when a list becomes long.
   let todoAnim = 'none';
   let titleGap = 1.0; // multiplier for title-to-ring distance
+  let todoTopGap = 7; // px gap above the todo category dots row
   let todoOpacity = 100; // todo panel opacity %; 0-100
   let bgAlpha = 85; // app background transparency %; 10-100 (drives --bgA)
   // Independent clock size multiplier (decoupled from window size). The clock
@@ -107,6 +108,7 @@
   if (saved.todoAnim) todoAnim=saved.todoAnim;
   if (typeof saved.windowFitAuto === 'boolean') windowFitAuto=saved.windowFitAuto;
   if (typeof saved.titleGap === 'number') titleGap=saved.titleGap;
+  if (typeof saved.todoTopGap === 'number') todoTopGap = saved.todoTopGap;
   if (typeof saved.todoOpacity === 'number') todoOpacity = saved.todoOpacity;
   if (typeof saved.bgAlpha === 'number') bgAlpha = Math.max(10, Math.min(100, saved.bgAlpha));
   if (typeof saved.clockScale === 'number') clockScale = Math.max(0.5, Math.min(1.5, saved.clockScale));
@@ -302,6 +304,10 @@
     const v = Math.max(0, Math.min(32, appPadding | 0));
     try { document.documentElement.style.setProperty('--app-padding', v + 'px'); } catch (_) {}
   }
+  function applyTodoTopGap() {
+    const v = Math.max(0, Math.min(120, todoTopGap | 0));
+    try { document.documentElement.style.setProperty('--todo-top-gap', v + 'px'); } catch (_) {}
+  }
   function applyPctOffset() {
     const v = Math.max(0, Math.min(60, pctOffset | 0));
     try { document.documentElement.style.setProperty('--pct-offset', v + 'px'); } catch (_) {}
@@ -397,6 +403,7 @@
     applyTodoBoxOpaque();
     applyClockScale();
     applyAppPadding();
+    applyTodoTopGap();
     applyPctOffset();
     applyAppBorderW();
     applyAppBorderR();
@@ -406,7 +413,7 @@
       applyShineAnim();
       applyOpacity();
 
-      function save() { queueSave({clockStyle:style,theme,handType,opacity,sessions,sessionsByDate,selectedTodoDate,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque,todoBoxOpacity,calAnim,todoPanelWidth,bgAlpha,clockScale,appPadding,pctOffset,appBorderW,appBorderR,appBorderC,appBorderA,borderAnim,borderAnimSpeed,shineAnim,shineSpeed,shineAngle,shineWidth,shineOpacity,shineColor,shineBorderOpacity,shineEasing,shineDelay,shineDirection,shineFade,shineRepeat}); }
+      function save() { queueSave({clockStyle:style,theme,handType,opacity,sessions,sessionsByDate,selectedTodoDate,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque,todoBoxOpacity,calAnim,todoPanelWidth,bgAlpha,clockScale,appPadding,pctOffset,appBorderW,appBorderR,appBorderC,appBorderA,borderAnim,borderAnimSpeed,shineAnim,shineSpeed,shineAngle,shineWidth,shineOpacity,shineColor,shineBorderOpacity,shineEasing,shineDelay,shineDirection,shineFade,shineRepeat,todoTopGap}); }
   api.onSetStyle(s => { style=s; save(); });
   api.onSetTheme(t => { theme=t; save(); });
   api.onSetOpacity(o => { opacity=o; applyOpacity(); save(); });
@@ -426,6 +433,7 @@
    if (api.onSetBgAlpha) api.onSetBgAlpha(v => { bgAlpha = v; applyBgAlpha(); save(); });
   if (api.onSetClockScale) api.onSetClockScale(v => { clockScale = Math.max(0.5, Math.min(1.5, +v || 1.0)); applyClockScale(); scheduleRender(); save(); });
   if (api.onSetAppPadding) api.onSetAppPadding(v => { appPadding = Math.max(0, Math.min(32, +v | 0)); applyAppPadding(); save(); });
+  if (api.onSetTodoTopGap) api.onSetTodoTopGap(v => { todoTopGap = Math.max(0, Math.min(120, +v | 0)); applyTodoTopGap(); save(); });
   if (api.onSetPctOffset)  api.onSetPctOffset (v => { pctOffset  = Math.max(0, Math.min(60, +v | 0)); applyPctOffset();  scheduleRender(); save(); });
   if (api.onSetAppBorderW) api.onSetAppBorderW(v => { appBorderW = Math.max(0, Math.min(12, +v | 0)); applyAppBorderW(); save(); });
   if (api.onSetAppBorderR) api.onSetAppBorderR(v => { appBorderR = Math.max(0, Math.min(48, +v | 0)); applyAppBorderR(); save(); });
@@ -575,8 +583,6 @@
     const eff = todoAnimEff();
     const panel = document.getElementById('todo-panel');
     if (panel) panel.dataset.anim = eff;
-    const cal = document.getElementById('todo-cal-wrap');
-    if (cal) cal.dataset.anim = eff;
   }
 
   function clockBounds() {
@@ -1211,6 +1217,164 @@
       grad.addColorStop(0.5, 'rgba(56, 189, 248, 0.7)');
       grad.addColorStop(1, 'rgba(139, 92, 246, 0.7)');
       X.strokeStyle = grad; X.lineWidth = 4; X.stroke();
+    } else if (st === 'neon-pulse') {
+      // Neon Tracer Pulse: faint full ring + short bright arc sweeping clockwise with glow.
+      X.beginPath();
+      X.arc(cx, cy, or, 0, PI2);
+      X.strokeStyle = 'rgba(148,210,185,0.18)';
+      X.lineWidth = 1.5;
+      X.stroke();
+      const head = rot / or;
+      const tail = head - 0.5;
+      X.beginPath();
+      X.arc(cx, cy, or, tail, head);
+      X.strokeStyle = 'rgba(167,243,208,0.95)';
+      X.lineWidth = 3;
+      X.lineCap = 'round';
+      try { X.shadowColor = 'rgba(148,210,185,0.95)'; X.shadowBlur = 14; } catch (_) {}
+      X.stroke();
+      try { X.shadowBlur = 0; } catch (_) {}
+      X.beginPath();
+      X.arc(cx + Math.cos(head) * or, cy + Math.sin(head) * or, 3.4, 0, PI2);
+      X.fillStyle = '#ecfeff';
+      try { X.shadowColor = 'rgba(148,210,185,0.95)'; X.shadowBlur = 14; } catch (_) {}
+      X.fill();
+      try { X.shadowBlur = 0; } catch (_) {}
+    } else if (st === 'star-trail') {
+      // Star Trail: faint dashed ring + star dots travelling clockwise, twinkling.
+      X.beginPath();
+      X.arc(cx, cy, or, 0, PI2);
+      X.setLineDash([3, 10]);
+      try { X.lineDashOffset = -rot; } catch (_) {}
+      X.strokeStyle = 'rgba(148,210,185,0.25)';
+      X.lineWidth = 1.2;
+      X.stroke();
+      X.setLineDash([]);
+      const n = 7;
+      const head = rot / or;
+      for (let i = 0; i < n; i++) {
+        const a = head - (i / n) * PI2;
+        const tw = 0.4 + 0.6 * Math.abs(Math.sin(nowMs / 300 + i));
+        X.beginPath();
+        X.arc(cx + Math.cos(a) * or, cy + Math.sin(a) * or, 1.6 + 2.2 * tw, 0, PI2);
+        X.fillStyle = `rgba(255,255,255,${(0.3 + 0.7 * tw).toFixed(3)})`;
+        try { X.shadowColor = 'rgba(167,243,208,0.9)'; X.shadowBlur = 8 * tw; } catch (_) {}
+        X.fill();
+        try { X.shadowBlur = 0; } catch (_) {}
+      }
+    } else if (st === 'wave-ring') {
+      // Wave Ring: many short arc segments with lineWidth oscillating via sin(angle*6 + nowMs/200).
+      X.beginPath();
+      X.arc(cx, cy, or, 0, PI2);
+      X.strokeStyle = 'rgba(148,210,185,0.15)';
+      X.lineWidth = 1;
+      X.stroke();
+      const segs = 60;
+      for (let i = 0; i < segs; i++) {
+        const a0 = (i / segs) * PI2;
+        const a1 = ((i + 0.82) / segs) * PI2;
+        const w = 1 + 3 * (0.5 + 0.5 * Math.sin(a0 * 6 + nowMs / 200));
+        X.beginPath();
+        X.arc(cx, cy, or, a0, a1);
+        X.strokeStyle = 'rgba(139,92,246,0.75)';
+        X.lineWidth = w;
+        try { X.shadowColor = 'rgba(139,92,246,0.5)'; X.shadowBlur = 4; } catch (_) {}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch (_) {}
+      }
+    } else if (st === 'double-helix') {
+      // Double Helix: two counter-rotating dashed rings in violet + teal.
+      for (const [off, dash, col, lw, dir] of [
+        [-9, [10, 7], 'rgba(139,92,246,0.7)', 1.6, -1],
+        [9, [4, 6], 'rgba(148,210,185,0.7)', 1.3, 1]
+      ]) {
+        X.beginPath();
+        X.arc(cx, cy, or + off, 0, PI2);
+        X.setLineDash(dash);
+        try { X.lineDashOffset = dir * rot; } catch (_) {}
+        X.strokeStyle = col;
+        X.lineWidth = lw;
+        X.stroke();
+      }
+      X.setLineDash([]);
+    } else if (st === 'pulse-ring') {
+      // Pulse Ring: concentric faint rings expanding outward and fading, clipped near orbit radius.
+      const period = 1600 / (spd || 1);
+      const baseR = or - 14;
+      for (let k = 0; k < 3; k++) {
+        const phase = ((nowMs + k * period / 3) % period) / period;
+        const pr = baseR + phase * 26;
+        const alpha = (1 - phase) * 0.7;
+        if (pr > or + 18) continue;
+        X.beginPath();
+        X.arc(cx, cy, pr, 0, PI2);
+        X.strokeStyle = `rgba(148,210,185,${alpha.toFixed(3)})`;
+        X.lineWidth = 2 * (1 - phase * 0.5);
+        try { X.shadowColor = 'rgba(148,210,185,0.6)'; X.shadowBlur = 6 * (1 - phase); } catch (_) {}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch (_) {}
+      }
+    } else if (st === 'laser-sweep') {
+      // Laser Sweep: thin bright radial line rotating clockwise + short fading trailing arc.
+      const head = rot / or;
+      const trail = 0.5;
+      X.beginPath();
+      X.arc(cx, cy, or - 14, head - trail, head);
+      X.strokeStyle = 'rgba(167,243,208,0.5)';
+      X.lineWidth = 2.5;
+      X.lineCap = 'round';
+      try { X.shadowColor = 'rgba(148,210,185,0.8)'; X.shadowBlur = 8; } catch (_) {}
+      X.stroke();
+      try { X.shadowBlur = 0; } catch (_) {}
+      const hx = cx + Math.cos(head) * or;
+      const hy = cy + Math.sin(head) * or;
+      X.beginPath();
+      X.moveTo(cx, cy);
+      X.lineTo(hx, hy);
+      X.strokeStyle = 'rgba(236,255,246,0.95)';
+      X.lineWidth = 2;
+      try { X.shadowColor = 'rgba(148,210,185,0.95)'; X.shadowBlur = 12; } catch (_) {}
+      X.stroke();
+      try { X.shadowBlur = 0; } catch (_) {}
+      X.beginPath();
+      X.arc(hx, hy, 3, 0, PI2);
+      X.fillStyle = '#ecfeff';
+      X.fill();
+    } else if (st === 'bounce-dots') {
+      // Bounce Dots: 6 dots evenly spaced bouncing radially in/out.
+      const n = 6;
+      const head = rot / or;
+      for (let i = 0; i < n; i++) {
+        const a = head + (i / n) * PI2;
+        const off = 6 * Math.sin(nowMs / 200 + i);
+        const rr = or + off;
+        X.beginPath();
+        X.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, 3, 0, PI2);
+        X.fillStyle = i % 2 === 0 ? 'rgba(148,210,185,0.9)' : 'rgba(139,92,246,0.9)';
+        try { X.shadowColor = i % 2 === 0 ? 'rgba(148,210,185,0.9)' : 'rgba(139,92,246,0.9)'; X.shadowBlur = 8; } catch (_) {}
+        X.fill();
+        try { X.shadowBlur = 0; } catch (_) {}
+      }
+    } else if (st === 'aurora-ring') {
+      // Aurora Ring: moving multi-stop pastel gradient flowing slower along the arc (greens/teals/purples).
+      const segs = 72;
+      const flow = (nowMs / 1000) * (16 + 30 * spd); // slow hue drift deg/s
+      for (let i = 0; i < segs; i++) {
+        const a0 = (i / segs) * PI2;
+        const a1 = ((i + 1.02) / segs) * PI2;
+        // Pastel spectrum: green -> teal -> purple, looping.
+        const t = (i / segs);
+        const hue = (120 + (t * 120 + flow) % 120); // 120..240 pastel band
+        const sat = 55 + 15 * Math.sin(a0 * 3 + nowMs / 600);
+        X.beginPath();
+        X.arc(cx, cy, or, a0, a1);
+        X.strokeStyle = `hsla(${hue.toFixed(1)}, ${sat.toFixed(0)}%, 78%, 0.85)`;
+        X.lineWidth = 3;
+        X.lineCap = 'round';
+        try { X.shadowColor = `hsla(${hue.toFixed(1)},70%,70%,0.6)`; X.shadowBlur = 6; } catch (_) {}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch (_) {}
+      }
     } else {
       // 'dash' — classic clockwise rotating dotted ring.
       X.beginPath();
@@ -1307,25 +1471,11 @@
         return;
     }
 
-    // Resize handle (dial bottom-right) → always resize the window
-    if (isOnResizeHandle(mx, my)) {
-        resizing = true;
-        api.resizeStart('se');
-        return;
-    }
-
     // Check gear icon click first
         if (isClickOnGear(mx, my)) {
-            api.showPanel({style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque,todoBoxOpacity,calAnim,bgAlpha,clockScale,appPadding,pctOffset,appBorderW,appBorderR,appBorderC,appBorderA,borderAnim,borderAnimSpeed,shineAnim,shineSpeed,shineAngle,shineWidth,shineOpacity,shineColor,shineBorderOpacity,shineEasing,shineDelay,shineDirection});
+            api.showPanel({style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque,todoBoxOpacity,calAnim,bgAlpha,clockScale,appPadding,pctOffset,appBorderW,appBorderR,appBorderC,appBorderA,borderAnim,borderAnimSpeed,shineAnim,shineSpeed,shineAngle,shineWidth,shineOpacity,shineColor,shineBorderOpacity,shineEasing,shineDelay,shineDirection,todoTopGap});
            return;
         }
-
-    // Grab handle → always drag the window
-    if (isOnGrabHandle(mx, my)) {
-        dragging = true;
-        api.dragStart();
-        return;
-    }
 
     // ── Circular ring labels: × chip clears the task, text opens the editor ──
     {
@@ -1631,9 +1781,7 @@ sessions.push({
   let lastMouseMove = 0;
   let lastMouseX = null, lastMouseY = null;
   let gearX = 0, gearY = 0, gearR = 14;
-  let handleX = 0, handleY = 0, handleOpacity = 0;
   let resizing = false;
-  let resizeHandleX = 0, resizeHandleY = 0, resizeOpacity = 0;
   let exitX = 0, exitY = 0, exitOpacity = 0;
 
   // Track the label currently being edited (its ring text hides meanwhile)
@@ -1654,7 +1802,13 @@ sessions.push({
     todoLists.forEach((l, i) => {
       const dot = document.createElement('button');
       dot.className = 'todo-tab' + (i === activeTodoList ? ' active' : '');
-      dot.title = l.name + ' (' + l.todos.length + ' items)';
+      const n = l.todos.length;
+      dot.title = l.name + ' (' + n + ' items)';
+      dot.style.setProperty('--count', n);
+      const label = document.createElement('span');
+      label.className = 'todo-tab-count';
+      label.textContent = n > 99 ? '99+' : String(n);
+      dot.appendChild(label);
       dot.addEventListener('click', () => switchTodoList(i));
       todoTabs.appendChild(dot);
     });
@@ -1968,6 +2122,9 @@ function toggleTodoLink(id) {
   function paintWeight(card, w, linked) {
     if (!card) return;
     w = clampWeight(w);
+    // Pulse only on priority cards (weight > 0) — zero-priority cards stay
+    // perfectly static, no idle repaints.
+    card.classList.toggle('has-weight', w > 0);
     // 100% = fully opaque solid; lower values fade toward glass.
     const op = (typeof todoBoxOpacity === 'number' ? todoBoxOpacity : 100) / 100;
     const c = weightRgb(w);
@@ -2973,73 +3130,6 @@ function toggleTodoLink(id) {
 
   function isClickOnGear(mx, my) {
     return gearOpacity > 0.1 && Math.hypot(mx - gearX, my - gearY) < gearR + 4;
-  }
-
-  // -- Bottom grip: big round drag button, always drags the window --
-  function drawGrabHandle(cx, cy, r) {
-    handleX = cx;
-    handleY = cy + r + 36;
-    const elapsed = Date.now() - lastMouseMove;
-    const targetOp = elapsed < 1800 ? 0.6 : 0;
-    handleOpacity += (targetOp - handleOpacity) * 0.1;
-    if (handleOpacity < 0.02) return;
-    X.save();
-    X.globalAlpha = handleOpacity;
-    const R = 18;
-    X.beginPath();
-    X.arc(handleX, handleY, R, 0, PI2);
-    X.fillStyle = 'rgba(255,255,255,0.10)';
-    X.fill();
-    X.strokeStyle = 'rgba(255,255,255,0.30)';
-    X.lineWidth = 1.5;
-    X.stroke();
-    // 3x3 grip dots
-    X.fillStyle = 'rgba(255,255,255,0.60)';
-    for (let gy = -1; gy <= 1; gy++) {
-      for (let gx = -1; gx <= 1; gx++) {
-        X.beginPath();
-        X.arc(handleX + gx * 7, handleY + gy * 7, 1.8, 0, PI2);
-        X.fill();
-      }
-    }
-    X.restore();
-  }
-
-  function isOnGrabHandle(mx, my) {
-    return handleOpacity > 0.1 && Math.hypot(mx - handleX, my - handleY) < 26;
-  }
-
-  // -- Resize grip (dial bottom-right): drags a diagonal arrow → window grows --
-  function isOnResizeHandle(mx, my) {
-    return Math.hypot(mx - resizeHandleX, my - resizeHandleY) < 22;
-  }
-  function drawResizeHandle(cx, cy, r) {
-    // Pin inside the canvas corner: the old cx+r+34 math lands off-screen
-    // now that the dial margin shrank, which made the handle unreachable.
-    const { w, h } = clockBounds();
-    resizeHandleX = Math.min(cx + r + 34, w - 20);
-    resizeHandleY = Math.min(cy + r + 34, h - 20);
-    // Reveal on hover (pinned while the cursor is over it) or recent mouse use.
-    const over = lastMouseCanvas && isOnResizeHandle(lastMouseCanvas.x, lastMouseCanvas.y);
-    const elapsed = Date.now() - lastMouseMove;
-    // Always discoverable: rests at half strength, brightens on hover/recent use.
-    const targetOp = (over || elapsed < 1800) ? 0.95 : 0.55;
-    resizeOpacity += (targetOp - resizeOpacity) * 0.18;
-    if (resizeOpacity < 0.02) return;
-    X.save();
-    X.globalAlpha = resizeOpacity;
-    X.beginPath(); X.arc(resizeHandleX, resizeHandleY, 15, 0, PI2);
-    X.fillStyle = 'rgba(10,10,20,0.8)'; X.fill();
-    X.lineWidth = 1.5; X.strokeStyle = over ? 'rgba(139,92,246,0.95)' : 'rgba(255,255,255,0.5)'; X.stroke();
-    X.strokeStyle = over ? '#c4b5fd' : 'rgba(255,255,255,0.85)';
-    X.lineWidth = 2;
-    for (let i = 0; i < 3; i++) {
-      X.beginPath();
-      X.moveTo(resizeHandleX - 11 + i * 4, resizeHandleY + 11 - i * 4);
-      X.lineTo(resizeHandleX - 4 + i * 4, resizeHandleY + 4 - i * 4);
-      X.stroke();
-    }
-    X.restore();
   }
 
   // -- Exit × (dial top-left, hover button): closes the app --
@@ -4637,15 +4727,6 @@ const nowTime = performance.now();
   let todoResizeStartW = 260; // todo width at drag start
   let todoResizeSent = 0; // throttling counter for IPC
 
-  // Clock-view corner grip: resizes the whole window (reuses dial-resize IPC).
-  // Same window-resize IPC; todo panel stays fixed so only the clock grows.
-  const clockResizeGrip = document.getElementById('clock-resize');
-  if (clockResizeGrip) clockResizeGrip.addEventListener('mousedown', e => {
-    if (e.button !== 0) return;
-    e.stopPropagation();
-    resizing = true;
-    api.resizeStart();
-  });
   // Todo-list-only resize handles: left and right edges of the todo panel.
   // These grow/shrink the todo column while keeping the clock size fixed.
   const todoResizeW = document.getElementById('todo-resize-w');
@@ -4671,21 +4752,21 @@ const nowTime = performance.now();
 
   // Window-edge resize handles: 8 edges/corners for full window resize.
   const appResizeN = document.getElementById('app-resize-n');
-  if (appResizeN) appResizeN.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 'n'; api.resizeStart('n'); });
+  if (appResizeN) appResizeN.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); resizing = true; appResizeEdge = 'n'; api.resizeStart('n'); });
   const appResizeS = document.getElementById('app-resize-s');
-  if (appResizeS) appResizeS.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 's'; api.resizeStart('s'); });
+  if (appResizeS) appResizeS.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); resizing = true; appResizeEdge = 's'; api.resizeStart('s'); });
   const appResizeW = document.getElementById('app-resize-w');
-  if (appResizeW) appResizeW.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 'w'; api.resizeStart('w'); });
+  if (appResizeW) appResizeW.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); resizing = true; appResizeEdge = 'w'; api.resizeStart('w'); });
   const appResizeE = document.getElementById('app-resize-e');
-  if (appResizeE) appResizeE.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 'e'; api.resizeStart('e'); });
+  if (appResizeE) appResizeE.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); resizing = true; appResizeEdge = 'e'; api.resizeStart('e'); });
   const appResizeNW = document.getElementById('app-resize-nw');
-  if (appResizeNW) appResizeNW.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 'nw'; api.resizeStart('nw'); });
+  if (appResizeNW) appResizeNW.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); resizing = true; appResizeEdge = 'nw'; api.resizeStart('nw'); });
   const appResizeNE = document.getElementById('app-resize-ne');
-  if (appResizeNE) appResizeNE.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 'ne'; api.resizeStart('ne'); });
+  if (appResizeNE) appResizeNE.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); resizing = true; appResizeEdge = 'ne'; api.resizeStart('ne'); });
   const appResizeSW = document.getElementById('app-resize-sw');
-  if (appResizeSW) appResizeSW.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 'sw'; api.resizeStart('sw'); });
+  if (appResizeSW) appResizeSW.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); resizing = true; appResizeEdge = 'sw'; api.resizeStart('sw'); });
   const appResizeSE = document.getElementById('app-resize-se');
-  if (appResizeSE) appResizeSE.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 'se'; api.resizeStart('se'); });
+  if (appResizeSE) appResizeSE.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); resizing = true; appResizeEdge = 'se'; api.resizeStart('se'); });
   let appResizeEdge = null; // 'n','s','w','e','nw','ne','sw','se'
   // (Board view removed — circular clock + todo list only.)
   function draw() {
@@ -4709,8 +4790,6 @@ const nowTime = performance.now();
     drawCircularLabels(cx, cy, r);
       drawInteractiveKnob(cx, cy, r);
       drawGearIcon(cx, cy, r);
-      drawGrabHandle(cx, cy, r);
-      drawResizeHandle(cx, cy, r);
       drawExitButton(cx, cy, r);
       drawTooltipSizeIndicator(cx, cy, r);
       drawOrbitSpeedIndicator(cx, cy, r);

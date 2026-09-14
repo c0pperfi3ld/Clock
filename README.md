@@ -1,28 +1,23 @@
-<div align="center">
-
 # ⏱ ChronoCore
 
-**A borderless, canvas-rendered desktop clock widget — time blocks, Pomodoro & todo lists built in.**
+A borderless, canvas-rendered desktop clock widget with time blocks, a Pomodoro-style todo board, and a daily timeline — built on Electron.
 
-52 dials · 22 hands · 10 themes · 26 label motions · 24 orbit rings · 25 block FX · 22 todo loops
-
-![Electron](https://img.shields.io/badge/Electron-35-47848F?style=for-the-badge&logo=electron&logoColor=white)
-![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-8b5cf6?style=for-the-badge)
-![License](https://img.shields.io/badge/License-MIT-10b981?style=for-the-badge)
-
-</div>
+[![Electron](https://img.shields.io/badge/Electron-35-47848F?style=flat&logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![License](https://img.shields.io/badge/License-MIT-10b981?style=flat)](LICENSE)
+[![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-8b5cf6?style=flat)](#)
 
 ---
 
-## ✨ Highlights
+## ✨ Features
 
-- **Circular task labels** — task text sits on the orbit ring itself, always upright, never clipped
-- **Time blocks** — click to spawn, drag the handles to resize, dual-color elapsed/remaining wedges
-- **Priority todos** — multi-list tabs (dots + `+`), ▲▼ weight arrows sort top-down with live red > yellow > green whole-box coloring, per-task colors
-- **60 FPS Canvas 2D** — zero-DOM face, DPR-aware, borderless always-on-top, click-through on transparent pixels
-- **Fully customizable** — 52 dials × 22 hands × 10 themes, every animation speed-controlled
+- **Floating analog clock** — borderless, always-on-top, DPR-aware Canvas 2D face rendered at 60 FPS with no DOM overhead.
+- **Time blocks** — click to create, drag handles to resize, dual-color elapsed/remaining wedges.
+- **Priority todos** — multi-list tabs, weight arrows for top-down sorting, per-task colors, and a calendar view.
+- **Board view** — a vertical day timeline from 8 AM; click an hour to create, drag edges to resize, link blocks to todos.
+- **Deeply themable** — dozens of dials, hands, themes, orbit rings, and motion effects.
+- **Lightweight** — a single runtime dependency (`electron`).
 
-## 🚀 Install
+## 🚀 Getting started
 
 ```bash
 git clone https://github.com/c0pperfi3ld/Clock.git
@@ -31,58 +26,33 @@ npm install
 npm start
 ```
 
-> `npm run dev` opens DevTools.
-
-## 🎨 Design & Motion
-
-| | |
-|---|---|
-| **Dials** | 13 hand-only · 25 dialed · 14 unique-motion |
-| **Hands** | taper · sword · dauphine · baton · skeleton · arrow · spade · cathedral · needle · spike · alpha · chronometer · luminous · dot · art-deco · scalpel · flame · crystal · ruler · halo · barley · leaf |
-| **Themes** | midnight · obsidian · charcoal · slate · eclipse · void · graphite · onyx · shadow · abyss |
-| **Label motion** | 26 ring-text effects (bounce · glide · orbit · heartbeat · glitch …) |
-| **Orbit rings** | 24 styles (dotted · double · comet · rainbow · rainbow-flow · saturn · ferris …) |
-| **Block FX** | 25 effects (pulse · laser · aurora · snow · orbit-rings · strobe …) |
-| **Todo loops** | 22 continuous card + calendar animations |
+Open DevTools with `npm run dev`.
 
 ## 🎮 Usage
 
 | Action | How |
-|---|---|
-| Move | Drag the empty dial or the bottom grip |
-| Resize | Bottom-right handle |
-| Exit | Hover × (top-left of the dial) |
-| Add block | Click the outer ring → pick colors in ⚙ |
-| Edit block | Click a wedge → drag red/blue handles |
-| Rename task | Click the label · × clears it |
-| Todos | `+` or type + Enter · ▲▼ weight arrows sort top-down · click dot → color |
-| Settings | ⚙ top-right · searchable, collapsible tabs |
-| Board view | Rectangular icon in tab bar → vertical day timeline from 8am: click hour to create, click block to select/link, drag edges to resize, × deletes, double-click renames |
-| Text size | `Ctrl+scroll` / slider · Orbit speed: `Alt+scroll` |
+| --- | --- |
+| Move window | Drag the empty dial or the bottom grip |
+| Resize window | Bottom-right handle (or any edge) |
+| Exit | Hover the `×` (top-left of the dial) |
+| Add a block | Click the outer ring, then pick colors in ⚙ |
+| Edit a block | Click a wedge, drag the red/blue handles |
+| Todos | `+` or type + Enter · ▲▼ weight arrows sort · click a dot to color |
+| Settings | ⚙ top-right — searchable, collapsible tabs |
+| Board view | Rectangle icon in the tab bar → day timeline |
+| Text size | `Ctrl` + scroll · Orbit speed: `Alt` + scroll |
 
-## 🧠 How It Works
-
-```
-renderer.js  ← 60 FPS engine (dial, blocks, ring, labels, handles)
-main.js      ← window + IPC bridge + JSON settings store
-panel.html   ← ⚙ settings panel (Faces / Motion / Blocks / General)
-index.html   ← clock window: canvas + todo panel
-```
-
-One dependency: **electron ^35**. Settings persist to `userData/clock-settings.json`.
-
-## 📊 At a Glance
+## 🧩 How it works
 
 ```
-Dials 52 · Hands 22 · Themes 10 · Deps 1 · 60 FPS · cold start < 1.2s
+renderer.js   ← 60 FPS engine (dial, blocks, ring, labels, handles)
+main.js       ← window + IPC bridge + JSON settings store
+panel.html    ← ⚙ settings panel (Faces / Motion / Blocks / General)
+index.html    ← clock window: canvas + todo panel
 ```
 
----
+Settings persist to `userData/clock-settings.json`. The `test-harness.html` + `measure.js` files are a headless Puppeteer harness for verifying layout — not needed to run the app.
 
-<div align="center">
+## 📄 License
 
-**[⭐ Star](https://github.com/c0pperfi3ld/Clock)** · **[🐛 Bug](https://github.com/c0pperfi3ld/Clock/issues)** · **[💡 Feature](https://github.com/c0pperfi3ld/Clock/issues/new)**
-
-*MIT License · © 2026 c0pperfi3ld*
-
-</div>
+MIT © 2026 c0pperfi3ld

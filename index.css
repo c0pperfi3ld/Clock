@@ -449,7 +449,6 @@ a,
 .floating-picker input,
 #clock,
 #clock-wrapper,
-.clock-resize,
 .todo-resize-w,
 .todo-resize-e,
 .todo-tab-bar,
@@ -601,7 +600,7 @@ a,
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 7px 10px 1px;
+  padding: var(--todo-top-gap, 4px) 10px 1px;
   flex-wrap: wrap;
 }
 .todo-tabs { display: flex; gap: 7px; align-items: center; }
@@ -620,6 +619,20 @@ a,
   border-color: #8b5cf6;
   box-shadow: 0 0 8px rgba(139,92,246,0.7);
 }
+.todo-tab { position: relative; } /* already has transform/transition; ensure relative for badge */
+.todo-tab .todo-tab-count {
+  position: absolute;
+  top: -12px; left: 50%;
+  transform: translateX(-50%);
+  font-size: 7px;
+  line-height: 1;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.85);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.todo-tab.active .todo-tab-count { color: #fff; text-shadow: 0 1px 3px rgba(236,72,153,0.9); }
 .todo-tab-add {
   width: 20px; height: 20px;
   border-radius: 50%;
@@ -792,7 +805,7 @@ a,
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 8px 10px 5px;
+  padding: 4px 10px 2px;
 }
 .todo-add-plus {
   width: 24px; height: 24px;
@@ -851,13 +864,15 @@ a,
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  /* Gutter fits inside the panel: left room for the collapse chevron,
-     small right inset. Nothing is positioned outside the card anymore. */
-  padding: 2px 10px 8px 22px;
+  /* Tight gutter: left room for the collapse chevron, NO vertical dead
+     space so a full list fills the panel and only scrolls when it truly
+     overflows. Scrollbar is invisible unless content actually exceeds. */
+  padding: 0 10px 0 22px;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  contain: layout style;
 }
-.todo-list::-webkit-scrollbar { display: none; width: 0; }
+.todo-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
 /* ── Task card (rounded box, extremely compact) ── */
 .todo-item {
@@ -865,7 +880,7 @@ a,
   align-items: center;
   gap: 5px;
   padding: 3px 8px 3px 2px;
-  margin-bottom: 3px;
+  margin-bottom: 2px;
   border-radius: 9px;
   background: rgba(255,255,255,0.045);
   backdrop-filter: blur(12px) saturate(130%);
@@ -875,17 +890,22 @@ a,
   cursor: pointer;
   position: relative;
   transition: background 0.18s, border-color 0.18s, transform 0.22s cubic-bezier(0.2,0.9,0.3,1.2), box-shadow 0.2s, opacity 0.25s;
-  animation: item-in 0.36s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards, weight-pulse 2.2s ease-in-out infinite;
+  animation: item-in 0.36s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
   overflow: visible;
   min-height: 24px;
   min-width: 0;
   flex-wrap: nowrap;
-  will-change: transform, opacity;
+  contain: layout style;
   outline: 2px solid transparent;
   outline-offset: 1px;
 }
+/* No dead space below the final row — last card sits flush to the panel. */
+.todo-item:last-child { margin-bottom: 0; }
 /* Perpetual weight pulse (picks up each card's --wc set inline).
-   A selected task loop overrides this, like all card motion. */
+   A selected task loop overrides this, like all card motion.
+   It only runs on .has-weight cards (priority > 0) so empty-priority
+   cards never repaint on an idle loop — cheaper for long lists. */
+.todo-item.has-weight { animation: item-in 0.36s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards, weight-pulse 2.2s ease-in-out infinite; }
 @keyframes weight-pulse {
   0%, 100% { outline-color: transparent; filter: brightness(1); }
   50%      { outline-color: var(--wc, transparent); filter: brightness(1.1); }
@@ -914,28 +934,6 @@ a,
 #todo-panel[data-anim="rise"] .todo-item { animation: item-in 0.35s ease-out backwards, todo-rise 3.6s ease-in-out infinite; }
 #todo-panel[data-anim="spin"] .todo-item { animation: item-in 0.35s ease-out backwards, todo-spin 6s linear infinite; }
 #todo-panel[data-anim="hue-cycle"] .todo-item { animation: item-in 0.35s ease-out backwards, todo-huecycle 5s ease-in-out infinite; }
-/* Calendar day cells with tasks play the same selected loop (scoped via #todo-cal-wrap[data-anim]). */
-#todo-cal-wrap[data-anim="float"] .todo-cal-day.has { animation: todo-float 3s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="pulse"] .todo-cal-day.has { animation: todo-pulse 2.4s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="sway"] .todo-cal-day.has { animation: todo-sway 3.2s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="breathe"] .todo-cal-day.has { animation: todo-breathe 4s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="shimmer"] .todo-cal-day.has { animation: todo-shimmer 2.8s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="bob"] .todo-cal-day.has { animation: todo-bob 1.8s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="wiggle"] .todo-cal-day.has { animation: todo-wiggle 1.6s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="tide-x"] .todo-cal-day.has { animation: todo-tidex 3.4s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="heartbeat"] .todo-cal-day.has { animation: todo-heart 1.8s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="neon"] .todo-cal-day.has { animation: todo-neon 2.2s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="jelly"] .todo-cal-day.has { animation: todo-jelly 2.6s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="glow-drift"] .todo-cal-day.has { animation: todo-glowdrift 4.5s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="lift"] .todo-cal-day.has { animation: todo-lift 3.8s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="soft-flash"] .todo-cal-day.has { animation: todo-softflash 3.2s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="tilt-shift"] .todo-cal-day.has { animation: todo-tiltshift 4.2s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="twinkle"] .todo-cal-day.has { animation: todo-twinkle 2.2s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="slide-y"] .todo-cal-day.has { animation: todo-slidey 3s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="shake"] .todo-cal-day.has { animation: todo-shake 1.4s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="rise"] .todo-cal-day.has { animation: todo-rise 3.6s ease-in-out infinite; }
-#todo-cal-wrap[data-anim="spin"] .todo-cal-day.has { animation: todo-spin 6s linear infinite; }
-#todo-cal-wrap[data-anim="hue-cycle"] .todo-cal-day.has { animation: todo-huecycle 5s ease-in-out infinite; }
 @keyframes todo-float {
   0%, 100% { transform: translateY(-3px); }
   50%      { transform: translateY(3px); }
@@ -1424,33 +1422,4 @@ a,
 .st-collapse-spacer { display: none !important; }
 
 
-/* Clock-view resize grip: bottom-right corner of the clock wrapper. */
-.clock-resize {
-  position: absolute;
-  right: 6px; bottom: 6px;
-  width: 22px; height: 22px;
-  cursor: nwse-resize;
-  z-index: 30;
-  opacity: 1;
-  border-right: 3px solid rgba(255,255,255,0.9);
-  border-bottom: 3px solid rgba(255,255,255,0.9);
-  border-bottom-right-radius: 7px;
-  filter: drop-shadow(0 0 3px rgba(0,0,0,0.8));
-  transition: transform 0.15s, filter 0.15s;
-}
-.clock-resize::after {
-  content: '';
-  position: absolute;
-  right: 4px; bottom: 4px;
-  width: 9px; height: 9px;
-  border-right: 2px solid rgba(255,255,255,0.6);
-  border-bottom: 2px solid rgba(255,255,255,0.6);
-  border-bottom-right-radius: 3px;
-}
-.clock-resize:hover {
-  opacity: 1;
-  transform: scale(1.15);
-  border-right-color: #a78bfa;
-  border-bottom-color: #a78bfa;
-  filter: drop-shadow(0 0 6px rgba(139,92,246,0.9));
-}
+

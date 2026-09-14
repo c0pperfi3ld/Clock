@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('clockAPI', {
   onSetBgAlpha: (cb) => ipcRenderer.on('set-bg-alpha', (_, v) => cb(v)),
   onSetClockScale: (cb) => ipcRenderer.on('set-clock-scale', (_, v) => cb(v)),
   onSetAppPadding: (cb) => ipcRenderer.on('set-app-padding', (_, v) => cb(v)),
+  onSetTodoTopGap: (cb) => ipcRenderer.on('set-todo-top-gap', (_, v) => cb(v)),
   onSetPctOffset:  (cb) => ipcRenderer.on('set-pct-offset',  (_, v) => cb(v)),
   onSetAppBorderW: (cb) => ipcRenderer.on('set-app-border-w', (_, v) => cb(v)),
   onSetAppBorderR: (cb) => ipcRenderer.on('set-app-border-r', (_, v) => cb(v)),

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>harness</title>
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <div id="app">
+    <div class="app-resize-n"></div>
+    <div class="app-resize-s"></div>
+    <div class="app-resize-w"></div>
+    <div class="app-resize-e"></div>
+    <div class="app-resize-nw"></div>
+    <div class="app-resize-ne"></div>
+    <div class="app-resize-sw"></div>
+    <div class="app-resize-se"></div>
+    <div id="clock-wrapper">
+      <canvas id="clock"></canvas>
+      <div id="link-toast" class="link-toast"></div>
+      <label id="picker-wrap-start" class="floating-picker" title="Remaining Color">
+         <input type="color" id="color-start">
+      <label id="picker-wrap-end" class="floating-picker" title="Elapsed Color">
+         <input type="color" id="color-end">
+      </label>
+    </div>
+    <aside id="todo-panel">
+      <div class="todo-resize-w"></div>
+      <div class="todo-resize-e"></div>
+      <div class="todo-tab-bar">
+        <div class="todo-tabs" id="todo-tabs"></div>
+        <button class="todo-tab-add" id="todo-tab-add">+</button>
+        <button class="todo-cal-toggle" id="todo-cal-toggle">c</button>
+        <button class="todo-close-btn" id="todo-close-btn">x</button>
+      </div>
+      <div class="todo-cal-wrap" id="todo-cal-wrap"></div>
+      <div class="todo-link-bar" id="todo-link-bar" hidden></div>
+      <div class="todo-add-zone">
+        <button class="todo-add-plus" id="todo-add-plus">+</button>
+        <div class="todo-add-box" id="todo-add-box" contenteditable="true" spellcheck="false" data-placeholder="Add a task…"></div>
+      </div>
+      <ul id="todo-list" class="todo-list"></ul>
+    </aside>
+  </div>
+  <script src="harness-stub.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
