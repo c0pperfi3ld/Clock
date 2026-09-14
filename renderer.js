@@ -15,6 +15,7 @@
 
   const PI2 = Math.PI * 2;
   const DEG2RAD = Math.PI / 180;
+  const MS_IN_12H = 43200000; // ms in a 12-hour dial cycle
 
   const THEMES = {
     midnight:  { accent:'#8b5cf6', sec:'#ef4444', glow:'rgba(139,92,246,0.5)' },
@@ -50,7 +51,41 @@
   let todoAnim = 'none';
   let titleGap = 1.0; // multiplier for title-to-ring distance
   let todoOpacity = 100; // todo panel opacity %; 0-100
-  let favorites = { faces:[], hands:[], themes:[], blockFx:[], tooltipAnim:[], orbit:[], todoAnim:[] };
+  let bgAlpha = 85; // app background transparency %; 10-100 (drives --bgA)
+  // Independent clock size multiplier (decoupled from window size). The clock
+  // canvas still occupies the square clock-wrapper, but the drawn radius
+  // (and therefore the visible dial + everything inside it) is scaled.
+  // 1.0 = fills the available square; 0.7 = smaller dial with more rim;
+  // 1.15 = larger dial that may push against the rim.
+  let clockScale = 1.0;
+  // Customizable padding knobs (driven from the settings panel sliders).
+  // appPadding: inset between the rounded border and the clock/todo content.
+  // pctOffset:  extra radius added to the dial rim when placing the pct label.
+  let appPadding = 16;
+  let pctOffset = 22;
+  // Rounded-border knobs (the app has NO background fill — only the
+  // border). All three are exposed in the settings panel.
+  let appBorderW = 2;
+  let appBorderR = 16;
+  // Default border color: muted violet, reads as the panel edge instead of
+    // the white OS-style outline. Picker / opacity slider can override.
+    let appBorderC = 'rgba(139,92,246,0.55)';
+    let appBorderA = 0.55;
+    // Border animation (20 variants): 'none' | 'pulse' | 'glow' | 'breathe' | 'shimmer' | 'rainbow' | 'scan' | 'dash-flow' | 'corner-pulse' | 'neon-flicker' | 'elastic' | 'gradient-shift' | 'ghost' | 'trace' | 'plasma' | 'morse' | 'wave' | 'electric' | 'aurora' | 'geiger' | 'dna' | 'meteor' | 'heartbeat'
+    let borderAnim = 'none';
+    let borderAnimSpeed = 1.0;
+    // Shine/Sweep animation: 'none' | 'sweep' | 'pulse' | 'rainbow' | 'scan'
+    let shineAnim = 'none';
+    let shineSpeed = 4.0; // seconds per sweep
+    let shineAngle = 45; // degrees
+    let shineWidth = 120; // px
+    let shineOpacity = 0.18; // 0-1
+    let shineColor = 'rgba(255,255,255,1)'; // css color string
+    let shineBorderOpacity = 0.5; // 0-1 multiplier for border intensity
+    let shineEasing = 'ease-in-out'; // CSS easing
+    let shineDelay = 0; // seconds
+    let shineDirection = 1; // 1=forward, -1=reverse
+    let favorites = { faces:[], hands:[], themes:[], blockFx:[], tooltipAnim:[], orbit:[], todoAnim:[] };
   let editingTaskIdx = -1; // task index within session for multi-task editing
   let windowFitAuto = true; // grow/shrink the window so labels never clip
   // Legacy entrance-only ids map to their nearest continuous loop.
@@ -73,7 +108,30 @@
   if (typeof saved.windowFitAuto === 'boolean') windowFitAuto=saved.windowFitAuto;
   if (typeof saved.titleGap === 'number') titleGap=saved.titleGap;
   if (typeof saved.todoOpacity === 'number') todoOpacity = saved.todoOpacity;
-  // ── Per-date todo workspaces ──
+  if (typeof saved.bgAlpha === 'number') bgAlpha = Math.max(10, Math.min(100, saved.bgAlpha));
+  if (typeof saved.clockScale === 'number') clockScale = Math.max(0.5, Math.min(1.5, saved.clockScale));
+  if (typeof saved.appPadding === 'number') appPadding = Math.max(0, Math.min(32, saved.appPadding | 0));
+  if (typeof saved.pctOffset === 'number') pctOffset = Math.max(0, Math.min(60, saved.pctOffset | 0));
+  if (typeof saved.appBorderW === 'number') appBorderW = Math.max(0, Math.min(12, saved.appBorderW | 0));
+  if (typeof saved.appBorderR === 'number') appBorderR = Math.max(0, Math.min(48, saved.appBorderR | 0));
+  if (typeof saved.appBorderC === 'string' && saved.appBorderC) appBorderC = saved.appBorderC;
+  if (typeof saved.appBorderA === 'number') appBorderA = Math.max(0, Math.min(1, saved.appBorderA));
+  if (saved.borderAnim) borderAnim = saved.borderAnim;
+    if (typeof saved.borderAnimSpeed === 'number') borderAnimSpeed = Math.max(0, Math.min(10, saved.borderAnimSpeed));
+    // Shine animation settings
+    if (saved.shineAnim) shineAnim = saved.shineAnim;
+    if (typeof saved.shineSpeed === 'number') shineSpeed = Math.max(0.1, Math.min(30, saved.shineSpeed));
+    if (typeof saved.shineAngle === 'number') shineAngle = Math.max(0, Math.min(360, saved.shineAngle));
+    if (typeof saved.shineWidth === 'number') shineWidth = Math.max(10, Math.min(500, saved.shineWidth));
+    if (typeof saved.shineOpacity === 'number') shineOpacity = Math.max(0, Math.min(1, saved.shineOpacity));
+    if (typeof saved.shineColor === 'string' && saved.shineColor) shineColor = saved.shineColor;
+    if (typeof saved.shineBorderOpacity === 'number') shineBorderOpacity = Math.max(0, Math.min(1, saved.shineBorderOpacity));
+    if (saved.shineEasing) shineEasing = saved.shineEasing;
+    if (typeof saved.shineDelay === 'number') shineDelay = Math.max(0, Math.min(60, saved.shineDelay));
+    if (typeof saved.shineDirection === 'number') shineDirection = saved.shineDirection === -1 ? -1 : 1;
+    let shineFade = typeof saved.shineFade === 'number' ? Math.max(0, Math.min(100, saved.shineFade)) : 50;
+    let shineRepeat = typeof saved.shineRepeat === 'boolean' ? saved.shineRepeat : true;
+    // ── Per-date todo workspaces ──
   // Each calendar date owns its own tab set: todosByDate[YYYY-MM-DD] = { lists, active }.
   // todoLists / activeTodoList / todos stay live aliases of the SELECTED date's
   // workspace so all existing todo code works untouched.
@@ -90,8 +148,12 @@
     }
     return fb;
   }
-  const TODAY_KEY = dateKeyOf(new Date());
+  // Mutable today key — updated at midnight so the app can auto-roll to a fresh day.
+  let TODAY_KEY = dateKeyOf(new Date());
   let todosByDate = {};
+  // Strict day isolation: always start on TODAY, never resume a previously
+  // viewed date (that would look like yesterday's todos carried over after a
+  // restart). History remains under its own key via the calendar.
   let selectedTodoDate = TODAY_KEY;
   let todoCalOpen = false;
   if (saved.todosByDate && typeof saved.todosByDate === 'object') {
@@ -104,9 +166,6 @@
       };
       if (!todosByDate[k].lists[todosByDate[k].active]) todosByDate[k].active = 0;
     });
-  }
-  if (typeof saved.selectedTodoDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(saved.selectedTodoDate)) {
-    selectedTodoDate = saved.selectedTodoDate;
   }
   if (typeof saved.todoCalOpen === 'boolean') todoCalOpen = saved.todoCalOpen;
   if (!todosByDate[selectedTodoDate]) {
@@ -145,8 +204,20 @@
   let todoBoxOpacity = 100; // task-card transparency %; multiplies weight-tint alphas
   if (typeof saved.todoBoxOpacity === 'number') todoBoxOpacity = saved.todoBoxOpacity;
   let calAnim = 'pop'; // calendar entrance animation (unique to the mini calendar)
-  if (typeof saved.calAnim === 'string') calAnim = saved.calAnim;
-  // Derive a muted darker variant of an #rrggbb color (for elapsed wedges).
+    if (typeof saved.calAnim === 'string') calAnim = saved.calAnim;
+    // Todo panel width (persisted). Wide range so blocks get real space;
+    // the drag handler additionally caps against the live window width so
+    // the panel can never outgrow the window (nothing cut at the edge).
+    const TODO_W_MIN = 180, TODO_W_MAX = 640, CLOCK_W_MIN = 220;
+    let todoPanelWidth = (typeof saved.todoPanelWidth === 'number' && saved.todoPanelWidth > 0) ? saved.todoPanelWidth : 260;
+    todoPanelWidth = Math.max(TODO_W_MIN, Math.min(TODO_W_MAX, Math.round(todoPanelWidth)));
+    function applyTodoPanelWidth(w) {
+      if (typeof w === 'number' && w > 0) todoPanelWidth = Math.max(TODO_W_MIN, Math.min(TODO_W_MAX, Math.round(w)));
+      const p = document.getElementById('todo-panel');
+      if (p) p.style.setProperty('--todo-panel-width', todoPanelWidth + 'px');
+    }
+    applyTodoPanelWidth();
+    // Derive a muted darker variant of an #rrggbb color (for elapsed wedges).
   function deriveElapsedColor(hex) {
     const m = /^#?([0-9a-f]{6})$/i.exec((hex || '').trim());
     if (!m) return hex;
@@ -208,11 +279,134 @@
 
   function applyOpacity() { canvas.style.opacity=opacity/100; }
   function applyTodoOpacity() { const p = document.getElementById('todo-panel'); if (p) p.style.opacity = todoOpacity / 100; }
+  function applyBgAlpha() { try { document.documentElement.style.setProperty('--bgA', (Math.max(10, Math.min(100, bgAlpha)) / 100).toFixed(2)); } catch (_) {} }
   function applyTodoBoxOpaque() { const p = document.getElementById('todo-panel'); if (p) p.dataset.boxOpaque = todoBoxOpaque ? '1' : '0'; }
-  applyTodoOpacity();
-  applyTodoBoxOpaque();
-  applyOpacity();
-  function save() { queueSave({clockStyle:style,theme,handType,opacity,sessions,sessionsByDate,selectedTodoDate,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque,todoBoxOpacity,calAnim}); }
+  // Read a CSS custom property as a pixel number. Used by canvas drawing so
+  // layout knobs (--app-padding, --pct-offset, ...) live in CSS and JS just
+  // consumes them. Returns the fallback if the var is missing/malformed.
+  function cssPx(name, fallback) {
+    try {
+      const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      if (!v) return fallback;
+      const n = parseFloat(v);
+      return isFinite(n) ? n : fallback;
+    } catch (_) { return fallback; }
+  }
+  // Push clockScale onto the root so canvas + DOM resize() can both see the
+  // same value without re-reading the JS state on every frame.
+  function applyClockScale() {
+    const s = Math.max(0.5, Math.min(1.5, clockScale || 1.0));
+    try { document.documentElement.style.setProperty('--clock-scale', s.toFixed(3)); } catch (_) {}
+  }
+  function applyAppPadding() {
+    const v = Math.max(0, Math.min(32, appPadding | 0));
+    try { document.documentElement.style.setProperty('--app-padding', v + 'px'); } catch (_) {}
+  }
+  function applyPctOffset() {
+    const v = Math.max(0, Math.min(60, pctOffset | 0));
+    try { document.documentElement.style.setProperty('--pct-offset', v + 'px'); } catch (_) {}
+  }
+  function applyAppBorderW() {
+    const v = Math.max(0, Math.min(12, appBorderW | 0));
+    try { document.documentElement.style.setProperty('--app-border-w', v + 'px'); } catch (_) {}
+  }
+  function applyAppBorderR() {
+    const v = Math.max(0, Math.min(48, appBorderR | 0));
+    try { document.documentElement.style.setProperty('--app-border-r', v + 'px'); } catch (_) {}
+  }
+  // Compose the final CSS color from the picker (RGB) + the alpha slider.
+  // The picker edits rgb in place and the slider rebuilds alpha, so both
+  // are kept in sync via the IPC handlers.
+  function applyAppBorderC() {
+    // Re-stamp the alpha channel from appBorderA so the slider and the
+    // picker never drift apart.
+    const base = (typeof appBorderC === 'string' && appBorderC) ? appBorderC : 'rgba(255,255,255,0.10)';
+    const a = Math.max(0, Math.min(1, appBorderA));
+    let composed = base;
+    
+    // Convert hex to rgb if necessary
+    if (base.startsWith('#')) {
+      let hex = base.replace('#', '');
+      if (hex.length === 3) hex = hex.split('').map(c => c+c).join('');
+      const int = parseInt(hex, 16);
+      composed = `rgba(${(int >> 16) & 255},${(int >> 8) & 255},${int & 255},${a})`;
+    } else {
+      const m = base.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+      if (m) composed = `rgba(${+m[1]},${+m[2]},${+m[3]},${a})`;
+    }
+    try { document.documentElement.style.setProperty('--app-border-c', composed); } catch (_) {}
+  }
+  function applyAppBorderA() {
+    try { document.documentElement.style.setProperty('--app-border-a', String(Math.max(0, Math.min(1, appBorderA)))); } catch (_) {}
+  }
+  function applyBorderAnim() {
+      const app = document.getElementById('app');
+      if (!app) return;
+      // Remove all border-anim-* classes
+      app.className = app.className.replace(/\bborder-anim-\S+/g, '').trim();
+      if (borderAnim && borderAnim !== 'none') {
+        app.classList.add('border-anim-' + borderAnim);
+        // Set animation duration based on speed
+        const dur = (3 / Math.max(0.1, borderAnimSpeed)).toFixed(3) + 's';
+        app.style.setProperty('--app-border-anim-duration', dur);
+      } else {
+        app.style.removeProperty('--app-border-anim-duration');
+      }
+    }
+  
+    function applyShineAnim() {
+      const app = document.getElementById('app');
+      if (!app) return;
+    
+      // Remove all shine-anim-*, shine-border-* and shine-reverse classes
+      app.className = app.className
+        .replace(/\bshine-anim-\S+/g, '')
+        .replace(/\bshine-border-\S+/g, '')
+        .replace(/\bshine-reverse\b/g, '')
+        .trim();
+    
+      // Apply CSS custom properties for shine
+      document.documentElement.style.setProperty('--shine-enabled', shineAnim && shineAnim !== 'none' ? '1' : '0');
+      document.documentElement.style.setProperty('--shine-speed', shineSpeed + 's');
+      document.documentElement.style.setProperty('--shine-angle', shineAngle + 'deg');
+      document.documentElement.style.setProperty('--shine-width', shineWidth + 'px');
+      document.documentElement.style.setProperty('--shine-opacity', String(shineOpacity));
+      document.documentElement.style.setProperty('--shine-color', shineColor);
+      document.documentElement.style.setProperty('--shine-border-opacity', String(shineBorderOpacity));
+      document.documentElement.style.setProperty('--shine-easing', shineEasing);
+      document.documentElement.style.setProperty('--shine-delay', shineDelay + 's');
+      
+      const fadeStart = Math.min(50, shineFade / 2);
+      const fadeEnd = 100 - fadeStart;
+      document.documentElement.style.setProperty('--shine-fade-start', fadeStart + '%');
+      document.documentElement.style.setProperty('--shine-fade-end', fadeEnd + '%');
+      document.documentElement.style.setProperty('--shine-repeat', shineRepeat ? 'repeat' : 'no-repeat');
+    
+      if (shineAnim && shineAnim !== 'none') {
+        // Background shine animation
+        app.classList.add('shine-anim-' + shineAnim);
+        // Border shine animation
+        app.classList.add('shine-border-' + shineAnim);
+        // Apply direction class
+        if (shineDirection === -1) app.classList.add('shine-reverse');
+      }
+    }
+  
+    applyTodoOpacity();
+    applyBgAlpha();
+    applyTodoBoxOpaque();
+    applyClockScale();
+    applyAppPadding();
+    applyPctOffset();
+    applyAppBorderW();
+    applyAppBorderR();
+    applyAppBorderA();
+    applyAppBorderC();
+      applyBorderAnim();
+      applyShineAnim();
+      applyOpacity();
+
+      function save() { queueSave({clockStyle:style,theme,handType,opacity,sessions,sessionsByDate,selectedTodoDate,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque,todoBoxOpacity,calAnim,todoPanelWidth,bgAlpha,clockScale,appPadding,pctOffset,appBorderW,appBorderR,appBorderC,appBorderA,borderAnim,borderAnimSpeed,shineAnim,shineSpeed,shineAngle,shineWidth,shineOpacity,shineColor,shineBorderOpacity,shineEasing,shineDelay,shineDirection,shineFade,shineRepeat}); }
   api.onSetStyle(s => { style=s; save(); });
   api.onSetTheme(t => { theme=t; save(); });
   api.onSetOpacity(o => { opacity=o; applyOpacity(); save(); });
@@ -228,8 +422,31 @@
   if (api.onSetWindowFit) api.onSetWindowFit(v => { windowFitAuto = !!v; save(); lastFitSent = { t: -1, b: -1 }; });
   if (api.onSetTitleGap) api.onSetTitleGap(v => { titleGap = v; save(); });
   if (api.onSetFavorites) api.onSetFavorites(f => { favorites = f || favorites; save(); });
-  if (api.onSetTodoOpacity) api.onSetTodoOpacity(v => { todoOpacity = v; applyTodoOpacity(); save(); });
-  if (api.onSetTodoBoxOpaque) api.onSetTodoBoxOpaque(v => { todoBoxOpaque = !!v; applyTodoBoxOpaque(); renderTodos(); save(); });
+   if (api.onSetTodoOpacity) api.onSetTodoOpacity(v => { todoOpacity = v; applyTodoOpacity(); save(); });
+   if (api.onSetBgAlpha) api.onSetBgAlpha(v => { bgAlpha = v; applyBgAlpha(); save(); });
+  if (api.onSetClockScale) api.onSetClockScale(v => { clockScale = Math.max(0.5, Math.min(1.5, +v || 1.0)); applyClockScale(); scheduleRender(); save(); });
+  if (api.onSetAppPadding) api.onSetAppPadding(v => { appPadding = Math.max(0, Math.min(32, +v | 0)); applyAppPadding(); save(); });
+  if (api.onSetPctOffset)  api.onSetPctOffset (v => { pctOffset  = Math.max(0, Math.min(60, +v | 0)); applyPctOffset();  scheduleRender(); save(); });
+  if (api.onSetAppBorderW) api.onSetAppBorderW(v => { appBorderW = Math.max(0, Math.min(12, +v | 0)); applyAppBorderW(); save(); });
+  if (api.onSetAppBorderR) api.onSetAppBorderR(v => { appBorderR = Math.max(0, Math.min(48, +v | 0)); applyAppBorderR(); save(); });
+  if (api.onSetAppBorderC) api.onSetAppBorderC(v => { appBorderC = (typeof v === 'string' ? v : 'rgba(255,255,255,0.10)'); applyAppBorderC(); save(); });
+  if (api.onSetAppBorderA) api.onSetAppBorderA(v => { appBorderA = Math.max(0, Math.min(1, +v || 0)); applyAppBorderA(); applyAppBorderC(); save(); });
+  if (api.onSetBorderAnim) api.onSetBorderAnim(v => { borderAnim = v || 'none'; applyBorderAnim(); save(); });
+  if (api.onSetBorderAnimSpeed) api.onSetBorderAnimSpeed(v => { borderAnimSpeed = Math.max(0, Math.min(10, +v || 1)); applyBorderAnim(); save(); });
+    // Shine animation handlers
+    if (api.onSetShineAnim) api.onSetShineAnim(v => { shineAnim = v || 'none'; applyShineAnim(); save(); });
+    if (api.onSetShineSpeed) api.onSetShineSpeed(v => { shineSpeed = Math.max(0.1, Math.min(30, +v || 4)); applyShineAnim(); save(); });
+    if (api.onSetShineAngle) api.onSetShineAngle(v => { shineAngle = Math.max(0, Math.min(360, +v || 45)); applyShineAnim(); save(); });
+    if (api.onSetShineWidth) api.onSetShineWidth(v => { shineWidth = Math.max(10, Math.min(500, +v || 120)); applyShineAnim(); save(); });
+    if (api.onSetShineOpacity) api.onSetShineOpacity(v => { shineOpacity = Math.max(0, Math.min(1, +v || 0.18)); applyShineAnim(); save(); });
+    if (api.onSetShineColor) api.onSetShineColor(v => { shineColor = (typeof v === 'string' ? v : 'rgba(255,255,255,1)'); applyShineAnim(); save(); });
+    if (api.onSetShineBorderOpacity) api.onSetShineBorderOpacity(v => { shineBorderOpacity = Math.max(0, Math.min(1, +v || 0.5)); applyShineAnim(); save(); });
+    if (api.onSetShineEasing) api.onSetShineEasing(v => { shineEasing = v || 'ease-in-out'; applyShineAnim(); save(); });
+    if (api.onSetShineDelay) api.onSetShineDelay(v => { shineDelay = Math.max(0, Math.min(60, +v || 0)); applyShineAnim(); save(); });
+    if (api.onSetShineDirection) api.onSetShineDirection(v => { shineDirection = +v === -1 ? -1 : 1; applyShineAnim(); save(); });
+    if (api.onSetShineFade) api.onSetShineFade(v => { shineFade = Math.max(0, Math.min(100, +v || 0)); applyShineAnim(); save(); });
+    if (api.onSetShineRepeat) api.onSetShineRepeat(v => { shineRepeat = !!v; applyShineAnim(); save(); });
+    if (api.onSetTodoBoxOpaque) api.onSetTodoBoxOpaque(v => { todoBoxOpaque = !!v; applyTodoBoxOpaque(); renderTodos(); save(); });
   if (api.onSetTodoBoxOpacity) api.onSetTodoBoxOpacity(v => { todoBoxOpacity = v; applyTodoBoxOpacity(); save(); });
   function applyCalAnim() {
     const cal = document.getElementById('todo-cal-wrap');
@@ -285,6 +502,33 @@
   // Cached wrapper metrics — one layout read per resize, reused by every
   // frame instead of forcing reflow from the hot draw path.
   let wrapSize = { w: 300, h: 300 };
+  // Canvas backing-store resize is deferred to the next draw frame so a live
+  // resize drag doesn't blank the canvas. Reassigning canvas.width clears all
+  // pixels to transparent; doing it on every mousemove during a drag showed a
+  // transparent flicker that lasted up to IDLE_FRAME_MS between scheduled
+  // frames. The CSS size is updated immediately in resize() so the canvas
+  // keeps filling the wrapper smoothly during the drag — only the backing
+  // store (which is what blanks the pixels) waits for the draw frame.
+  let pendingDpr = null, pendingW = null, pendingH = null;
+  // Frame-loop state — hoisted here because resize() (below) calls
+  // scheduleRender() at load, long before the end of the IIFE runs.
+  let frameHandle = null;
+  let renderTimer = null;
+  let lastPaintAt = 0;
+  // Captured by drawHandSet so drawHandsTop() can re-render the hands above
+  // every overlay (wedges, labels, knob, gear, etc.) on the same frame.
+  let _pendingHands = null;
+  // 20 FPS is visually smooth for an analog second hand and cuts idle
+  // canvas work by 33% compared to 30 FPS, saving battery and memory.
+  const IDLE_FRAME_MS = 1000 / 20;
+  function applyPendingCanvasResize() {
+    if (pendingW == null) return;
+    const dpr = pendingDpr, w = pendingW, h = pendingH;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    X.setTransform(dpr, 0, 0, dpr, 0, 0);
+    pendingW = pendingH = pendingDpr = null;
+  }
   function resize() {
     // Canvas fills the clock wrapper (left square area). The todo panel lives
     // in the right side of the window and is HTML-based, so it has its own
@@ -300,10 +544,15 @@
     const w = Math.max(80, wrap.clientWidth || 0);
     const h = Math.max(80, wrap.clientHeight || 0);
     wrapSize = { w, h };
-    canvas.width = w*dpr; canvas.height = h*dpr;
-    canvas.style.width = w+'px'; canvas.style.height = h+'px';
-    X.setTransform(dpr,0,0,dpr,0,0);
+    // CSS size updates immediately so the canvas keeps filling the wrapper
+    // smoothly during a live resize drag (no layout collapse).
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    // Backing-store resize is deferred — see applyPendingCanvasResize().
+    pendingDpr = dpr; pendingW = w; pendingH = h;
     try { lastLabelSig = '__resize__'; } catch (_) {} // declared later; ignore TDZ on first run
+    // Push an immediate redraw so a queued resize actually gets painted.
+    scheduleRender();
   }
   resize();
   // Re-run after first paint to catch any post-layout sizing adjustments
@@ -332,13 +581,14 @@
 
   function clockBounds() {
     const w = wrapSize.w, h = wrapSize.h; // cached by resize()
-    const cx = w/2, cy = h/2;
-    // Room for: dotted orbit (42) + outer gap (20) + typical box half-size.
-    // FIXED SIZE: the dial never shrinks, no matter how many labels exist.
-    // Ring-text labels shrink their own font down to 8px to fit; the
-    // window auto-fit grows the window instead of touching the dial.
-    const margin = 70;
-    const r = Math.max(50, Math.min(cx, cy) - margin);
+    const cx = w / 2, cy = h / 2;
+    // Larger margin than before so the percentage label has REAL room to
+    // sit OUTSIDE the dial without colliding with the canvas edge or the
+    // rounded app border.
+    const margin = 50;
+    const baseR = Math.max(40, Math.min(cx, cy) - margin);
+    // Apply independent clock-size multiplier (decoupled from window size).
+    const r = baseR * Math.max(0.5, Math.min(1.5, clockScale || 1.0));
     return { cx, cy, r, w, h };
   }
 
@@ -1060,15 +1310,15 @@
     // Resize handle (dial bottom-right) → always resize the window
     if (isOnResizeHandle(mx, my)) {
         resizing = true;
-        api.resizeStart();
+        api.resizeStart('se');
         return;
     }
 
     // Check gear icon click first
-    if (isClickOnGear(mx, my)) {
-        api.showPanel({style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque,todoBoxOpacity,calAnim});
-       return;
-    }
+        if (isClickOnGear(mx, my)) {
+            api.showPanel({style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque,todoBoxOpacity,calAnim,bgAlpha,clockScale,appPadding,pctOffset,appBorderW,appBorderR,appBorderC,appBorderA,borderAnim,borderAnimSpeed,shineAnim,shineSpeed,shineAngle,shineWidth,shineOpacity,shineColor,shineBorderOpacity,shineEasing,shineDelay,shineDirection});
+           return;
+        }
 
     // Grab handle → always drag the window
     if (isOnGrabHandle(mx, my)) {
@@ -1292,9 +1542,25 @@ sessions.push({
   });
 
   window.addEventListener('mousemove', e => { 
-    if(dragging) api.dragMove(); 
-    else if (resizing) api.resizeMove(); 
-    else if (draggingKnob && interactiveMode && interactiveMode !== 'none') {
+      if(dragging) api.dragMove(); 
+      else if (resizing) api.resizeMove(); 
+      else if (todoResizeEdge) {
+        const deltaX = e.clientX - todoResizeStartX;
+        const rawDelta = todoResizeEdge === 'west' ? -deltaX : deltaX;
+        // Resize the todo panel itself — window stays put, only the blocks
+        // get wider/narrower. Capped by the live window width (minus a
+        // minimum clock strip) so the panel can never poke past the window
+        // edge and get cut.
+        let target = Math.max(TODO_W_MIN, Math.min(TODO_W_MAX, todoResizeStartW + rawDelta));
+        target = Math.min(target, Math.max(TODO_W_MIN, window.innerWidth - CLOCK_W_MIN));
+        if (Math.round(target) === Math.round(todoPanelWidth)) return;
+        applyTodoPanelWidth(target);
+        // Persist live so a restart keeps the width; tell main to remember
+        // without moving the window (no window.setBounds).
+        try { api.saveSettings({ todoPanelWidth: target }); } catch (_) {}
+        try { api.todoResizeMove({ todoWidth: target }); } catch (_) {}
+      }
+      else if (draggingKnob && interactiveMode && interactiveMode !== 'none') {
        if (interactiveMode.endsWith('-both')) return; // Just displaying both, not dragging
        const rect = canvas.getBoundingClientRect();
        const mx = e.clientX - rect.left;
@@ -1341,9 +1607,14 @@ sessions.push({
   });
 
   window.addEventListener('mouseup', () => { 
-    if(resizing){resizing=false;api.resizeEnd();} 
-    if(dragging){dragging=false;api.dragEnd();} 
-    if(draggingKnob) {
+      if(resizing){resizing=false;api.resizeEnd();} 
+      if(dragging){dragging=false;api.dragEnd();} 
+      if(todoResizeEdge) {
+        todoResizeEdge = null;
+        api.todoResizeEnd();
+        save(); // persist the clamped todoPanelWidth
+      }
+      if(draggingKnob) {
       draggingKnob = false;
       save(); // Save once at the end of the drag
       renderTodos(); // linked chips/timelines pick up the new times
@@ -1353,7 +1624,6 @@ sessions.push({
 } else {
          interactiveMode = null;
       }
-      if (viewMode === 'board') try { renderBoard(); } catch (_) {}
     }
   });
   // Canvas-drawn settings gear
@@ -1437,6 +1707,28 @@ sessions.push({
     save();
   }
 
+  // Midnight auto-rollover — strict isolation: at 00:00 the viewed day
+  // rolls to the new TODAY with a fresh empty list/sessions (nothing from
+  // yesterday carries over). If the user was inspecting a past/future date,
+  // keep them there but refresh TODAY styling.
+  function checkMidnightRollover() {
+    const cur = dateKeyOf(new Date());
+    if (cur === TODAY_KEY) return;
+    const old = TODAY_KEY;
+    TODAY_KEY = cur;
+    if (selectedTodoDate === old) {
+      switchTodoDate(cur);
+    } else {
+      // Was viewing history/future — keep view but update calendar's TODAY/past/future badges.
+      try { renderCalendar(); } catch (_) {}
+      try { renderTodos(); } catch (_) {}
+    }
+  }
+  // Check every 30s (cheap date string compare) and also on window focus/resume.
+  setInterval(checkMidnightRollover, 30000);
+  window.addEventListener('focus', checkMidnightRollover);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkMidnightRollover(); });
+
   function renderCalendar() {
     if (!todoCalGrid) return;
     if (todoCalWrap) todoCalWrap.classList.toggle('open', !!todoCalOpen);
@@ -1484,6 +1776,9 @@ sessions.push({
     renderCalendar();
     saveTodos();
   });
+  // Tab-bar × : close the app.
+  const todoCloseBtn = document.getElementById('todo-close-btn');
+  if (todoCloseBtn) todoCloseBtn.addEventListener('click', e => { e.stopPropagation(); api.closeApp(); });
   const todoCalPrev = document.getElementById('todo-cal-prev');
   const todoCalNext = document.getElementById('todo-cal-next');
   const todoCalToday = document.getElementById('todo-cal-today');
@@ -1521,19 +1816,25 @@ function fmtLeft(ms) {
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
     return (neg ? '-' : '') + String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
   }
-  // Bare remaining number for the outside-the-box label.
+  // Absolute day-bound times — a block's start/end are its real timestamps.
+  // No 12h-nearest remapping, so yesterday's 9am block never reappears as
+  // "active" today at 9am; strict per-day isolation.
   function getRelativeSessionTimes(sess, now) {
-  if (!sess) return {start:0, end:0};
-  const sD = new Date(sess.start);
-  const nowD = new Date(now);
-  let sToday = new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate(), sD.getHours(), sD.getMinutes(), sD.getSeconds(), sD.getMilliseconds()).getTime();
-  const dur = sess.end - sess.start;
-  let diff = sToday - now;
-  let sClosest = sToday;
-  if (diff > 12 * 3600 * 1000) sClosest -= 24 * 3600 * 1000;
-  else if (diff < -12 * 3600 * 1000) sClosest += 24 * 3600 * 1000;
-  return { start: sClosest, end: sClosest + dur };
-}
+    if (!sess) return { start: 0, end: 0 };
+    return { start: sess.start, end: sess.end };
+  }
+  // ── Shared block-progress model (single source of truth) ──
+  // Strict per-day isolation: elapsed is linear from the block's real start,
+  // never 12h-cyclic. Yesterday's 9am block is fully elapsed at 9am today.
+  function blockElapsedCyclic(sess, nowMs) {
+    if (!sess || !(sess.end > sess.start)) return { elapsedMs: 0, durationMs: 0 };
+    const durationMs = sess.end - sess.start;
+    let elapsedMs = 0;
+    if (nowMs >= sess.end) elapsedMs = durationMs;
+    else if (nowMs > sess.start) elapsedMs = nowMs - sess.start;
+    else elapsedMs = 0;
+    return { elapsedMs, durationMs };
+  }
   function etimeText(sess, now) {
     if (!sess) return '';
     const rel = getRelativeSessionTimes(sess, now);
@@ -1572,7 +1873,7 @@ function fmtLeft(ms) {
       (o.subtasks || []).forEach(clear);
     };
     todoLists.forEach(l => (l.todos || []).forEach(clear));
-    if (changed) { saveTodos(); renderBoard(); }
+    if (changed) { saveTodos(); }
   }
   function pruneTodoLinks() {
     const ids = new Set(sessions.map(s => s && s.id));
@@ -1583,7 +1884,7 @@ function fmtLeft(ms) {
       (o.subtasks || []).forEach(prune);
     };
     todoLists.forEach(l => (l.todos || []).forEach(prune));
-    if (changed) { saveTodos(); renderBoard(); }
+    if (changed) { saveTodos(); }
     if (linkBlockId && !ids.has(linkBlockId)) linkBlockId = null;
     updateLinkBar();
   }
@@ -1591,13 +1892,13 @@ function toggleTodoLink(id) {
     const t = todos.find(x => x.id === id);
     if (!t || !linkBlockId) return;
     t.blockId = (t.blockId === linkBlockId) ? null : linkBlockId;
-    saveTodos(); save(); renderTodos(); renderBoard();
+    saveTodos(); save(); renderTodos();
   }
   function toggleSubtaskLink(pathArr) {
     const s = getNodeByPath(pathArr);
     if (!s || !linkBlockId) return;
     s.blockId = (s.blockId === linkBlockId) ? null : linkBlockId;
-    saveTodos(); save(); renderTodos(); renderBoard();
+    saveTodos(); save(); renderTodos();
   }
   function blockPct(sess, now) {
     if (!sess || !(sess.end > sess.start)) return 0;
@@ -1905,6 +2206,16 @@ function toggleTodoLink(id) {
         renderSubtasks(subs, [t.id], 1, idx);
       }
     });
+    // Grow the window vertically if the list overflows so items are never
+    // hidden past the window's bottom border. Scrolling is still allowed for
+    // very long lists (capped by the work-area in the IPC handler).
+    try {
+      if (windowFitAuto && api.fitWindow) {
+        const listEl = todoList;
+        const overflow = listEl.scrollHeight - listEl.clientHeight;
+        if (overflow > 4) maybeFitWindow(0, overflow);
+      }
+    } catch (_) {}
   }
 
   function addTodo(text) {
@@ -2700,23 +3011,27 @@ function toggleTodoLink(id) {
 
   // -- Resize grip (dial bottom-right): drags a diagonal arrow → window grows --
   function isOnResizeHandle(mx, my) {
-    return Math.hypot(mx - resizeHandleX, my - resizeHandleY) < 18;
+    return Math.hypot(mx - resizeHandleX, my - resizeHandleY) < 22;
   }
   function drawResizeHandle(cx, cy, r) {
-    resizeHandleX = cx + r + 34;
-    resizeHandleY = cy + r + 34;
+    // Pin inside the canvas corner: the old cx+r+34 math lands off-screen
+    // now that the dial margin shrank, which made the handle unreachable.
+    const { w, h } = clockBounds();
+    resizeHandleX = Math.min(cx + r + 34, w - 20);
+    resizeHandleY = Math.min(cy + r + 34, h - 20);
     // Reveal on hover (pinned while the cursor is over it) or recent mouse use.
     const over = lastMouseCanvas && isOnResizeHandle(lastMouseCanvas.x, lastMouseCanvas.y);
     const elapsed = Date.now() - lastMouseMove;
-    const targetOp = (over || elapsed < 1800) ? 0.7 : 0;
+    // Always discoverable: rests at half strength, brightens on hover/recent use.
+    const targetOp = (over || elapsed < 1800) ? 0.95 : 0.55;
     resizeOpacity += (targetOp - resizeOpacity) * 0.18;
     if (resizeOpacity < 0.02) return;
     X.save();
     X.globalAlpha = resizeOpacity;
-    X.beginPath(); X.arc(resizeHandleX, resizeHandleY, 14, 0, PI2);
-    X.fillStyle = 'rgba(10,10,20,0.7)'; X.fill();
-    X.lineWidth = 1; X.strokeStyle = 'rgba(255,255,255,0.35)'; X.stroke();
-    X.strokeStyle = 'rgba(255,255,255,0.75)';
+    X.beginPath(); X.arc(resizeHandleX, resizeHandleY, 15, 0, PI2);
+    X.fillStyle = 'rgba(10,10,20,0.8)'; X.fill();
+    X.lineWidth = 1.5; X.strokeStyle = over ? 'rgba(139,92,246,0.95)' : 'rgba(255,255,255,0.5)'; X.stroke();
+    X.strokeStyle = over ? '#c4b5fd' : 'rgba(255,255,255,0.85)';
     X.lineWidth = 2;
     for (let i = 0; i < 3; i++) {
       X.beginPath();
@@ -2732,8 +3047,9 @@ function toggleTodoLink(id) {
     return Math.hypot(mx - exitX, my - exitY) < 16;
   }
   function drawExitButton(cx, cy, r) {
-    exitX = cx - r - 34;
-    exitY = cy - r - 34;
+    const padding = 16;
+    exitX = padding + 13;
+    exitY = padding + 13;
     const over = lastMouseCanvas && isOnExitButton(lastMouseCanvas.x, lastMouseCanvas.y);
     const elapsed = Date.now() - lastMouseMove;
     const targetOp = (over || elapsed < 1800) ? 0.7 : 0;
@@ -3306,6 +3622,21 @@ function toggleTodoLink(id) {
     X.beginPath();X.arc(cx,cy,Math.max(3,r*0.025),0,PI2);
     X.fillStyle=hCol;X.fill();
     X.restore();
+    // Capture the most-recent hand draw so the top-layer pass can redraw
+    // them ABOVE every wedge/label/UI overlay (user-requested "topmost").
+    _pendingHands = { cx, cy, r, hAngle, mAngle, sAngle, hCol, mCol, sCol, glowSec, opacityScale };
+  }
+
+  // Re-render the captured hand set on top of everything else drawn this
+  // frame. Called last in draw() so wedges, labels, and UI overlays never
+  // visually occlude the hands.
+  function drawHandsTop() {
+    if (!_pendingHands) return;
+    const a = _pendingHands;
+    // Snapshot handType at render time (it can change via panel); the
+    // drawHandSet call below will re-read the closure var.
+    drawHandSet(a.cx, a.cy, a.r, a.hAngle, a.mAngle, a.sAngle,
+                a.hCol, a.mCol, a.sCol, a.glowSec, a.opacityScale);
   }
 
   function drawNeedle(cx,cy,a,len,col,glow) {
@@ -4040,87 +4371,52 @@ const nowTime = performance.now();
     const t = (nowTime / 1000) * spd;
     
     X.save();
-    const MS_IN_12H = 43200000;
-    
     sessions.forEach(sess => {
        if (!sess) return;
        
-       let sDate = new Date(sess.start);
-       let startMsIn12h = (sDate.getHours() % 12) * 3600000 + sDate.getMinutes() * 60000 + sDate.getSeconds() * 1000 + sDate.getMilliseconds();
-       let startAngle = (startMsIn12h / MS_IN_12H) * PI2 - (Math.PI / 2);
+       const sDate = new Date(sess.start);
+       const startMsIn12h = (sDate.getHours() % 12) * 3600000 + sDate.getMinutes() * 60000 + sDate.getSeconds() * 1000 + sDate.getMilliseconds();
+       const startAngle = (startMsIn12h / MS_IN_12H) * PI2 - (Math.PI / 2);
        
-       let durationMs = sess.end - sess.start;
+       const durationMs = sess.end - sess.start;
        let sweepAngle = (durationMs / MS_IN_12H) * PI2;
        if (sweepAngle > PI2) sweepAngle = PI2;
-       let endAngle = startAngle + sweepAngle;
+       const endAngle = startAngle + sweepAngle;
        
-        // Calculate purely visual 12-hour cyclic elapsed time so the hour hand always splits the block
-        let visDuration = Math.min(durationMs, MS_IN_12H);
-        let nDate = new Date(realNow);
-        let nowMsIn12h = (nDate.getHours() % 12) * 3600000 + nDate.getMinutes() * 60000 + nDate.getSeconds() * 1000 + nDate.getMilliseconds();
-
-        let dist = nowMsIn12h - startMsIn12h;
-        if (dist < 0) dist += MS_IN_12H;
-
-        let elapsedMs = 0;
-        if (dist <= visDuration) {
-            // Hour hand is currently inside the block
-            elapsedMs = dist;
-        } else {
-            // Hour hand is outside the block
-            let gap = MS_IN_12H - visDuration;
-            if (dist - visDuration < gap / 2) {
-                elapsedMs = visDuration; // Passed recently -> fully elapsed
-            } else {
-                elapsedMs = 0; // Upcoming soon -> fully remaining
-            }
-        }
-
-        let elapsedAngle = (elapsedMs / MS_IN_12H) * PI2;
-        let currentAngle = startAngle + elapsedAngle;
+        // Elapsed uses the shared 12-hour cyclic model (matches the dial).
+        const { elapsedMs } = blockElapsedCyclic(sess, realNow);
+        const elapsedAngle = (elapsedMs / MS_IN_12H) * PI2;
+       const currentAngle = startAngle + elapsedAngle;
        const s = sess.anim || blockAnim.style || 'none';
        const anim = getAnimModifier(nowTime, sess.anim || null);
        let drawR = r + anim.rOff;
        let activeColor = anim.colorOverride || sess.color;
 
-       // 1) Elapsed Portion (faded, no animation)
-       if (elapsedMs > 0) {
-           let elColor = sess.elapsedColor || sess.color;
-           let hasCustomEl = !!sess.elapsedColor;
-           // Boost elapsed opacity heavily so custom colors are undeniably visible
-           X.globalAlpha = hasCustomEl ? Math.min(1.0, blockOpacity * 2.5) : blockOpacity * 0.4;
-           X.shadowBlur = 0; X.shadowColor = 'transparent';
-           
-           // Base fill
-           X.beginPath();
-           X.moveTo(cx, cy);
-           X.arc(cx, cy, r, startAngle, currentAngle);
-           X.closePath();
-           X.fillStyle = elColor;
-           X.fill();
-           
-           // Hatching pattern overlay
-           if (!window.hatchPattern) {
-               const hc = document.createElement('canvas');
-               hc.width = 8; hc.height = 8;
-               const hx = hc.getContext('2d');
-               hx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
-               hx.lineWidth = 1;
-               hx.beginPath(); hx.moveTo(0, 8); hx.lineTo(8, 0); hx.stroke();
-               window.hatchPattern = X.createPattern(hc, 'repeat');
-           }
-           X.globalAlpha = 0.5; // faint overlay
-           X.fillStyle = window.hatchPattern;
-           X.fill();
-           
-           X.globalAlpha = hasCustomEl ? Math.min(1.0, blockOpacity * 2.5) : blockOpacity * 0.4;
-           X.beginPath();
-           X.arc(cx, cy, r - 1, startAngle, currentAngle);
-           X.strokeStyle = elColor;
-           X.lineWidth = 1.5;
-           X.stroke();
-       }
-       
+// 1) Elapsed Portion (distinct muted color, visible opacity)
+        if (elapsedMs > 0) {
+            let elColor = sess.elapsedColor || sess.color;
+            let hasCustomEl = !!sess.elapsedColor;
+            // Use same base opacity as remaining portion for visibility
+            const baseAlpha = blockOpacity * (hasCustomEl ? 1.0 : 0.8);
+            X.globalAlpha = Math.min(1, baseAlpha);
+            X.shadowBlur = 0; X.shadowColor = 'transparent';
+            
+            // Base fill
+            X.beginPath();
+            X.moveTo(cx, cy);
+            X.arc(cx, cy, r, startAngle, currentAngle);
+            X.closePath();
+            X.fillStyle = elColor;
+            X.fill();
+            
+            // Subtle inner stroke only (no dominating hatch overlay)
+            X.globalAlpha = Math.min(1, baseAlpha * 0.6);
+            X.beginPath();
+            X.arc(cx, cy, r - 1, startAngle, currentAngle);
+            X.strokeStyle = elColor;
+            X.lineWidth = 1;
+            X.stroke();
+        }
        // 2) Remaining Portion (vibrant + animated)
        if (elapsedMs < durationMs) {
            X.shadowBlur = anim.blur;
@@ -4145,7 +4441,47 @@ const nowTime = performance.now();
            X.shadowBlur = 0; X.shadowColor = 'transparent';
         }
 
-        // 3) Armed-for-linking highlight: colorized pulsing outline on the wedge
+        // 3) REMAINING-percentage label: OUTSIDE the dial rim, pinned on the
+        // block's mid-angle so the glyph tracks that block. The percentage
+        // reflects the hour hand's sweep through the block's arc:
+        // - Before block start: 100% remaining (hand not yet in arc)
+        // - After block end: 0% remaining (hand past the arc)
+        // - During block: fraction = linear elapsed (matches hour hand
+        //   progress on the 12h dial for blocks < 12h).
+        // Full-circle blocks (≥12h) use linear time since the hand laps.
+        // Radial offset from the rim driven by `--pct-offset` (CSS var).
+        if (durationMs > 0 && sweepAngle > 0.12) {
+            let elapsedFraction;
+            if (sweepAngle >= PI2 - 1e-6) {
+                // Full-circle block: hour hand makes a full lap; use linear time.
+                elapsedFraction = Math.min(1, Math.max(0, elapsedMs / durationMs));
+            } else if (realNow <= sess.start) {
+                elapsedFraction = 0; // block hasn't started — hour hand not yet in arc
+            } else if (realNow >= sess.end) {
+                elapsedFraction = 1; // block ended — hour hand past the arc
+            } else {
+                // Active block: hour hand is currently sweeping through this arc.
+                // Its fractional progress equals the linear elapsed fraction
+                // (both advance at the same constant rate on the 12h dial).
+                elapsedFraction = Math.min(1, Math.max(0, elapsedMs / durationMs));
+            }
+            const pct = Math.max(0, Math.min(100, Math.floor((1 - elapsedFraction) * 100))); // REMAINING
+            const midA = startAngle + sweepAngle / 2;
+            const off = cssPx('--pct-offset', 28);
+            const lr = Math.min(r + off, Math.min(wrapSize.w, wrapSize.h) / 2 - 4);   // OUTSIDE the dial rim
+            const lx = cx + Math.cos(midA) * lr;
+            const ly = cy + Math.sin(midA) * lr;
+            X.save();
+            X.globalAlpha = 0.92;
+            X.shadowColor = 'rgba(0,0,0,0.75)'; X.shadowBlur = 4;
+            X.fillStyle = '#ffffff';
+            X.font = '700 ' + Math.max(11, Math.min(14, r * 0.10)) + 'px Inter, sans-serif';
+            X.textAlign = 'center'; X.textBaseline = 'middle';
+            X.fillText(pct + '%', lx, ly);
+            X.restore();
+        }
+
+        // 4) Armed-for-linking highlight: colorized pulsing outline on the wedge
         if (linkBlockId && sess.id === linkBlockId) {
             const pulse = 0.6 + 0.4 * Math.sin(nowTime / 300);
             X.save();
@@ -4295,374 +4631,71 @@ const nowTime = performance.now();
     }
   }
 
-  let frameHandle = null;
-  let renderTimer = null;
-  let lastPaintAt = 0;
-  // 20 FPS is visually smooth for an analog second hand and cuts idle
-  // canvas work by 33% compared to 30 FPS, saving battery and memory.
-  const IDLE_FRAME_MS = 1000 / 20;
+  // Todo-list resize state (declared before listeners attach)
+  let todoResizeEdge = null; // 'west' or 'east'
+  let todoResizeStartX = 0; // initial clientX for delta calculation
+  let todoResizeStartW = 260; // todo width at drag start
+  let todoResizeSent = 0; // throttling counter for IPC
 
-
-  let viewMode = 'clock';
-  // ── Rectangular day-board view (compact vertical timeline) ──
-  // The board day starts at 8am and wraps a full 24h (8..23,0..7) so the
-  // whole day stays visible. Whole 24h always fits: px-per-hour derives
-  // from the visible height, so no scrollbar is ever needed.
-  const BOARD_START_HR = 8;
-    const BOARD_TOP_GAP = 140;
-    const BOARD_BOTTOM_GAP = 100;
-    const boardDispHr = (h) => (((h - BOARD_START_HR) % 24) + 24) % 24; // clock hr -> display row
-    const boardClockHr = (d) => (d + BOARD_START_HR) % 24; // display row -> clock hr
-    function boardHrPx() {
-      const h = (dayBoard && dayBoard.clientHeight) || 600;
-      return Math.max(16, (h - BOARD_TOP_GAP - BOARD_BOTTOM_GAP) / 24);
-    }
-  let boardEditing = false; // true while renaming inline (skips rebuild)
-  let boardResize = null; // {id, edge} while dragging a block edge
-  let boardMove = null; // {id, offMs, x0, y0, active} while dragging a block body
-  const viewToggleBtn = document.getElementById('view-toggle');
-  const boardExitBtn = document.getElementById('board-exit-btn');
-  if (boardExitBtn) boardExitBtn.addEventListener('click', e => { e.stopPropagation(); api.closeApp(); });
-  
-  const boardDragHandle = document.getElementById('board-drag-handle');
-  if (boardDragHandle) boardDragHandle.addEventListener('mousedown', e => { if (e.button === 0) { e.stopPropagation(); api.dragStart(); } });
-  // Board corner grip resizes the whole window (reuses the dial-resize IPC).
-  const boardResizeGrip = document.getElementById('board-resize');
-  if (boardResizeGrip) boardResizeGrip.addEventListener('mousedown', e => {
+  // Clock-view corner grip: resizes the whole window (reuses dial-resize IPC).
+  // Same window-resize IPC; todo panel stays fixed so only the clock grows.
+  const clockResizeGrip = document.getElementById('clock-resize');
+  if (clockResizeGrip) clockResizeGrip.addEventListener('mousedown', e => {
     if (e.button !== 0) return;
     e.stopPropagation();
     resizing = true;
     api.resizeStart();
   });
-  const dayBoard = document.getElementById('day-board');
-  const boardTimeline = document.getElementById('board-timeline');
-  const clockCanvas = document.getElementById('clock');
-  
-  if (viewToggleBtn) {
-    viewToggleBtn.addEventListener('click', () => {
-      viewMode = viewMode === 'clock' ? 'board' : 'clock';
-      if (viewMode === 'board') {
-        viewToggleBtn.classList.add('active');
-        dayBoard.style.display = 'flex';
-        clockCanvas.style.opacity = '0';
-        clockCanvas.style.visibility = 'hidden';
-        renderBoard();
-        setTimeout(() => scrollToNow(), 100);
-      } else {
-        viewToggleBtn.classList.remove('active');
-        dayBoard.style.display = 'none';
-        clockCanvas.style.opacity = '1';
-        clockCanvas.style.visibility = 'visible';
-      }
-    });
-  }
-
-  function scrollToNow() {
-    if (!dayBoard) return;
-    const now = new Date();
-    const h = now.getHours() + now.getMinutes() / 60;
-    const px = boardHrToY(boardDispHr(h)) - dayBoard.clientHeight / 2;
-    dayBoard.scrollTo({ top: Math.max(0, px), behavior: 'smooth' });
-  }
-
-  function renderBoard() {
-    if (viewMode !== 'board' || !boardTimeline || boardEditing) return;
-    
-    const now = Date.now();
-    const msInDay = 86400000;
-    const hrPx = boardHrPx();
-    
-    let html = '';
-    
-    // 24 hour rows starting at 8am, wrapping past midnight
-    for (let i = 0; i < 24; i++) {
-      const top = i * hrPx;
-      const hh = (BOARD_START_HR + i) % 24;
-      const ampm = hh < 12 ? 'AM' : 'PM';
-      const hr = hh % 12 === 0 ? 12 : hh % 12;
-      html += `<div class="board-hour-line" style="top:${top}px"><div class="board-hour-label">${hr}:00 ${ampm}</div></div>`;
-    }
-    
-    // Now line (mapped into display rows)
-    const dNow = new Date();
-    const nowTop = boardDispHr(dNow.getHours() + dNow.getMinutes() / 60) * hrPx;
-    html += `<div class="board-now-line" style="top:${nowTop}px"></div>`;
-    
-    // Draw Sessions (mapped into display rows; clips at the 8am wrap line)
-    // Skipped entirely while time allocations are off.
-    // Overlapping sessions share the time range side-by-side (partitioned columns).
-    const items = [];
-    if (SESSIONS_ENABLED) sessions.forEach((sess, si) => {
-      if (!sess) return;
-      const sD = new Date(sess.start);
-      const eD = new Date(sess.end);
-
-      const sHr = sD.getHours() + sD.getMinutes()/60 + sD.getSeconds()/3600;
-      let eHr = eD.getHours() + eD.getMinutes()/60 + eD.getSeconds()/3600;
-      if (eD.getTime() <= sD.getTime()) eHr += 24; // Crosses midnight
-      let dS = boardDispHr(sHr), dE = boardDispHr(eHr);
-      if (dE <= dS) dE += 24;
-
-      let top = dS * hrPx;
-      let height = (dE - dS) * hrPx;
-      if (top + height > 24 * hrPx) height = 24 * hrPx - top; // clip at wrap
-      if (height < 8) height = 8; // compact min height (keeps 24h fit tight)
-      if (top >= 24 * hrPx || top + height <= 0) return; // fully outside
-      items.push({ sess, si, sD, eD, top, height });
-    });
-    // Cluster by time overlap; greedy column assignment within each cluster.
-    items.sort((a, b) => a.top - b.top);
-    const layout = new Map(); // si -> {col, cols}
-    let cluster = [], clusterEnd = -1;
-    const flushCluster = () => {
-      if (!cluster.length) return;
-      const colsEnd = [];
-      cluster.forEach(it => {
-        let c = colsEnd.findIndex(e => e <= it.top);
-        if (c === -1) { c = colsEnd.length; colsEnd.push(it.top + it.height); }
-        else colsEnd[c] = it.top + it.height;
-        layout.set(it.si, { col: c, cols: 0 });
-      });
-      const n = colsEnd.length || 1;
-      cluster.forEach(it => { layout.get(it.si).cols = n; });
-      cluster = []; clusterEnd = -1;
-    };
-    items.forEach(it => {
-      if (cluster.length && it.top >= clusterEnd) flushCluster();
-      cluster.push(it);
-      clusterEnd = Math.max(clusterEnd, it.top + it.height);
-    });
-    flushCluster();
-    items.forEach(({ sess, si, sD, eD, top, height }) => {
-      const lay = layout.get(si) || { col: 0, cols: 1 };
-      // Side-by-side lane inside the session area (CSS base is left:48px/right:12px).
-      const lane = (lay.cols > 1)
-        ? `left:calc(48px + (100% - 60px) * ${lay.col} / ${lay.cols});width:calc((100% - 60px) / ${lay.cols} - 3px);`
-        : '';
-const rel = getRelativeSessionTimes(sess, now);
-      const elapsedMs = Math.max(0, Math.min(now - rel.start, rel.end - rel.start));
-      const durMs = rel.end - rel.start;
-      const pct = (elapsedMs / (durMs || 1)) * 100;
-      
-      const elColor = sess.elapsedColor || sess.color;
-      
-      // Collect tasks (including subtasks)
-      const sessTodos = todos.filter(t => t.blockId === sess.id);
-      let titleText = sessTodos.length ? sessTodos[0].text : '';
-      if (!titleText) {
-        for (const t of todos) {
-          const st = (t.subtasks || []).find(s => s.blockId === sess.id);
-          if (st) { titleText = st.text; break; }
-        }
-      }
-      if (!titleText) titleText = (sess.tasks && sess.tasks[0] ? sess.tasks[0] : 'Time Block');
-      
-      const timeFmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
-      const timeStr = timeFmt.format(sD) + ' - ' + timeFmt.format(eD);
-      // Highlight follows LINK ARMED state (not mere selection): no glow once deactivated.
-      const isArmed = linkBlockId && sess.id === linkBlockId;
-      
-      html += `<div class="board-session${isArmed ? ' selected' : ''}" data-id="${sess.id}" style="top:${top}px; height:${height}px; border-color:${sess.color};${lane}">
-        <div class="bg-fill" style="background:${sess.color}"></div>
-        <div class="elapsed-fill" style="background:${elColor}; width:${pct}%"></div>
-        <div class="board-grip top"></div>
-        <div class="board-session-title" data-id="${sess.id}">${escapeHtml(titleText)}</div>
-        <div class="board-session-time">${timeStr}</div>
-        <div class="board-grip bot"></div>
-        ${isArmed ? `<button class="board-del" data-id="${sess.id}" title="Delete block">×</button>` : ''}
-      </div>`;
-    });
-    
-      boardTimeline.innerHTML = html;
-  }
-
-  // ── Board interactions: same powers as the circular clock ──
-  // Click empty hour = create 1h block (15min snap, selected date).
-  // Click block = select + arm todo linking. Drag top/bottom edge = resize.
-  // × on a selected block deletes. Double-click title renames.
-  function boardHourToDate(hr) {
-    hr = Math.max(0, Math.min(23.75, hr));
-    const clockHr = boardClockHr(hr);
-    const yp = selectedTodoDate.split('-').map(Number);
-    return new Date(yp[0], yp[1] - 1, yp[2], Math.floor(clockHr), Math.round((clockHr % 1) * 60), 0, 0);
-  }
-  function boardSessionIdx(id) { return sessions.findIndex(s => s && s.id === id); }
-  if (boardTimeline) {
-    boardTimeline.addEventListener('mousedown', e => {
-      if (e.button !== 0 || boardEditing || !SESSIONS_ENABLED) return;
-      // Delete FIRST (mousedown): a select here would rebuild the DOM and eat the click.
-      const delFirst = e.target.closest ? e.target.closest('.board-del') : null;
-      if (delFirst) {
-        e.stopPropagation();
-        e.preventDefault();
-        const di = boardSessionIdx(delFirst.dataset.id);
-        if (di >= 0 && sessions[di]) {
-          unlinkBlock(delFirst.dataset.id);
-          lastDisarmedArm = null;
-          disarmTodoLink();
-          sessions.splice(di, 1);
-          save();
-          interactiveMode = null;
-          renderBoard();
-        }
-        return;
-      }
-      const sel = e.target.closest ? e.target.closest('.board-session') : null;
-      if (!sel) {
-        const tlRect = boardTimeline.getBoundingClientRect();
-        const hr = Math.floor(boardYToHr(e.clientY - tlRect.top) * 4) / 4;
-        const start = boardHourToDate(hr);
-        const end = new Date(start.getTime() + 3600000);
-        const hue = (210 + sessions.length * 137.5) % 360;
-        const col = todoHsl(hue, 85, 60);
-        sessions.push({ id: genId('s'), start: start.getTime(), end: end.getTime(),
-          color: col, elapsedColor: deriveElapsedColor(col), type: 'custom', tasks: [] });
-        save();
-        interactiveMode = `edit-${sessions.length - 1}-both`;
-        armTodoLink(sessions[sessions.length - 1]);
-        renderBoard();
-        renderTodos(); // refresh any linked-todo countdown chips immediately
-        return;
-      }
-      const idx = boardSessionIdx(sel.dataset.id);
-      if (idx < 0) return;
-      const rect = sel.getBoundingClientRect();
-      const y = e.clientY - rect.top;
-      if (y < 12) { boardResize = { id: sel.dataset.id, edge: 'start' }; e.preventDefault(); }
-      else if (y > rect.height - 12) { boardResize = { id: sel.dataset.id, edge: 'end' }; e.preventDefault(); }
-      else {
-        interactiveMode = `edit-${idx}-both`;
-        // Second click on the armed block deactivates (banner goes away too).
-        if (linkBlockId && sessions[idx] && sessions[idx].id === linkBlockId) disarmTodoLink();
-        else armTodoLink(sessions[idx]);
-        renderBoard();
-        // Track a potential whole-block drag (activates past a 5px threshold).
-        const tlR = boardTimeline.getBoundingClientRect();
-        const hrPx0 = boardHrPx();
-        const ptrMs = boardHourToDate(boardYToHr(e.clientY - tlR.top)).getTime();
-        boardMove = { id: sel.dataset.id, offMs: ptrMs - sessions[idx].start, x0: e.clientX, y0: e.clientY, active: false };
-      }
-    });
-    boardTimeline.addEventListener('click', e => {
-      if (!SESSIONS_ENABLED) return;
-      const del = e.target.closest ? e.target.closest('.board-del') : null;
-      if (!del) return;
-      e.stopPropagation();
-      const idx = boardSessionIdx(del.dataset.id);
-      if (idx < 0) return;
-      unlinkBlock(del.dataset.id);
-      lastDisarmedArm = null;
-      disarmTodoLink();
-      sessions.splice(idx, 1);
-      save();
-      interactiveMode = null;
-      renderBoard();
-    });
-    boardTimeline.addEventListener('dblclick', e => {
-      if (!SESSIONS_ENABLED) return;
-      const title = e.target.closest ? e.target.closest('.board-session-title') : null;
-      if (!title) return;
-      const idx = boardSessionIdx(title.dataset.id);
-      if (idx < 0 || !sessions[idx]) return;
-      boardEditing = true;
-      title.setAttribute('contenteditable', 'true');
-      title.focus();
-      try {
-        const range = document.createRange();
-        range.selectNodeContents(title);
-        const sel2 = window.getSelection();
-        sel2.removeAllRanges();
-        sel2.addRange(range);
-      } catch (_) {}
-      const finish = (commit) => {
-        title.removeAttribute('contenteditable');
-        if (commit) {
-          const v = (title.textContent || '').trim();
-          if (!Array.isArray(sessions[idx].tasks)) sessions[idx].tasks = [];
-          if (v) sessions[idx].tasks[0] = v;
-          else sessions[idx].tasks.splice(0, 1);
-          save();
-        }
-        boardEditing = false;
-        renderBoard();
-      };
-      title.onblur = () => finish(true);
-      title.onkeydown = (ev) => {
-        if (ev.key === 'Enter') { ev.preventDefault(); title.blur(); }
-        if (ev.key === 'Escape') { boardEditing = false; renderBoard(); }
-      };
-    });
-    // Hover feedback: reveal resize zones on block edges (grips are deliberately hidden)
-    boardTimeline.addEventListener('mousemove', e => {
-      if (boardEditing || !SESSIONS_ENABLED) return;
-      const sel = e.target.closest ? e.target.closest('.board-session') : null;
-      if (!sel) { if (boardTimeline.style.cursor) boardTimeline.style.cursor = ''; return; }
-      const y = e.clientY - sel.getBoundingClientRect().top;
-      boardTimeline.style.cursor = (y < 12 || y > sel.offsetHeight - 12) ? 'ns-resize' : 'grab';
-    });
-    boardTimeline.addEventListener('mouseleave', () => {
-      boardTimeline.style.cursor = '';
-    });
-  }
-  window.addEventListener('mousemove', e => {
-    if (boardMove && boardTimeline && !boardEditing) {
-      const dx = e.clientX - boardMove.x0, dy = e.clientY - boardMove.y0;
-      if (!boardMove.active && Math.hypot(dx, dy) > 5) {
-        boardMove.active = true;
-        if (dayBoard) dayBoard.style.cursor = 'grabbing';
-      }
-      if (boardMove.active) {
-        const idx = boardSessionIdx(boardMove.id);
-        if (idx >= 0 && sessions[idx]) {
-          const s = sessions[idx];
-          const dur = s.end - s.start;
-          const tlRect = boardTimeline.getBoundingClientRect();
-          const hr = boardYToHr(e.clientY - tlRect.top);
-          let t = boardHourToDate(hr).getTime() - boardMove.offMs;
-          t = Math.round(t / 900000) * 900000; // 15min snap
-          const yp = selectedTodoDate.split('-').map(Number);
-          const dayBase = new Date(yp[0], yp[1] - 1, yp[2], 0, 0, 0, 0).getTime();
-          t = Math.max(dayBase, Math.min(dayBase + 86400000 - dur, t));
-          s.start = t; s.end = t + dur;
-          renderBoard();
-          return;
-        }
-      }
-    }
-    if (!boardResize || !boardTimeline) return;
-    const idx = boardSessionIdx(boardResize.id);
-    if (idx < 0 || !sessions[idx]) { boardResize = null; return; }
-    const tlRect = boardTimeline.getBoundingClientRect();
-    const hr = Math.floor(boardYToHr(e.clientY - tlRect.top) * 4) / 4;
-    const t = boardHourToDate(Math.max(0, Math.min(23.75, hr))).getTime();
-    const s = sessions[idx];
-    if (boardResize.edge === 'start') {
-      if (t < s.end - 15 * 60000) s.start = t;
-    } else {
-      if (t > s.start + 15 * 60000) s.end = t;
-    }
-    renderBoard();
+  // Todo-list-only resize handles: left and right edges of the todo panel.
+  // These grow/shrink the todo column while keeping the clock size fixed.
+  const todoResizeW = document.getElementById('todo-resize-w');
+  if (todoResizeW) todoResizeW.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    todoResizeEdge = 'west';
+    todoResizeStartX = e.clientX;
+    todoResizeStartW = todoPanelWidth;
+    todoResizeSent = 0;
+    api.todoResizeStart();
   });
-  window.addEventListener('mouseup', () => {
-    if (boardResize) { boardResize = null; save(); renderBoard(); renderTodos(); }
-    if (boardMove) {
-      const moved = boardMove.active;
-      boardMove = null;
-      if (dayBoard) dayBoard.style.cursor = '';
-      if (moved) { save(); renderBoard(); renderTodos(); }
-    }
+  const todoResizeE = document.getElementById('todo-resize-e');
+  if (todoResizeE) todoResizeE.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    todoResizeEdge = 'east';
+    todoResizeStartX = e.clientX;
+    todoResizeStartW = todoPanelWidth;
+    todoResizeSent = 0;
+    api.todoResizeStart();
   });
-  window.addEventListener('resize', () => { try { renderBoard(); } catch (_) {} });
 
-function draw() {
+  // Window-edge resize handles: 8 edges/corners for full window resize.
+  const appResizeN = document.getElementById('app-resize-n');
+  if (appResizeN) appResizeN.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 'n'; api.resizeStart('n'); });
+  const appResizeS = document.getElementById('app-resize-s');
+  if (appResizeS) appResizeS.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 's'; api.resizeStart('s'); });
+  const appResizeW = document.getElementById('app-resize-w');
+  if (appResizeW) appResizeW.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 'w'; api.resizeStart('w'); });
+  const appResizeE = document.getElementById('app-resize-e');
+  if (appResizeE) appResizeE.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 'e'; api.resizeStart('e'); });
+  const appResizeNW = document.getElementById('app-resize-nw');
+  if (appResizeNW) appResizeNW.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 'nw'; api.resizeStart('nw'); });
+  const appResizeNE = document.getElementById('app-resize-ne');
+  if (appResizeNE) appResizeNE.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 'ne'; api.resizeStart('ne'); });
+  const appResizeSW = document.getElementById('app-resize-sw');
+  if (appResizeSW) appResizeSW.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 'sw'; api.resizeStart('sw'); });
+  const appResizeSE = document.getElementById('app-resize-se');
+  if (appResizeSE) appResizeSE.addEventListener('mousedown', e => { if (e.button !== 0) return; e.stopPropagation(); appResizeEdge = 'se'; api.resizeStart('se'); });
+  let appResizeEdge = null; // 'n','s','w','e','nw','ne','sw','se'
+  // (Board view removed — circular clock + todo list only.)
+  function draw() {
     frameHandle = null;
     if (!document.hidden) {
-      if (viewMode === 'board') {
-        // In board view, clock canvas is hidden - skip all clock drawing to save CPU
-        scheduleRender();
-        return;
-      }
       lastPaintAt = performance.now();
+      // Apply any deferred backing-store resize (queued by resize()) before we
+      // touch the canvas — this is what lets a live resize drag render the new
+      // size on the same frame instead of leaving a blank canvas behind.
+      applyPendingCanvasResize();
       const { cx, cy, r, w, h } = clockBounds();
       const now=new Date();
       const sec=now.getSeconds(),ms=now.getMilliseconds();
@@ -4671,7 +4704,6 @@ function draw() {
       X.clearRect(0,0,w,h);
       (STYLES[style]||drawGhostPure)(cx,cy,r,hrF,minF,secF,t);
       drawSessionsOverlay(cx, cy, r);
-      if(Math.random() < 0.1) renderBoard(); // throttle
     drawLabelOrbit(cx, cy, r);
     syncLabels(cx, cy, r, w, h);
     drawCircularLabels(cx, cy, r);
@@ -4682,6 +4714,9 @@ function draw() {
       drawExitButton(cx, cy, r);
       drawTooltipSizeIndicator(cx, cy, r);
       drawOrbitSpeedIndicator(cx, cy, r);
+      // Hands drawn LAST — they sit above every wedge, label, and UI overlay
+      // (knob/gear/exit) so they can never get visually occluded.
+      drawHandsTop();
     }
     scheduleRender();
   }
