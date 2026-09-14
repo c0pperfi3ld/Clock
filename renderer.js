@@ -561,6 +561,16 @@
     try { lastLabelSig = '__resize__'; } catch (_) {} // declared later; ignore TDZ on first run
     // Push an immediate redraw so a queued resize actually gets painted.
     scheduleRender();
+    // When the main process grows the window (auto-fit), only resize() fires —
+    // NOT renderTodos() — so any residual list overflow after the growth was
+    // never re-checked and would leave a permanent phantom scrollbar. Re-check
+    // here on every resize (throttled inside maybeFitWindow) to absorb it.
+    try {
+      if (windowFitAuto && api.fitWindow && todoList) {
+        const overflow = todoList.scrollHeight - todoList.clientHeight;
+        if (overflow > 4) maybeFitWindow(0, overflow);
+      }
+    } catch (_) {}
   }
   resize();
   // Re-run after first paint to catch any post-layout sizing adjustments
@@ -1788,10 +1798,8 @@ sessions.push({
   let editingLabelIdx = -1;
   let editInput = null;
 
-  // ── Todo list (HTML panel) — minimal: + button, add box, task cards ──
+  // ── Todo list (HTML panel) — task cards only (add box removed) ──
   const todoList = document.getElementById('todo-list');
-  const todoAddBox = document.getElementById('todo-add-box');
-  const todoAddPlus = document.getElementById('todo-add-plus');
   const todoTabs = document.getElementById('todo-tabs');
   const todoTabAdd = document.getElementById('todo-tab-add');
 
@@ -1833,7 +1841,6 @@ sessions.push({
     renderTodos();
     renderCalendar();
     saveTodos();
-    todoAddBox.focus();
   });
 
   // ── Mini calendar: toggle, per-date counts, click switches date workspace ──
@@ -2439,31 +2446,6 @@ function toggleTodoLink(id) {
     t.text = v;
     saveTodos();
   }
-
-  // Add box behavior: type + Enter to save
-  todoAddBox.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      const txt = todoAddBox.textContent.trim();
-      if (txt) {
-        addTodo(txt);
-        todoAddBox.textContent = '';
-        // Keep focus so the user can add more
-        todoAddBox.focus();
-      }
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      todoAddBox.textContent = '';
-      todoAddBox.blur();
-    }
-  });
-  // Blur the add box when clicking outside the panel
-  todoAddBox.addEventListener('blur', () => { /* keep text — user might want to come back */ });
-
-  // + button focuses the add box
-  todoAddPlus.addEventListener('click', () => {
-    todoAddBox.focus();
-  });
 
   // List interactions (event delegation)
   todoList.addEventListener('click', e => {

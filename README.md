@@ -6,6 +6,8 @@ A borderless, canvas-rendered desktop clock widget with time blocks, a Pomodoro-
 [![License](https://img.shields.io/badge/License-MIT-10b981?style=flat)](LICENSE)
 [![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-8b5cf6?style=flat)](#)
 
+![ChronoCore preview](docs-assets/clock-preview.png)
+
 ---
 
 ## ✨ Features
