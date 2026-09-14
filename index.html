@@ -10,35 +10,35 @@
 </head>
 <body>
   <div id="app">
+    <!-- Window-edge resize handles -->
+    <div class="app-resize-n" id="app-resize-n" title="Resize window"></div>
+    <div class="app-resize-s" id="app-resize-s" title="Resize window"></div>
+    <div class="app-resize-w" id="app-resize-w" title="Resize window"></div>
+    <div class="app-resize-e" id="app-resize-e" title="Resize window"></div>
+    <div class="app-resize-nw" id="app-resize-nw" title="Resize window"></div>
+    <div class="app-resize-ne" id="app-resize-ne" title="Resize window"></div>
+    <div class="app-resize-sw" id="app-resize-sw" title="Resize window"></div>
+    <div class="app-resize-se" id="app-resize-se" title="Resize window"></div>
     <div id="clock-wrapper">
       <canvas id="clock"></canvas>
       <div id="link-toast" class="link-toast"></div>
-      <div id="day-board" style="display:none">
-        <div id="board-drag-handle" class="board-drag-handle" title="Drag to move window"></div>
-        <button id="board-exit-btn" class="board-exit-btn" title="Close App">×</button>
-        <div id="board-timeline"></div>
-        <div class="board-resize" id="board-resize" title="Resize window"></div>
-      </div>
       <label id="picker-wrap-start" class="floating-picker" title="Remaining Color">
          <input type="color" id="color-start">
       </label>
       <label id="picker-wrap-end" class="floating-picker" title="Elapsed Color">
          <input type="color" id="color-end">
       </label>
+      <div class="clock-resize" id="clock-resize" title="Resize window"></div>
     </div>
     <aside id="todo-panel">
+      <div class="todo-resize-w" id="todo-resize-w" title="Resize todo list"></div>
+      <div class="todo-resize-e" id="todo-resize-e" title="Resize todo list"></div>
       <div class="todo-tab-bar">
         <div class="todo-tabs" id="todo-tabs"></div>
         <button class="todo-tab-add" id="todo-tab-add" title="New list">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
             <line x1="12" y1="5" x2="12" y2="19"></line>
             <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-        </button>
-                <button class="view-toggle" id="view-toggle" title="Switch View">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
-            <line x1="9" y1="3" x2="9" y2="21"></line>
           </svg>
         </button>
         <button class="todo-cal-toggle" id="todo-cal-toggle" title="Calendar">
@@ -49,6 +49,7 @@
             <line x1="16" y1="2.5" x2="16" y2="6.5"></line>
           </svg>
         </button>
+        <button class="todo-close-btn" id="todo-close-btn" title="Close App">×</button>
       </div>
       <div class="todo-cal-wrap" id="todo-cal-wrap">
         <div class="todo-cal-head">

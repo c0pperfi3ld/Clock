@@ -1,10 +1,381 @@
 /* ChronoCore — Clock + Tasks layout */
 * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
 
+/* Customizable layout knobs. Default values are sane; tweak in DevTools or
+   via the settings panel sliders.
+     --app-padding     : distance between the rounded border and the inner
+                         content (clock + todo panel).
+     --app-border-w    : thickness of the rounded border around the app.
+     --app-border-r    : corner radius of the rounded border.
+     --app-border-c    : solid color of the rounded border (default
+                         rgba white at low alpha; use a color picker in the
+                         panel to retint).
+     --pct-offset      : extra radius (in CSS px) added to the wedge rim
+                         when placing the percentage label.
+   Note: the app surface itself has NO background fill — only the rounded
+   border. That means whatever's behind the window (your wallpaper, another
+   app) shows through the interior of the panel, while the border defines
+   the chrome. */
+:root {
+  --app-padding: 16px;
+  --app-border-w: 2px;
+  --app-border-r: 16px;
+  /* Default border color: a muted violet that reads as "the panel edge"
+     rather than the white OS-style outline the user kept seeing. */
+  --app-border-c: rgba(139, 92, 246, 0.55);
+  --app-border-a: 0.55; /* alpha for the border color; 0 = invisible, 1 = solid */
+  --pct-offset: 22px;
+  /* Border animation: 'none' | anim name */
+  --app-border-anim: none;
+  --app-border-anim-duration: 3s;
+  --app-border-anim-speed: 1;
+  /* ── Shine/Sweep Animation ── */
+  --shine-enabled: 0; /* 0=off, 1=on */
+  --shine-speed: 4s; /* duration per sweep */
+  --shine-angle: 45deg; /* sweep angle */
+  --shine-width: 120px; /* width of the shine band */
+  --shine-opacity: 0.18; /* peak opacity of the shine */
+  --shine-color: rgba(255, 255, 255, 1); /* shine color (alpha controlled by --shine-opacity) */
+  --shine-border-opacity: 0.5; /* multiplier for border shine intensity */
+  --shine-easing: ease-in-out; /* easing function */
+  --shine-delay: 0s; /* delay before first sweep */
+  --shine-direction: 1; /* 1=forward, -1=reverse */
+  --shine-mode: 'sweep'; /* 'sweep' | 'pulse' | 'rainbow' | 'scan' */
+}
+
+/* ── Border Animations (20 variants) ── */
+/* Applied to #app via class: .border-anim-<name> */
+@keyframes border-pulse {
+  0%, 100% { border-color: var(--app-border-c); box-shadow: 0 0 0 0 transparent; }
+  50% { border-color: var(--app-border-c); box-shadow: 0 0 12px 4px var(--app-border-c); }
+}
+@keyframes border-glow {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 20px 6px var(--app-border-c); }
+}
+@keyframes border-breathe {
+  0%, 100% { border-width: var(--app-border-w); border-color: var(--app-border-c); }
+  50% { border-width: calc(var(--app-border-w) * 1.5); border-color: color-mix(in srgb, var(--app-border-c) 60%, transparent); }
+}
+@keyframes border-shimmer {
+  0% { border-image-source: linear-gradient(90deg, transparent, var(--app-border-c), transparent); border-image-slice: 1; }
+  100% { border-image-source: linear-gradient(-90deg, transparent, var(--app-border-c), transparent); border-image-slice: 1; }
+}
+@keyframes border-rainbow {
+  0% { border-color: hsl(0, 80%, 60%); }
+  16% { border-color: hsl(60, 80%, 60%); }
+  33% { border-color: hsl(120, 80%, 60%); }
+  50% { border-color: hsl(180, 80%, 60%); }
+  66% { border-color: hsl(240, 80%, 60%); }
+  83% { border-color: hsl(300, 80%, 60%); }
+  100% { border-color: hsl(360, 80%, 60%); }
+}
+@keyframes border-scan {
+  0% { box-shadow: inset 0 -100% 0 0 var(--app-border-c), 0 0 0 0 transparent; }
+  100% { box-shadow: inset 0 100% 0 0 var(--app-border-c), 0 0 20px 4px var(--app-border-c); }
+}
+@keyframes border-dash-flow {
+  0% { background-position: 0 0; }
+  100% { background-position: 40px 0; }
+}
+@keyframes border-corner-pulse {
+  0%, 100% { border-radius: var(--app-border-r); }
+  25% { border-radius: calc(var(--app-border-r) * 0.5) var(--app-border-r) var(--app-border-r) var(--app-border-r); }
+  50% { border-radius: var(--app-border-r) calc(var(--app-border-r) * 0.5) var(--app-border-r) var(--app-border-r); }
+  75% { border-radius: var(--app-border-r) var(--app-border-r) calc(var(--app-border-r) * 0.5) var(--app-border-r); }
+}
+@keyframes border-neon-flicker {
+  0%, 100% { text-shadow: 0 0 5px var(--app-border-c); }
+  5% { text-shadow: 0 0 4px var(--app-border-c); }
+  10%, 100% { text-shadow: 0 0 5px var(--app-border-c); }
+}
+@keyframes border-elastic {
+  0%, 100% { transform: scale(1); border-radius: var(--app-border-r); }
+  50% { transform: scale(1.005); border-radius: calc(var(--app-border-r) * 1.2); }
+}
+@keyframes border-gradient-shift {
+  0% { border-image-source: linear-gradient(45deg, var(--app-border-c), transparent, var(--app-border-c)); border-image-slice: 1; }
+  50% { border-image-source: linear-gradient(-45deg, var(--app-border-c), transparent, var(--app-border-c)); border-image-slice: 1; }
+  100% { border-image-source: linear-gradient(45deg, var(--app-border-c), transparent, var(--app-border-c)); border-image-slice: 1; }
+}
+@keyframes border-ghost {
+  0%, 100% { border-color: var(--app-border-c); }
+  50% { border-color: transparent; }
+}
+@keyframes border-trace {
+  0% { clip-path: polygon(0 0, 100% 0, 100% 0, 0 0); }
+  25% { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); }
+  50% { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); }
+  75% { clip-path: polygon(100% 0, 100% 100%, 0 100%, 0 0); }
+  100% { clip-path: polygon(100% 100%, 0 100%, 0 0, 100% 0); }
+}
+@keyframes border-plasma {
+  0% { border-color: hsl(280, 80%, 60%); box-shadow: 0 0 10px hsl(280, 80%, 60%); }
+  33% { border-color: hsl(200, 80%, 60%); box-shadow: 0 0 10px hsl(200, 80%, 60%); }
+  66% { border-color: hsl(120, 80%, 60%); box-shadow: 0 0 10px hsl(120, 80%, 60%); }
+  100% { border-color: hsl(280, 80%, 60%); box-shadow: 0 0 10px hsl(280, 80%, 60%); }
+}
+@keyframes border-morse {
+  0%, 100% { border-color: var(--app-border-c); }
+  10% { border-color: transparent; }
+  20% { border-color: var(--app-border-c); }
+  30% { border-color: transparent; }
+  40% { border-color: var(--app-border-c); }
+  50% { border-color: transparent; }
+  60% { border-color: var(--app-border-c); }
+  70% { border-color: transparent; }
+  80% { border-color: var(--app-border-c); }
+  90% { border-color: transparent; }
+}
+@keyframes border-wave {
+  0% { border-radius: var(--app-border-r) var(--app-border-r) var(--app-border-r) var(--app-border-r); }
+  25% { border-radius: calc(var(--app-border-r) * 1.5) var(--app-border-r) var(--app-border-r) calc(var(--app-border-r) * 0.5); }
+  50% { border-radius: var(--app-border-r) calc(var(--app-border-r) * 1.5) calc(var(--app-border-r) * 0.5) var(--app-border-r); }
+  75% { border-radius: var(--app-border-r) var(--app-border-r) calc(var(--app-border-r) * 1.5) calc(var(--app-border-r) * 0.5); }
+  100% { border-radius: var(--app-border-r) var(--app-border-r) var(--app-border-r) var(--app-border-r); }
+}
+@keyframes border-electric {
+  0%, 100% { border-color: var(--app-border-c); box-shadow: 0 0 0 transparent; }
+  5% { border-color: #fff; box-shadow: 0 0 15px #fff; }
+  10% { border-color: var(--app-border-c); box-shadow: 0 0 0 transparent; }
+  15% { border-color: #fff; box-shadow: 0 0 15px #fff; }
+  20% { border-color: var(--app-border-c); box-shadow: 0 0 0 transparent; }
+}
+@keyframes border-aurora {
+  0% { border-image-source: linear-gradient(90deg, #8b5cf6, #38bdf8, #10b981, #f59e0b, #ef4444); border-image-slice: 1; }
+  100% { border-image-source: linear-gradient(-90deg, #8b5cf6, #38bdf8, #10b981, #f59e0b, #ef4444); border-image-slice: 1; }
+}
+@keyframes border-geiger {
+  0%, 100% { border-color: var(--app-border-c); }
+  8% { border-color: #22c55e; }
+  16% { border-color: var(--app-border-c); }
+  24% { border-color: #22c55e; }
+  32% { border-color: var(--app-border-c); }
+}
+@keyframes border-dna {
+  0% { border-image-source: linear-gradient(180deg, var(--app-border-c) 0%, transparent 50%, var(--app-border-c) 100%); border-image-slice: 1; }
+  100% { border-image-source: linear-gradient(0deg, var(--app-border-c) 0%, transparent 50%, var(--app-border-c) 100%); border-image-slice: 1; }
+}
+@keyframes border-meteor {
+  0% { box-shadow: -200% 0 0 0 transparent, 200% 0 0 0 transparent; }
+  50% { box-shadow: 0 0 30px 10px var(--app-border-c), 0 0 0 0 transparent; }
+  100% { box-shadow: 200% 0 0 0 transparent, -200% 0 0 0 transparent; }
+}
+@keyframes border-heartbeat {
+  0%, 100% { transform: scale(1); border-width: var(--app-border-w); }
+  10% { transform: scale(1.01); border-width: calc(var(--app-border-w) * 2); }
+  20% { transform: scale(1); border-width: var(--app-border-w); }
+  30% { transform: scale(1.01); border-width: calc(var(--app-border-w) * 2); }
+  40% { transform: scale(1); border-width: var(--app-border-w); }
+  70% { transform: scale(1); border-width: var(--app-border-w); }
+}
+
+/* ── Shine/Sweep Animations ── */
+@keyframes shine-sweep {
+  0% { transform: translateX(-200%) rotate(var(--shine-angle)); opacity: 0; }
+  10% { opacity: var(--shine-opacity); }
+  50% { opacity: var(--shine-opacity); }
+  90% { opacity: var(--shine-opacity); }
+  100% { transform: translateX(200%) rotate(var(--shine-angle)); opacity: 0; }
+}
+
+@keyframes shine-pulse {
+  0%, 100% { opacity: 0; }
+  50% { opacity: var(--shine-opacity); }
+}
+
+@keyframes shine-rainbow {
+  0% { background-position: 0% 50%; opacity: var(--shine-opacity); }
+  100% { background-position: 200% 50%; opacity: var(--shine-opacity); }
+}
+
+@keyframes shine-scan {
+  0% { transform: translateY(-150%) rotate(var(--shine-angle)); opacity: 0; }
+  50% { opacity: var(--shine-opacity); }
+  100% { transform: translateY(150%) rotate(var(--shine-angle)); opacity: 0; }
+}
+
+/* Shine background overlay for #app */
+#app::before {
+  content: '';
+  position: fixed;
+  inset: -100px; /* larger than viewport to cover rotation */
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--shine-color) var(--shine-fade-start, 50%),
+    var(--shine-color) var(--shine-fade-end, 50%),
+    transparent 100%
+  );
+  background-size: var(--shine-width) 100%;
+  background-repeat: var(--shine-repeat, no-repeat);
+  background-position: center;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+  animation: none;
+}
+
+/* Shine modes applied to #app via class: .shine-anim-<mode> */
+#app.shine-anim-sweep::before {
+  animation: shine-sweep var(--shine-speed) var(--shine-easing) infinite;
+  animation-delay: var(--shine-delay);
+  animation-direction: normal;
+}
+#app.shine-reverse.shine-anim-sweep::before { animation-direction: reverse; }
+
+#app.shine-anim-pulse::before {
+  background: radial-gradient(
+    ellipse at center,
+    var(--shine-color) 0%,
+    transparent 70%
+  );
+  background-size: 300% 300%;
+  animation: shine-pulse calc(var(--shine-speed) * 2) var(--shine-easing) infinite;
+  animation-delay: var(--shine-delay);
+}
+
+#app.shine-anim-rainbow::before {
+  background: linear-gradient(
+    var(--shine-angle),
+    hsl(0, 90%, 60%), hsl(60, 90%, 60%), hsl(120, 90%, 60%),
+    hsl(180, 90%, 60%), hsl(240, 90%, 60%), hsl(300, 90%, 60%), hsl(360, 90%, 60%)
+  );
+  background-size: 400% 400%;
+  opacity: calc(var(--shine-opacity) * 0.7);
+  animation: shine-rainbow calc(var(--shine-speed) * 3) linear infinite;
+  animation-delay: var(--shine-delay);
+}
+
+#app.shine-anim-scan::before {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--shine-color) var(--shine-fade-start, 50%),
+    var(--shine-color) var(--shine-fade-end, 50%),
+    transparent 100%
+  );
+  background-size: 100% var(--shine-width);
+  background-repeat: var(--shine-repeat, no-repeat);
+  background-position: center;
+  animation: shine-scan var(--shine-speed) var(--shine-easing) infinite;
+  animation-delay: var(--shine-delay);
+  animation-direction: normal;
+}
+#app.shine-reverse.shine-anim-scan::before { animation-direction: reverse; }
+
+/* Border shine - animated border-image for the sweep effect */
+#app.shine-border-sweep {
+  border-image-source: linear-gradient(
+    var(--shine-angle),
+    transparent,
+    color-mix(in srgb, var(--app-border-c) calc(var(--shine-border-opacity) * 100%), transparent),
+    transparent
+  );
+  border-image-slice: 1;
+  animation: shine-border-sweep var(--shine-speed) var(--shine-easing) infinite;
+  animation-delay: var(--shine-delay);
+  animation-direction: normal;
+}
+#app.shine-reverse.shine-border-sweep { animation-direction: reverse; }
+
+@keyframes shine-border-sweep {
+  0% { border-image-source: linear-gradient(var(--shine-angle), transparent, color-mix(in srgb, var(--app-border-c) calc(var(--shine-border-opacity) * 100%), transparent), transparent); }
+  50% { border-image-source: linear-gradient(calc(var(--shine-angle) + 180deg), transparent, color-mix(in srgb, var(--app-border-c) calc(var(--shine-border-opacity) * 100%), transparent), transparent); }
+  100% { border-image-source: linear-gradient(var(--shine-angle), transparent, color-mix(in srgb, var(--app-border-c) calc(var(--shine-border-opacity) * 100%), transparent), transparent); }
+}
+
+/* Border shine - pulse */
+#app.shine-border-pulse {
+  animation: shine-border-pulse calc(var(--shine-speed) * 2) var(--shine-easing) infinite;
+  animation-delay: var(--shine-delay);
+}
+
+@keyframes shine-border-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; border-color: var(--app-border-c); }
+  50% { box-shadow: 0 0 30px 5px color-mix(in srgb, var(--app-border-c) calc(var(--shine-border-opacity) * 100%), transparent); border-color: color-mix(in srgb, var(--app-border-c) calc(var(--shine-border-opacity) * 200%), transparent); }
+}
+
+/* Border shine - rainbow */
+#app.shine-border-rainbow {
+  border-image-source: linear-gradient(
+    var(--shine-angle),
+    hsl(0, 80%, 60%), hsl(60, 80%, 60%), hsl(120, 80%, 60%),
+    hsl(180, 80%, 60%), hsl(240, 80%, 60%), hsl(300, 80%, 60%), hsl(360, 80%, 60%)
+  );
+  border-image-slice: 1;
+  animation: shine-border-rainbow calc(var(--shine-speed) * 3) linear infinite;
+  animation-delay: var(--shine-delay);
+}
+
+@keyframes shine-border-rainbow {
+  0% { border-image-source: linear-gradient(var(--shine-angle), hsl(0, 80%, 60%), hsl(60, 80%, 60%), hsl(120, 80%, 60%), hsl(180, 80%, 60%), hsl(240, 80%, 60%), hsl(300, 80%, 60%), hsl(360, 80%, 60%)); }
+  100% { border-image-source: linear-gradient(calc(var(--shine-angle) + 360deg), hsl(0, 80%, 60%), hsl(60, 80%, 60%), hsl(120, 80%, 60%), hsl(180, 80%, 60%), hsl(240, 80%, 60%), hsl(300, 80%, 60%), hsl(360, 80%, 60%)); }
+}
+
+/* Border shine - scan (vertical) */
+#app.shine-border-scan {
+  box-shadow: inset 0 -100% 0 0 transparent, 0 0 0 0 transparent;
+  animation: shine-border-scan var(--shine-speed) var(--shine-easing) infinite;
+  animation-delay: var(--shine-delay);
+}
+
+@keyframes shine-border-scan {
+  0% { box-shadow: inset 0 -100% 0 0 color-mix(in srgb, var(--app-border-c) calc(var(--shine-border-opacity) * 100%), transparent), 0 0 0 0 transparent; }
+  100% { box-shadow: inset 0 100% 0 0 color-mix(in srgb, var(--app-border-c) calc(var(--shine-border-opacity) * 100%), transparent), 0 0 30px 10px color-mix(in srgb, var(--app-border-c) calc(var(--shine-border-opacity) * 50%), transparent); }
+}
+
+/* Border animation classes for #app */
+#app.border-anim-pulse { animation: border-pulse var(--app-border-anim-duration) ease-in-out infinite; }
+#app.border-anim-glow { animation: border-glow var(--app-border-anim-duration) ease-in-out infinite; }
+#app.border-anim-breathe { animation: border-breathe var(--app-border-anim-duration) ease-in-out infinite; }
+#app.border-anim-shimmer { 
+  border-image-source: linear-gradient(90deg, transparent, var(--app-border-c), transparent);
+  border-image-slice: 1;
+  animation: border-shimmer calc(var(--app-border-anim-duration) * 2) linear infinite; 
+}
+#app.border-anim-rainbow { animation: border-rainbow calc(var(--app-border-anim-duration) * 4) linear infinite; }
+#app.border-anim-scan { animation: border-scan calc(var(--app-border-anim-duration) * 1.5) ease-in-out infinite; }
+#app.border-anim-dash-flow {
+  background: repeating-linear-gradient(90deg, var(--app-border-c), var(--app-border-c) 8px, transparent 8px, transparent 16px);
+  background-size: 40px 100%;
+  background-repeat: repeat-y;
+  background-position: 0 0;
+  border-color: transparent;
+  animation: border-dash-flow calc(var(--app-border-anim-duration) * 2) linear infinite;
+}
+#app.border-anim-corner-pulse { animation: border-corner-pulse var(--app-border-anim-duration) ease-in-out infinite; }
+#app.border-anim-neon-flicker { animation: border-neon-flicker 2s ease-in-out infinite; }
+#app.border-anim-elastic { animation: border-elastic var(--app-border-anim-duration) ease-in-out infinite; transform-origin: center; }
+#app.border-anim-gradient-shift { 
+  border-image-source: linear-gradient(45deg, var(--app-border-c), transparent, var(--app-border-c));
+  border-image-slice: 1;
+  animation: border-gradient-shift calc(var(--app-border-anim-duration) * 2) ease-in-out infinite; 
+}
+#app.border-anim-ghost { animation: border-ghost var(--app-border-anim-duration) ease-in-out infinite; }
+#app.border-anim-trace { animation: border-trace calc(var(--app-border-anim-duration) * 2) linear infinite; }
+#app.border-anim-plasma { animation: border-plasma calc(var(--app-border-anim-duration) * 3) ease-in-out infinite; }
+#app.border-anim-morse { animation: border-morse calc(var(--app-border-anim-duration) * 2) linear infinite; }
+#app.border-anim-wave { animation: border-wave calc(var(--app-border-anim-duration) * 3) ease-in-out infinite; }
+#app.border-anim-electric { animation: border-electric 1.5s ease-in-out infinite; }
+#app.border-anim-aurora { 
+  border-image-source: linear-gradient(90deg, #8b5cf6, #38bdf8, #10b981, #f59e0b, #ef4444);
+  border-image-slice: 1;
+  animation: border-aurora calc(var(--app-border-anim-duration) * 4) linear infinite; 
+}
+#app.border-anim-geiger { animation: border-geiger 1.2s linear infinite; }
+#app.border-anim-dna { 
+  border-image-source: linear-gradient(180deg, var(--app-border-c) 0%, transparent 50%, var(--app-border-c) 100%);
+  border-image-slice: 1;
+  animation: border-dna calc(var(--app-border-anim-duration) * 2) linear infinite; 
+}
+#app.border-anim-meteor { animation: border-meteor calc(var(--app-border-anim-duration) * 2) ease-in-out infinite; }
+#app.border-anim-heartbeat { animation: border-heartbeat 1.2s ease-in-out infinite; transform-origin: center; }
+
 html, body {
   width: 100%; height: 100%;
-  /* Opaque backdrop: the window sits always-on-top; any transparency lets
-     whatever is behind (browser toolbars etc.) show through as a "bar". */
+  /* Transparent root — the visible chrome comes from #app's border, not a
+     filled backdrop. Click-through to whatever sits behind the panel. */
   background: transparent;
   overflow: hidden;
   font-family: 'Inter', system-ui, sans-serif;
@@ -16,16 +387,102 @@ html, body {
   width: 100vw;
   height: 100vh;
   align-items: stretch;
-  background: transparent;
+  justify-content: flex-start;
+  gap: 0;
+  /* No fill — the panel interior is the desktop. Uses --bgA (0-1) from settings. */
+  background: rgba(14, 14, 23, var(--bgA, 0.85));
+  -webkit-app-region: drag; /* entire window is draggable; non-drag elements will opt out */
+  /* Solid, rounded, customizable border. Longhand (not the border shorthand)
+     because some renderers are picky about var() inside a shorthand — the
+     longhand is unambiguous. All three properties are CSS variables so the
+     panel sliders/picker can mutate them live. */
+  border-width: var(--app-border-w, 2px);
+  border-style: solid;
+  border-color: var(--app-border-c, rgba(255, 255, 255, 0.10));
+  border-radius: var(--app-border-r, 16px);
+  padding: var(--app-padding, 16px);
+  overflow: hidden;
+  /* Remove white border at corners */
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0);
+}
+
+/* ── Window-edge resize handles (transparent, 6px thick) ── */
+.app-resize-n,
+.app-resize-s,
+.app-resize-w,
+.app-resize-e,
+.app-resize-nw,
+.app-resize-ne,
+.app-resize-sw,
+.app-resize-se {
+  position: fixed;
+  z-index: 1000;
+  -webkit-app-region: no-drag;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+#app:hover .app-resize-n,
+#app:hover .app-resize-s,
+#app:hover .app-resize-w,
+#app:hover .app-resize-e,
+#app:hover .app-resize-nw,
+#app:hover .app-resize-ne,
+#app:hover .app-resize-sw,
+#app:hover .app-resize-se {
+  opacity: 1;
+}
+.app-resize-n { top: 0; left: 0; right: 0; height: 6px; cursor: ns-resize; }
+.app-resize-s { bottom: 0; left: 0; right: 0; height: 6px; cursor: ns-resize; }
+.app-resize-w { top: 0; bottom: 0; left: 0; width: 6px; cursor: ew-resize; }
+.app-resize-e { top: 0; bottom: 0; right: 0; width: 6px; cursor: ew-resize; }
+.app-resize-nw { top: 0; left: 0; width: 16px; height: 16px; cursor: nwse-resize; }
+.app-resize-ne { top: 0; right: 0; width: 16px; height: 16px; cursor: nesw-resize; }
+.app-resize-sw { bottom: 0; left: 0; width: 16px; height: 16px; cursor: nesw-resize; }
+.app-resize-se { bottom: 0; right: 0; width: 16px; height: 16px; cursor: nwse-resize; }
+
+/* ── Clickable/interactive elements: opt out of window drag ── */
+button,
+input,
+select,
+a,
+.floating-picker,
+.floating-picker input,
+#clock,
+#clock-wrapper,
+.clock-resize,
+.todo-resize-w,
+.todo-resize-e,
+.todo-tab-bar,
+.todo-tabs,
+.todo-tab,
+.todo-tab-add,
+.todo-cal-toggle,
+.todo-close-btn,
+.todo-cal-nav,
+.todo-cal-today,
+.todo-cal-day,
+.todo-add-plus,
+.todo-add-box,
+.todo-link-bar,
+.todo-link-bar button,
+.todo-weight button,
+.todo-item,
+.st-block,
+.todo-del,
+.st-del,
+.todo-check,
+.st-check {
+  -webkit-app-region: no-drag;
 }
 
 /* ── Clock area (left, square) ── */
 #clock-wrapper {
-  /* Square that fits within available height and leaves room for the sidebar.
-     Never wider than 100vw - sidebarMin so the panel always has space. */
-  width: min(100vh, calc(100vw - 240px));
+  /* Square clock tight against the todo panel — zero gap in between, zero
+     extra on the left. Width is exactly the space left for the clock,
+     capped at viewport height so the dial never stretches. */
+  flex: 0 0 auto;
+  width: min(100vh, calc(100vw - var(--todo-panel-width, 260px)));
   height: 100vh;
-  flex-shrink: 0;
   position: relative;
   display: flex;
   align-items: center;
@@ -89,10 +546,12 @@ html, body {
   cursor: pointer;
 }
 
-/* ── Tasks panel (right) — FULLY TRANSPARENT ── */
+/* ── Tasks panel (right) — FIXED WIDTH so clock-view resizes never reflow it ── */
 #todo-panel {
-  flex: 1;
-  min-width: 0;
+  flex: none;
+  width: var(--todo-panel-width, 260px);
+  min-width: 180px;
+  max-width: 640px;
   display: flex;
   flex-direction: column;
   background: transparent !important;
@@ -101,10 +560,38 @@ html, body {
   border-left: none;
   box-shadow: none;
   position: relative;
-  overflow: visible;
+  /* Clip horizontally so nothing spills out of the window edge; the list
+     itself still scrolls vertically. */
+  overflow: hidden;
 }
+
 /* No aurora — panel is invisible, tasks float in space */
 #todo-panel::before, #todo-panel::after { display: none !important; }
+
+/* ── Todo list resize handles (left + right edges) ── */
+.todo-resize-w,
+.todo-resize-e {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  z-index: 5;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+.todo-resize-w { left: 0; }
+.todo-resize-e { right: 0; }
+#todo-panel:hover .todo-resize-w,
+#todo-panel:hover .todo-resize-e,
+#todo-panel:focus-within .todo-resize-w,
+#todo-panel:focus-within .todo-resize-e {
+  opacity: 0.5;
+}
+.todo-resize-w:hover,
+.todo-resize-e:hover {
+  opacity: 1;
+  background: rgba(139,92,246,0.2);
+}
 
 /* ── List tabs: dot switcher row + new-list "+" ── */
 .todo-tab-bar {
@@ -158,6 +645,19 @@ html, body {
 }
 .todo-cal-toggle:hover { transform: scale(1.15); color: #fff; border-color: rgba(255,255,255,0.5); }
 .todo-cal-toggle.active { background: rgba(139,92,246,0.3); border-color: #8b5cf6; color: #fff; }
+.todo-close-btn {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(239,68,68,0.4);
+  background: rgba(239,68,68,0.12);
+  color: rgba(252,165,165,0.85);
+  font-size: 0.8rem; line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.18s, background 0.18s, color 0.18s;
+}
+.todo-close-btn:hover { transform: scale(1.15); background: rgba(239,68,68,0.45); color: #fff; }
+.todo-close-btn:active { transform: scale(0.92); }
 
 /* ── Mini calendar (toggleable, per-date todo counts) ── */
 .todo-cal-wrap {
@@ -350,7 +850,10 @@ html, body {
   list-style: none;
   flex: 1;
   overflow-y: auto;
-  padding: 2px 60px 8px 22px;
+  overflow-x: hidden;
+  /* Gutter fits inside the panel: left room for the collapse chevron,
+     small right inset. Nothing is positioned outside the card anymore. */
+  padding: 2px 10px 8px 22px;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
@@ -375,6 +878,8 @@ html, body {
   animation: item-in 0.36s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards, weight-pulse 2.2s ease-in-out infinite;
   overflow: visible;
   min-height: 24px;
+  min-width: 0;
+  flex-wrap: nowrap;
   will-change: transform, opacity;
   outline: 2px solid transparent;
   outline-offset: 1px;
@@ -820,20 +1325,24 @@ html, body {
 .todo-weight.mini span { font-size: 0.55rem; min-width: 12px; }
 /* Outside-the-box remaining-time label. All rows share one right edge —
    the list itself reserves the gutter, so linked or not every card aligns. */
+/* Remaining-time chip lives INSIDE the card (in-flow, right-aligned) so a
+   narrow todo panel or the window edge can never cut it off. */
 .todo-etime {
-  position: absolute;
-  right: -56px;
-  width: 52px;
-  top: 50%;
-  transform: translateY(-50%);
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 0.55rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: rgba(255,255,255,0.65);
-  text-align: left;
+  text-align: right;
   white-space: nowrap;
   pointer-events: none;
-  padding-left: 8px;
+  padding-left: 6px;
+  order: 98;
 }
 
 .todo-text {
@@ -915,243 +1424,33 @@ html, body {
 .st-collapse-spacer { display: none !important; }
 
 
-/* ── Day Board View ── */
-#day-board {
+/* Clock-view resize grip: bottom-right corner of the clock wrapper. */
+.clock-resize {
   position: absolute;
-  inset: 0;
-  background: rgba(15,15,25,0.97);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-radius: 16px;
-  margin: 0;
-  overflow: hidden;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-#day-board::-webkit-scrollbar { display: none; width: 0; }
-
-#board-timeline {
-  position: relative;
-  min-height: 100%;
-  width: 100%;
-  padding-left: 48px;
-  padding-top: 0;
-  padding-bottom: 0;
-}
-
-.board-hour-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 36px;
-  border-top: 1px dashed rgba(255,255,255,0.08);
-  pointer-events: none;
-}
-
-.board-hour-label {
-  position: absolute;
-  left: 8px;
-  top: -7px;
-  font-size: 0.58rem;
-  font-weight: 600;
-  color: rgba(255,255,255,0.4);
-}
-
-.board-session {
-  position: absolute;
-  left: 48px;
-  right: 12px;
-  border-radius: 7px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  padding: 3px 7px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-  transition: transform 0.1s, opacity 0.1s;
-  cursor: pointer;
-}
-
-.board-session:hover {
-  transform: scale(1.01);
-  opacity: 1 !important;
-  z-index: 5;
-}
-.board-session.selected {
-  outline: 2px solid rgba(255,255,255,0.7);
-  outline-offset: 1px;
-  z-index: 6;
-}
-/* Resize grips: visible on hover/focus, clickable 12px zones */
-.board-grip {
-  position: absolute;
-  left: 0; right: 0;
-  height: 12px;
-  cursor: ns-resize;
-  opacity: 0;
-  transition: opacity 0.15s;
-  z-index: 10;
-}
-.board-grip.top { top: 0; }
-.board-grip.bot { bottom: 0; }
-.board-session:hover .board-grip,
-.board-session:focus-within .board-grip,
-.board-session.active-resize .board-grip {
-  opacity: 0.6;
-}
-.board-grip:hover { opacity: 1; background: rgba(255,255,255,0.15); }
-/* Window resize grip: bottom-right corner of the board */
-.board-resize {
-  position: absolute;
-  right: 8px; bottom: 8px;
-  width: 16px; height: 16px;
+  right: 6px; bottom: 6px;
+  width: 22px; height: 22px;
   cursor: nwse-resize;
   z-index: 30;
-  opacity: 0.6;
-  border-right: 2px solid rgba(255,255,255,0.75);
-  border-bottom: 2px solid rgba(255,255,255,0.75);
-  border-bottom-right-radius: 6px;
+  opacity: 1;
+  border-right: 3px solid rgba(255,255,255,0.9);
+  border-bottom: 3px solid rgba(255,255,255,0.9);
+  border-bottom-right-radius: 7px;
+  filter: drop-shadow(0 0 3px rgba(0,0,0,0.8));
+  transition: transform 0.15s, filter 0.15s;
 }
-.board-resize::after {
+.clock-resize::after {
   content: '';
   position: absolute;
-  right: 3px; bottom: 3px;
-  width: 7px; height: 7px;
-  border-right: 2px solid rgba(255,255,255,0.45);
-  border-bottom: 2px solid rgba(255,255,255,0.45);
+  right: 4px; bottom: 4px;
+  width: 9px; height: 9px;
+  border-right: 2px solid rgba(255,255,255,0.6);
+  border-bottom: 2px solid rgba(255,255,255,0.6);
   border-bottom-right-radius: 3px;
 }
-.board-resize:hover { opacity: 1; }
-
-/* Board drag handle: small grabber in top-left for moving window in board view */
-.board-drag-handle {
-  position: absolute;
-  top: 8px; left: 8px;
-  width: 24px; height: 24px;
-  cursor: grab;
-  z-index: 25;
-  border-radius: 4px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  
-  opacity: 0.5;
-  transition: opacity 0.15s, background 0.15s;
+.clock-resize:hover {
+  opacity: 1;
+  transform: scale(1.15);
+  border-right-color: #a78bfa;
+  border-bottom-color: #a78bfa;
+  filter: drop-shadow(0 0 6px rgba(139,92,246,0.9));
 }
-.board-drag-handle:hover { opacity: 1; background: rgba(255,255,255,0.1); }
-.board-drag-handle:active { cursor: grabbing; }
-.board-drag-handle::before {
-  content: '';
-  width: 12px; height: 12px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M5 9l7-7 7 7'/%3E%3Cpath d='M5 15l7-7 7 7'/%3E%3C/svg%3E");
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
-  opacity: 0.6;
-}
-.board-del {
-  position: absolute;
-  top: 2px; right: 4px;
-  width: 16px; height: 16px;
-  border-radius: 4px;
-  border: none;
-  background: rgba(239,68,68,0.25);
-  color: #fca5a5;
-  font-size: 0.7rem;
-  line-height: 1;
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-}
-.board-del:hover { background: rgba(239,68,68,0.5); color: #fff; }
-
-.board-session .bg-fill {
-  position: absolute;
-  inset: 0;
-  opacity: 0.2;
-  z-index: -1;
-}
-
-.board-session .elapsed-fill {
-  position: absolute;
-  top: 0; left: 0; bottom: 0;
-  background: var(--hatch, rgba(255,255,255,0.1));
-  opacity: 0.5;
-  z-index: -1;
-}
-
-.board-session-title {
-  font-size: 0.68rem;
-  font-weight: 600;
-  color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-shadow: 0 1px 4px rgba(0,0,0,0.8);
-  padding-right: 18px;
-}
-.board-session-title[contenteditable="true"] {
-  outline: 1px dashed rgba(255,255,255,0.5);
-  border-radius: 3px;
-  white-space: normal;
-}
-
-.board-session-time {
-  font-size: 0.55rem;
-  font-weight: 500;
-  color: rgba(255,255,255,0.6);
-  margin-top: 1px;
-}
-
-.board-now-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, rgba(239,68,68,0) 0%, #ef4444 8%, #f87171 50%, #ef4444 92%, rgba(239,68,68,0) 100%);
-  z-index: 10;
-  pointer-events: none;
-  box-shadow: 0 0 10px rgba(239,68,68,0.8);
-  animation: nowline-glow 2.4s ease-in-out infinite;
-}
-.board-now-line::before {
-  content: '';
-  position: absolute;
-  left: 44px;
-  top: -5px;
-  width: 12px; height: 12px;
-  border-radius: 50%;
-  background: radial-gradient(circle, #fca5a5 0%, #ef4444 55%, rgba(239,68,68,0) 75%);
-  box-shadow: 0 0 12px rgba(239,68,68,0.9);
-  animation: nowline-pulse 2.4s ease-in-out infinite;
-}
-@keyframes nowline-glow {
-  0%, 100% { opacity: 0.75; }
-  50% { opacity: 1; }
-}
-@keyframes nowline-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.35); }
-}
-
-.view-toggle {
-  width: 20px; height: 20px;
-  border-radius: 50%;
-  border: 1px solid rgba(255,255,255,0.22);
-  background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.65);
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  transition: all 0.18s;
-  margin-right: 6px;
-}
-.view-toggle:hover { transform: scale(1.15); color: #fff; border-color: rgba(255,255,255,0.5); }
-.view-toggle.active { background: rgba(56,189,248,0.3); border-color: #38bdf8; color: #fff; }
-
-.board-exit-btn { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 4px; background: rgba(239,68,68,0.2); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; font-size: 1.1rem; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 25; transition: all 0.15s; }
-.board-exit-btn:hover { background: rgba(239,68,68,0.5); color: #fff; }
