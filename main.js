@@ -1,8 +1,11 @@
-const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, shell, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
 let win = null, panel = null, panelReady = false;
+const APP_ICON = path.join(__dirname, 'assets', 'icon.png');
+// Prevent Windows DWM from drawing a 1px white non-client border on transparent frameless windows
+app.commandLine.appendSwitch('wm-window-animations-disabled');
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'clock-settings.json');
 let settingsCache = null;
 let settingsSaveTimer = null;
@@ -44,7 +47,8 @@ function createWindow() {
   const maxTodoW = Math.max(180, sw - clockMin - 40);
   let savedTodoW = (settings.todoPanelWidth > 0) ? settings.todoPanelWidth : 260;
   if (savedTodoW > maxTodoW) savedTodoW = maxTodoW;
-  const defaultW = 430 + savedTodoW; // clock (430) + todo sidebar + label headroom
+  const isCollapsed = !!settings.todoPanelCollapsed;
+  const defaultW = isCollapsed ? 430 : (430 + savedTodoW);
   // Restore the saved geometry exactly. We keep the user's chosen size on all
   // four sides; the only adjustment is nudging the position back on-screen if a
   // saved window would render partially off the display. We never change the
@@ -54,6 +58,13 @@ function createWindow() {
     const invalid = !bounds || bounds.width < 320 || bounds.height < 220;
     if (invalid) {
       bounds = { x: sw - fbW - 40, y: 40, width: fbW, height: fbH };
+    }
+    // If collapsed on startup, ensure width is reduced to clock area
+    if (isCollapsed && bounds.width > 430 + 30) {
+      if (!settings.lastExpandedWidth) settings.lastExpandedWidth = bounds.width;
+      bounds.width = Math.max(320, bounds.width - savedTodoW);
+    } else if (!isCollapsed && settings.lastExpandedWidth && bounds.width < settings.lastExpandedWidth - 30) {
+      bounds.width = settings.lastExpandedWidth;
     }
     // Keep position fully on the primary work area (move only, never resize).
     if (bounds.x + bounds.width > sw - 8) bounds.x = Math.max(8, sw - 8 - bounds.width);
@@ -67,7 +78,8 @@ function createWindow() {
         x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
         frame: false, transparent: true,
         title: '', autoHideMenuBar: true, show: false,
-        alwaysOnTop: true, skipTaskbar: true, hasShadow: false,
+        alwaysOnTop: true, skipTaskbar: false, hasShadow: false,
+        icon: APP_ICON,
         backgroundColor: '#00000000',
         resizable: false,
         webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false }
@@ -81,6 +93,11 @@ function createWindow() {
   win.removeMenu();
   // No aspect-ratio lock: clock stays square on the left, todo panel fills the rest
   win.loadFile('index.html');
+  // Open todo links in the system's default browser (never a new Electron window).
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
   let resizeNotifyTimer = null;
   win.on('resize', () => {
     if (resizeNotifyTimer) return;
@@ -91,6 +108,12 @@ function createWindow() {
   });
   win.on('moved', () => { saveCurrentBounds(); });
   win.on('closed', () => { win = null; if (panel && !panel.isDestroyed()) panel.close(); });
+  ipcMain.on('open-external', (_, url) => {
+    if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url);
+  });
+  ipcMain.on('copy-text', (_, text) => {
+    if (typeof text === 'string') clipboard.writeText(text);
+  });
   applyOnTop(); // enforce topmost level (creation flag alone is droppable on Win)
   // Removed win.on('blur') as re-asserting alwaysOnTop on blur triggers DWM white borders
 }
@@ -104,6 +127,9 @@ function saveCurrentBounds() {
   const b = win.getBounds();
   s[boundsKey()] = b;
   s.windowBounds = b; // legacy compat
+  if (!s.todoPanelCollapsed) {
+    s.lastExpandedWidth = b.width;
+  }
   saveSettings(s, true); // immediate flush — don't risk losing it on a fast quit
 }
 function applyOnTop() {
@@ -116,6 +142,9 @@ function applyOnTop() {
 }
 
 function showPanel(currentState) {
+  if (currentState && typeof currentState === 'object') {
+    currentState.onTop = onTopWanted;
+  }
   if (panel && !panel.isDestroyed()) {
     panel.webContents.send('update-state', currentState);
     // If the panel hasn't painted yet, the ready-to-show handler below will
@@ -285,6 +314,12 @@ ipcMain.on('panel-set-clock-scale', (_, v) => { if (win && !win.isDestroyed()) w
 ipcMain.on('panel-set-app-padding', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-app-padding', v); });
 ipcMain.on('panel-set-todo-top-gap', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-todo-top-gap', v); });
 ipcMain.on('panel-set-pct-offset', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-pct-offset', v); });
+ipcMain.on('panel-set-pct-visible',   (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-pct-visible',   v); });
+ipcMain.on('panel-set-pct-font-size', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-pct-font-size', v); });
+ipcMain.on('panel-set-pct-color',     (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-pct-color',     v); });
+ipcMain.on('panel-set-pct-show-time', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-pct-show-time', v); });
+ipcMain.on('panel-set-pct-time-pos',  (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-pct-time-pos',  v); });
+ipcMain.on('panel-set-todo-fade-height', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-todo-fade-height', v); });
 ipcMain.on('panel-set-app-border-w', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-app-border-w', v); });
 ipcMain.on('panel-set-app-border-r', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-app-border-r', v); });
 ipcMain.on('panel-set-app-border-c', (_, v) => { if (win && !win.isDestroyed()) win.webContents.send('set-app-border-c', v); });
@@ -348,6 +383,55 @@ ipcMain.on('fit-window', (_, need) => {
   win.setResizable(false);
   saveCurrentBounds();
 });
+
+// ── Window collapse / expand for todo panel ──
+ipcMain.on('set-todo-panel-collapsed', (_, collapsed) => {
+  if (!win || win.isDestroyed()) return;
+  const s = loadSettings();
+  s.todoPanelCollapsed = !!collapsed;
+  const cur = win.getBounds();
+  const todoW = (s.todoPanelWidth > 0) ? s.todoPanelWidth : 260;
+  const display = screen.getDisplayNearestPoint({ x: cur.x, y: cur.y });
+  const wa = display.workArea;
+
+  let targetW;
+  if (collapsed) {
+    s.lastExpandedWidth = cur.width;
+    targetW = Math.max(320, cur.width - todoW);
+  } else {
+    const expectedCollapsedW = Math.max(320, (s.lastExpandedWidth || cur.width) - todoW);
+    if (s.lastExpandedWidth && Math.abs(cur.width - expectedCollapsedW) < 5) {
+      targetW = s.lastExpandedWidth;
+    } else {
+      targetW = cur.width + todoW;
+    }
+    if (targetW > wa.width) targetW = wa.width;
+  }
+
+  let newX = cur.x;
+  if (newX + targetW > wa.x + wa.width) {
+    newX = Math.max(wa.x, wa.x + wa.width - targetW);
+  }
+
+  const newBounds = {
+    x: Math.round(newX),
+    y: cur.y,
+    width: Math.round(targetW),
+    height: cur.height
+  };
+
+  win.setResizable(true);
+  win.setBounds(newBounds);
+  win.setResizable(false);
+
+  s[boundsKey()] = newBounds;
+  s.windowBounds = newBounds;
+  saveSettings(s, true);
+
+  if (!win.isDestroyed()) {
+    win.webContents.send('window-resized', {});
+  }
+});
 ipcMain.on('panel-focus-time', (_, data) => { if (win && !win.isDestroyed()) win.webContents.send('focus-time', data); });
 ipcMain.on('panel-blur-time', () => { if (win && !win.isDestroyed()) win.webContents.send('blur-time'); });
 ipcMain.on('clock-update-time', (_, data) => { if (panel && !panel.isDestroyed()) panel.webContents.send('update-time', data); });
@@ -363,6 +447,8 @@ ipcMain.on('save-settings', (_, data) => { const s = loadSettings(); Object.assi
 ipcMain.on('load-settings', (event) => { event.returnValue = loadSettings(); });
 
 app.whenReady().then(() => {
+  // Required on Windows: pins the taskbar icon to this app's identity
+  if (process.platform === 'win32') app.setAppUserModelId('com.c0pperfi3ld.chronocore');
   pruneLegacySettings();
   createWindow();
 });

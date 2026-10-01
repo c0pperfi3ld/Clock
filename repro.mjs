@@ -1,0 +1,23 @@
+import puppeteer from 'puppeteer';
+const browser = await puppeteer.launch({headless:'new',args:['--no-sandbox']});
+const page = await browser.newPage();
+await page.setViewport({width:900,height:700});
+const logs=[];
+page.on('console',m=>logs.push('['+m.type()+'] '+m.text()));
+page.on('pageerror',e=>logs.push('[pageerror] '+e.message));
+await page.goto('file://'+process.cwd()+'/test-harness.html');
+await new Promise(r=>setTimeout(r,800));
+const info = await page.evaluate(()=>{
+  const c=document.getElementById('clock');
+  const r=c.getBoundingClientRect();
+  return {rect:{x:r.x,y:r.y,w:r.width,h:r.height}};
+});
+logs.push('INFO '+JSON.stringify(info));
+const cx = info.rect.x + info.rect.w/2;
+const cy = info.rect.y + info.rect.h/2;
+await page.mouse.click(cx+120, cy);
+await new Promise(r=>setTimeout(r,300));
+const after1 = await page.evaluate(()=>({sessions: JSON.parse(localStorage.getItem('clockSettings')||'{}').sessions||'none'}));
+logs.push('AFTER_DIAL_CLICK '+JSON.stringify(after1).slice(0,200));
+await browser.close();
+console.log(logs.join('\n'));

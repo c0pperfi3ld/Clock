@@ -52,7 +52,7 @@
   let titleGap = 1.0; // multiplier for title-to-ring distance
   let todoTopGap = 7; // px gap above the todo category dots row
   let todoOpacity = 100; // todo panel opacity %; 0-100
-  let bgAlpha = 85; // app background transparency %; 10-100 (drives --bgA)
+  let bgAlpha = 85; // app background transparency %; 0-100 (drives --bgA)
   // Independent clock size multiplier (decoupled from window size). The clock
   // canvas still occupies the square clock-wrapper, but the drawn radius
   // (and therefore the visible dial + everything inside it) is scaled.
@@ -64,6 +64,12 @@
   // pctOffset:  extra radius added to the dial rim when placing the pct label.
   let appPadding = 16;
   let pctOffset = 22;
+  let pctVisible  = true;
+  let pctFontSize = 12;
+  let pctColor    = '#ffffff';
+  let pctShowTime = true; // show remaining time alongside percentage
+  let pctTimePos  = 'below'; // 'below' | 'right' | 'inline'
+  let todoFadeHeight = 44; // fade mask height in pixels (0-120)
   // Rounded-border knobs (the app has NO background fill — only the
   // border). All three are exposed in the settings panel.
   let appBorderW = 2;
@@ -110,10 +116,16 @@
   if (typeof saved.titleGap === 'number') titleGap=saved.titleGap;
   if (typeof saved.todoTopGap === 'number') todoTopGap = saved.todoTopGap;
   if (typeof saved.todoOpacity === 'number') todoOpacity = saved.todoOpacity;
-  if (typeof saved.bgAlpha === 'number') bgAlpha = Math.max(10, Math.min(100, saved.bgAlpha));
+  if (typeof saved.bgAlpha === 'number') bgAlpha = Math.max(0, Math.min(100, saved.bgAlpha));
   if (typeof saved.clockScale === 'number') clockScale = Math.max(0.5, Math.min(1.5, saved.clockScale));
   if (typeof saved.appPadding === 'number') appPadding = Math.max(0, Math.min(32, saved.appPadding | 0));
   if (typeof saved.pctOffset === 'number') pctOffset = Math.max(0, Math.min(60, saved.pctOffset | 0));
+  if (saved.pctVisible === false) pctVisible = false;
+  if (typeof saved.pctFontSize === 'number') pctFontSize = Math.max(8, Math.min(18, saved.pctFontSize | 0));
+  if (typeof saved.pctColor === 'string' && saved.pctColor) pctColor = saved.pctColor;
+  if (typeof saved.pctShowTime === 'boolean') pctShowTime = saved.pctShowTime;
+  if (typeof saved.pctTimePos === 'string') pctTimePos = saved.pctTimePos;
+  if (typeof saved.todoFadeHeight === 'number') todoFadeHeight = Math.max(0, Math.min(120, saved.todoFadeHeight | 0));
   if (typeof saved.appBorderW === 'number') appBorderW = Math.max(0, Math.min(12, saved.appBorderW | 0));
   if (typeof saved.appBorderR === 'number') appBorderR = Math.max(0, Math.min(48, saved.appBorderR | 0));
   if (typeof saved.appBorderC === 'string' && saved.appBorderC) appBorderC = saved.appBorderC;
@@ -153,10 +165,8 @@
   // Mutable today key — updated at midnight so the app can auto-roll to a fresh day.
   let TODAY_KEY = dateKeyOf(new Date());
   let todosByDate = {};
-  // Strict day isolation: always start on TODAY, never resume a previously
-  // viewed date (that would look like yesterday's todos carried over after a
-  // restart). History remains under its own key via the calendar.
-  let selectedTodoDate = TODAY_KEY;
+  // Restore last viewed date and category from saved state
+  let selectedTodoDate = (typeof saved.selectedTodoDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(saved.selectedTodoDate)) ? saved.selectedTodoDate : TODAY_KEY;
   let todoCalOpen = false;
   if (saved.todosByDate && typeof saved.todosByDate === 'object') {
     Object.keys(saved.todosByDate).forEach(k => {
@@ -219,6 +229,19 @@
       if (p) p.style.setProperty('--todo-panel-width', todoPanelWidth + 'px');
     }
     applyTodoPanelWidth();
+    // ── Todo panel collapse state ──
+    let todoPanelCollapsed = !!saved.todoPanelCollapsed;
+    function applyTodoPanelCollapsed() {
+      const panel = document.getElementById('todo-panel');
+      const btn = document.getElementById('todo-collapse-toggle');
+      if (panel) {
+        panel.classList.toggle('collapsed', todoPanelCollapsed);
+      }
+      if (btn) {
+        btn.classList.toggle('collapsed', todoPanelCollapsed);
+        btn.title = todoPanelCollapsed ? 'Expand todo list' : 'Collapse todo list';
+      }
+    }
     // Derive a muted darker variant of an #rrggbb color (for elapsed wedges).
   function deriveElapsedColor(hex) {
     const m = /^#?([0-9a-f]{6})$/i.exec((hex || '').trim());
@@ -235,10 +258,13 @@
       else h = (r - g) / d + 4;
       h *= 60; if (h < 0) h += 360;
     }
-    const l2 = Math.max(0.15, l - 0.35);          // much darker
-    const s2 = Math.min(1, Math.max(0.15, s * 0.40)); // much more desaturated
+    // Complementary hue (opposite on the wheel) so the elapsed portion never
+    // reads as a near-identical tint of the remaining color.
+    const h2 = (h + 180) % 360;
+    const s2 = Math.min(1, Math.max(0.45, s * 0.85));
+    const l2 = Math.max(0.32, l * 0.82);
     const f = k => {
-      const kk = (k + h / 30) % 12;
+      const kk = (k + h2 / 30) % 12;
       const a = s2 * Math.min(l2, 1 - l2);
       const c = l2 - a * Math.max(Math.min(kk - 3, 9 - kk, 1), -1);
       return Math.round(255 * c).toString(16).padStart(2, '0');
@@ -281,7 +307,7 @@
 
   function applyOpacity() { canvas.style.opacity=opacity/100; }
   function applyTodoOpacity() { const p = document.getElementById('todo-panel'); if (p) p.style.opacity = todoOpacity / 100; }
-  function applyBgAlpha() { try { document.documentElement.style.setProperty('--bgA', (Math.max(10, Math.min(100, bgAlpha)) / 100).toFixed(2)); } catch (_) {} }
+  function applyBgAlpha() { try { document.documentElement.style.setProperty('--bgA', (Math.max(0, Math.min(100, bgAlpha)) / 100).toFixed(2)); } catch (_) {} }
   function applyTodoBoxOpaque() { const p = document.getElementById('todo-panel'); if (p) p.dataset.boxOpaque = todoBoxOpaque ? '1' : '0'; }
   // Read a CSS custom property as a pixel number. Used by canvas drawing so
   // layout knobs (--app-padding, --pct-offset, ...) live in CSS and JS just
@@ -344,6 +370,10 @@
   }
   function applyAppBorderA() {
     try { document.documentElement.style.setProperty('--app-border-a', String(Math.max(0, Math.min(1, appBorderA)))); } catch (_) {}
+  }
+  function applyTodoFadeHeight() {
+    const v = Math.max(0, Math.min(120, todoFadeHeight | 0));
+    try { document.documentElement.style.setProperty('--todo-fade-height', v + 'px'); } catch (_) {}
   }
   function applyBorderAnim() {
       const app = document.getElementById('app');
@@ -409,11 +439,26 @@
     applyAppBorderR();
     applyAppBorderA();
     applyAppBorderC();
+    applyTodoFadeHeight();
       applyBorderAnim();
       applyShineAnim();
       applyOpacity();
+      applyTodoPanelCollapsed();
 
-      function save() { queueSave({clockStyle:style,theme,handType,opacity,sessions,sessionsByDate,selectedTodoDate,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque,todoBoxOpacity,calAnim,todoPanelWidth,bgAlpha,clockScale,appPadding,pctOffset,appBorderW,appBorderR,appBorderC,appBorderA,borderAnim,borderAnimSpeed,shineAnim,shineSpeed,shineAngle,shineWidth,shineOpacity,shineColor,shineBorderOpacity,shineEasing,shineDelay,shineDirection,shineFade,shineRepeat,todoTopGap}); }
+      // ── Todo panel collapse toggle click handler ──
+      const collapseToggle = document.getElementById('todo-collapse-toggle');
+      if (collapseToggle) {
+        collapseToggle.addEventListener('click', () => {
+          todoPanelCollapsed = !todoPanelCollapsed;
+          applyTodoPanelCollapsed();
+          if (api.setTodoPanelCollapsed) {
+            api.setTodoPanelCollapsed(todoPanelCollapsed);
+          }
+          save();
+        });
+      }
+
+      function save() { queueSave({clockStyle:style,theme,handType,opacity,sessions,sessionsByDate,selectedTodoDate,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque,todoBoxOpacity,calAnim,todoPanelWidth,bgAlpha,clockScale,appPadding,pctOffset,pctVisible,pctFontSize,pctColor,pctShowTime,pctTimePos,todoFadeHeight,appBorderW,appBorderR,appBorderC,appBorderA,borderAnim,borderAnimSpeed,shineAnim,shineSpeed,shineAngle,shineWidth,shineOpacity,shineColor,shineBorderOpacity,shineEasing,shineDelay,shineDirection,shineFade,shineRepeat,todoTopGap,todoPanelCollapsed}); }
   api.onSetStyle(s => { style=s; save(); });
   api.onSetTheme(t => { theme=t; save(); });
   api.onSetOpacity(o => { opacity=o; applyOpacity(); save(); });
@@ -434,7 +479,13 @@
   if (api.onSetClockScale) api.onSetClockScale(v => { clockScale = Math.max(0.5, Math.min(1.5, +v || 1.0)); applyClockScale(); scheduleRender(); save(); });
   if (api.onSetAppPadding) api.onSetAppPadding(v => { appPadding = Math.max(0, Math.min(32, +v | 0)); applyAppPadding(); save(); });
   if (api.onSetTodoTopGap) api.onSetTodoTopGap(v => { todoTopGap = Math.max(0, Math.min(120, +v | 0)); applyTodoTopGap(); save(); });
-  if (api.onSetPctOffset)  api.onSetPctOffset (v => { pctOffset  = Math.max(0, Math.min(60, +v | 0)); applyPctOffset();  scheduleRender(); save(); });
+  if (api.onSetPctOffset)   api.onSetPctOffset (v => { pctOffset   = Math.max(0, Math.min(60, +v | 0)); applyPctOffset(); scheduleRender(); save(); });
+  if (api.onSetPctVisible)  api.onSetPctVisible(v => { pctVisible  = !!v; scheduleRender(); save(); });
+  if (api.onSetPctFontSize) api.onSetPctFontSize(v => { pctFontSize = Math.max(8, Math.min(24, +v | 0)); scheduleRender(); save(); });
+  if (api.onSetPctColor)    api.onSetPctColor  (v => { pctColor    = v || '#ffffff'; scheduleRender(); save(); });
+  if (api.onSetPctShowTime) api.onSetPctShowTime(v => { pctShowTime = !!v; scheduleRender(); save(); });
+  if (api.onSetPctTimePos)  api.onSetPctTimePos (v => { pctTimePos  = v || 'below'; scheduleRender(); save(); });
+  if (api.onSetTodoFadeHeight) api.onSetTodoFadeHeight(v => { todoFadeHeight = Math.max(0, Math.min(120, +v | 0)); applyTodoFadeHeight(); save(); });
   if (api.onSetAppBorderW) api.onSetAppBorderW(v => { appBorderW = Math.max(0, Math.min(12, +v | 0)); applyAppBorderW(); save(); });
   if (api.onSetAppBorderR) api.onSetAppBorderR(v => { appBorderR = Math.max(0, Math.min(48, +v | 0)); applyAppBorderR(); save(); });
   if (api.onSetAppBorderC) api.onSetAppBorderC(v => { appBorderC = (typeof v === 'string' ? v : 'rgba(255,255,255,0.10)'); applyAppBorderC(); save(); });
@@ -566,11 +617,12 @@
     // never re-checked and would leave a permanent phantom scrollbar. Re-check
     // here on every resize (throttled inside maybeFitWindow) to absorb it.
     try {
-      if (windowFitAuto && api.fitWindow && todoList) {
+      if (!todoPanelCollapsed && windowFitAuto && api.fitWindow && todoList) {
         const overflow = todoList.scrollHeight - todoList.clientHeight;
         if (overflow > 4) maybeFitWindow(0, overflow);
       }
     } catch (_) {}
+    try { if (typeof updateScrollHint === 'function') updateScrollHint(); } catch (_) {}
   }
   resize();
   // Re-run after first paint to catch any post-layout sizing adjustments
@@ -1382,8 +1434,328 @@
         X.lineWidth = 3;
         X.lineCap = 'round';
         try { X.shadowColor = `hsla(${hue.toFixed(1)},70%,70%,0.6)`; X.shadowBlur = 6; } catch (_) {}
-        X.stroke();
+      X.stroke();
         try { X.shadowBlur = 0; } catch (_) {}
+      }
+    } else if (st === 'solar-prominence') {
+      // Solar Prominence: layered warm orange/yellow gradient arcs pulsing out from ring.
+      const segs = 60;
+      for (let i = 0; i < segs; i++) {
+        const a0 = (i / segs) * PI2;
+        const a1 = ((i + 1.02) / segs) * PI2;
+        const ph = Math.sin(a0 * 4 + nowMs / 700);
+        const lum = 60 + 20 * ph;
+        const sat = 80 + 15 * ph;
+        X.beginPath(); X.arc(cx, cy, or + ph * 3, a0, a1);
+        X.strokeStyle = `hsla(${30 + ph * 20}, ${sat}%, ${lum}%, 0.9)`;
+        X.lineWidth = 3 + ph;
+        try { X.shadowColor = `rgba(255,150,50,0.7)`; X.shadowBlur = 8; } catch(_){}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch(_){}
+      }
+    } else if (st === 'plasma-ring') {
+      // Plasma Ring: electric violet/cyan fast-cycling segments.
+      const segs = 80;
+      for (let i = 0; i < segs; i++) {
+        const a0 = (i / segs) * PI2;
+        const a1 = ((i + 1.02) / segs) * PI2;
+        const ph = (i / segs + nowMs / 400) % 1;
+        const h = 260 + 80 * Math.sin(ph * PI2);
+        const alpha = 0.5 + 0.5 * Math.abs(Math.sin(ph * PI2 * 3));
+        X.beginPath(); X.arc(cx, cy, or, a0, a1);
+        X.strokeStyle = `hsla(${h},100%,70%,${alpha})`;
+        X.lineWidth = 3;
+        try { X.shadowColor = `hsla(${h},100%,70%,0.6)`; X.shadowBlur = 10; } catch(_){}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch(_){}
+      }
+    } else if (st === 'quantum-tunnel') {
+      // Quantum Tunnel: concentric shrinking rings giving depth/tunnel illusion.
+      for (let d = 0; d < 4; d++) {
+        const phase = (nowMs / 600 + d * 0.25) % 1;
+        const r2 = or * (1 - phase * 0.4);
+        const alpha = phase < 0.5 ? phase * 2 : (1 - phase) * 2;
+        X.beginPath(); X.arc(cx, cy, r2, 0, PI2);
+        X.strokeStyle = `rgba(100,200,255,${(alpha * 0.8).toFixed(2)})`;
+        X.lineWidth = 2;
+        try { X.shadowColor = 'rgba(0,180,255,0.5)'; X.shadowBlur = 6; } catch(_){}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch(_){}
+      }
+    } else if (st === 'hyper-warp') {
+      // Hyper Warp: radial lines bursting outward at speed-blur intensity.
+      const lines = 32;
+      for (let i = 0; i < lines; i++) {
+        const angle = (i / lines) * PI2 + rot * 2;
+        const ph = (i / lines + nowMs / 300) % 1;
+        const len = 6 + 12 * Math.abs(Math.sin(ph * PI2));
+        X.beginPath();
+        X.moveTo(cx + (or - len) * Math.cos(angle), cy + (or - len) * Math.sin(angle));
+        X.lineTo(cx + (or + 4) * Math.cos(angle), cy + (or + 4) * Math.sin(angle));
+        X.strokeStyle = `rgba(200,220,255,${0.4 + 0.5 * Math.abs(Math.sin(ph * PI2))})`;
+        X.lineWidth = 1.5;
+        X.stroke();
+      }
+    } else if (st === 'chrono-compass') {
+      // Chrono Compass: compass-style ring with cardinal tick marks rotating.
+      X.beginPath(); X.arc(cx, cy, or, 0, PI2);
+      X.strokeStyle = 'rgba(200,220,255,0.5)'; X.lineWidth = 1.5; X.stroke();
+      for (let i = 0; i < 24; i++) {
+        const a = (i / 24) * PI2 + rot;
+        const major = i % 6 === 0;
+        const inner = or - (major ? 10 : 5);
+        X.beginPath();
+        X.moveTo(cx + inner * Math.cos(a), cy + inner * Math.sin(a));
+        X.lineTo(cx + or * Math.cos(a), cy + or * Math.sin(a));
+        X.strokeStyle = major ? 'rgba(255,220,100,0.9)' : 'rgba(200,200,220,0.5)';
+        X.lineWidth = major ? 2 : 1;
+        X.stroke();
+      }
+    } else if (st === 'celtic-knot') {
+      // Celtic Knot: double-ring with sinusoidal weave creating over-under illusion.
+      for (let pass = 0; pass < 2; pass++) {
+        const rr = or + (pass === 0 ? -4 : 4);
+        const segs = 48;
+        for (let i = 0; i < segs; i++) {
+          const a0 = (i / segs) * PI2;
+          const a1 = ((i + 1) / segs) * PI2;
+          const wave = Math.sin(a0 * 8 + rot + pass * Math.PI);
+          const rMid = rr + wave * 4;
+          const alpha = pass === 0 ? (0.6 + 0.4 * wave) : (0.6 - 0.4 * wave);
+          X.beginPath(); X.arc(cx, cy, rMid, a0, a1);
+          X.strokeStyle = pass === 0 ? `rgba(200,160,255,${Math.max(0.1,alpha)})` : `rgba(100,220,200,${Math.max(0.1,alpha)})`;
+          X.lineWidth = 3;
+          X.stroke();
+        }
+      }
+    } else if (st === 'super-nova') {
+      // Super Nova: bright expanding flash ring with trailing afterglow.
+      const cycle = (nowMs / 2000) % 1;
+      const expR = or * (0.85 + 0.3 * cycle);
+      const alpha = cycle < 0.1 ? cycle * 10 : (1 - cycle);
+      X.beginPath(); X.arc(cx, cy, expR, 0, PI2);
+      X.strokeStyle = `rgba(255,200,100,${(alpha * 0.9).toFixed(2)})`;
+      X.lineWidth = 4 + 8 * (1 - cycle);
+      try { X.shadowColor = 'rgba(255,150,50,0.8)'; X.shadowBlur = 20; } catch(_){}
+      X.stroke();
+      try { X.shadowBlur = 0; } catch(_){}
+      // Inner core ring
+      X.beginPath(); X.arc(cx, cy, or * 0.9, 0, PI2);
+      X.strokeStyle = `rgba(255,255,200,${(alpha * 0.4).toFixed(2)})`; X.lineWidth = 1; X.stroke();
+    } else if (st === 'prism-spectrum') {
+      // Prism Spectrum: full rainbow arcing continuously, each segment a different hue.
+      const segs = 90;
+      for (let i = 0; i < segs; i++) {
+        const a0 = (i / segs) * PI2;
+        const a1 = ((i + 1.02) / segs) * PI2;
+        const hue = (i / segs) * 360 + rot * (180 / Math.PI);
+        X.beginPath(); X.arc(cx, cy, or, a0, a1);
+        X.strokeStyle = `hsl(${hue % 360},90%,65%)`;
+        X.lineWidth = 4;
+        X.stroke();
+      }
+    } else if (st === 'crystal-lattice') {
+      // Crystal Lattice: spoked web pattern overlaid on ring.
+      X.beginPath(); X.arc(cx, cy, or, 0, PI2);
+      X.strokeStyle = 'rgba(180,220,255,0.4)'; X.lineWidth = 1.5; X.stroke();
+      const spokes = 12;
+      for (let i = 0; i < spokes; i++) {
+        const a = (i / spokes) * PI2 + rot;
+        X.beginPath();
+        X.moveTo(cx + (or * 0.6) * Math.cos(a), cy + (or * 0.6) * Math.sin(a));
+        X.lineTo(cx + or * Math.cos(a), cy + or * Math.sin(a));
+        X.strokeStyle = `rgba(150,200,255,0.7)`; X.lineWidth = 1.5; X.stroke();
+        // Cross-links between adjacent spokes
+        const a2 = ((i + 1) / spokes) * PI2 + rot;
+        X.beginPath();
+        X.moveTo(cx + (or * 0.8) * Math.cos(a), cy + (or * 0.8) * Math.sin(a));
+        X.lineTo(cx + (or * 0.8) * Math.cos(a2), cy + (or * 0.8) * Math.sin(a2));
+        X.strokeStyle = 'rgba(100,180,255,0.4)'; X.lineWidth = 1; X.stroke();
+      }
+    } else if (st === 'sound-frequency') {
+      // Sound Frequency: EQ-style radial bars around the ring.
+      const bars = 48;
+      for (let i = 0; i < bars; i++) {
+        const a = (i / bars) * PI2;
+        const barH = 4 + 10 * Math.abs(Math.sin(i * 0.7 + nowMs / 200 * (1 + spd)));
+        X.beginPath();
+        X.moveTo(cx + (or - 2) * Math.cos(a), cy + (or - 2) * Math.sin(a));
+        X.lineTo(cx + (or + barH) * Math.cos(a), cy + (or + barH) * Math.sin(a));
+        const h = 200 + (i / bars) * 60;
+        X.strokeStyle = `hsla(${h},90%,65%,0.85)`;
+        X.lineWidth = 3;
+        try { X.shadowColor = `hsla(${h},90%,65%,0.5)`; X.shadowBlur = 4; } catch(_){}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch(_){}
+      }
+    } else if (st === 'molecular-bond') {
+      // Molecular Bond: atom nodes connected by bond arcs.
+      const nodes = 8;
+      X.beginPath(); X.arc(cx, cy, or, 0, PI2);
+      X.strokeStyle = 'rgba(150,200,255,0.25)'; X.lineWidth = 1; X.stroke();
+      for (let i = 0; i < nodes; i++) {
+        const a = (i / nodes) * PI2 + rot;
+        const nx = cx + or * Math.cos(a), ny = cy + or * Math.sin(a);
+        X.beginPath(); X.arc(nx, ny, 4, 0, PI2);
+        X.fillStyle = 'rgba(100,200,255,0.9)'; X.fill();
+        // Bond to next node
+        const a2 = ((i + 1) / nodes) * PI2 + rot;
+        const nx2 = cx + or * Math.cos(a2), ny2 = cy + or * Math.sin(a2);
+        X.beginPath(); X.moveTo(nx, ny); X.lineTo(nx2, ny2);
+        X.strokeStyle = 'rgba(100,200,255,0.35)'; X.lineWidth = 2; X.stroke();
+      }
+    } else if (st === 'ouroboros') {
+      // Ouroboros: snake-like gradient ring that fades in/out, head chasing tail.
+      const segs = 72;
+      for (let i = 0; i < segs; i++) {
+        const a0 = (i / segs) * PI2 + rot;
+        const a1 = ((i + 1.02) / segs) * PI2 + rot;
+        const t = i / segs;
+        const alpha = t < 0.8 ? t * 1.25 : (1 - t) * 5;
+        X.beginPath(); X.arc(cx, cy, or, a0, a1);
+        X.strokeStyle = `rgba(100,220,150,${Math.max(0.05, alpha).toFixed(2)})`;
+        X.lineWidth = 4;
+        try { X.shadowColor = 'rgba(50,200,100,0.5)'; X.shadowBlur = 5; } catch(_){}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch(_){}
+      }
+    } else if (st === 'magnetic-field') {
+      // Magnetic Field: bipolar arc field lines flowing around a center axis.
+      const lines = 6;
+      for (let l = 0; l < lines; l++) {
+        const scale = 0.6 + l * 0.08;
+        const phase = rot + (l * Math.PI / lines);
+        X.beginPath(); X.arc(cx, cy, or * scale, phase, phase + Math.PI);
+        X.strokeStyle = `rgba(255,${150 + l * 15},50,${0.3 + l * 0.08})`;
+        X.lineWidth = 2;
+        X.stroke();
+        X.beginPath(); X.arc(cx, cy, or * scale, phase + Math.PI, phase + PI2);
+        X.strokeStyle = `rgba(50,${150 + l * 15},255,${0.3 + l * 0.08})`;
+        X.lineWidth = 2;
+        X.stroke();
+      }
+    } else if (st === 'astrolabe') {
+      // Astrolabe: historical celestial instrument ring with degree markings.
+      X.beginPath(); X.arc(cx, cy, or, 0, PI2);
+      X.strokeStyle = 'rgba(220,190,120,0.7)'; X.lineWidth = 2; X.stroke();
+      X.beginPath(); X.arc(cx, cy, or - 6, 0, PI2);
+      X.strokeStyle = 'rgba(220,190,120,0.3)'; X.lineWidth = 1; X.stroke();
+      for (let i = 0; i < 72; i++) {
+        const a = (i / 72) * PI2 + rot;
+        const major = i % 18 === 0, mid = i % 9 === 0;
+        const len = major ? 10 : mid ? 6 : 3;
+        X.beginPath();
+        X.moveTo(cx + (or - len) * Math.cos(a), cy + (or - len) * Math.sin(a));
+        X.lineTo(cx + or * Math.cos(a), cy + or * Math.sin(a));
+        X.strokeStyle = major ? 'rgba(255,220,100,0.9)' : 'rgba(200,170,80,0.6)';
+        X.lineWidth = major ? 2 : 1;
+        X.stroke();
+      }
+    } else if (st === 'stargate') {
+      // Stargate: chevron-notched ring with rotating inner iris effect.
+      X.beginPath(); X.arc(cx, cy, or, 0, PI2);
+      X.strokeStyle = 'rgba(150,180,255,0.5)'; X.lineWidth = 5; X.stroke();
+      const chevrons = 9;
+      for (let i = 0; i < chevrons; i++) {
+        const a = (i / chevrons) * PI2 + rot * 0.5;
+        const x1 = cx + (or - 5) * Math.cos(a - 0.1), y1 = cy + (or - 5) * Math.sin(a - 0.1);
+        const x2 = cx + (or + 5) * Math.cos(a), y2 = cy + (or + 5) * Math.sin(a);
+        const x3 = cx + (or - 5) * Math.cos(a + 0.1), y3 = cy + (or - 5) * Math.sin(a + 0.1);
+        X.beginPath(); X.moveTo(x1, y1); X.lineTo(x2, y2); X.lineTo(x3, y3);
+        X.strokeStyle = 'rgba(100,180,255,0.9)'; X.lineWidth = 2.5; X.stroke();
+      }
+    } else if (st === 'photon-torpedo') {
+      // Photon Torpedo: bright bolts racing around the ring.
+      const torpedoes = 3;
+      X.beginPath(); X.arc(cx, cy, or, 0, PI2);
+      X.strokeStyle = 'rgba(100,150,255,0.15)'; X.lineWidth = 2; X.stroke();
+      for (let t = 0; t < torpedoes; t++) {
+        const tPos = ((nowMs / 600) + t / torpedoes) % 1;
+        const tailLen = 0.2;
+        const aHead = tPos * PI2 + rot;
+        const aTail = (tPos - tailLen + 1) * PI2 + rot;
+        X.beginPath();
+        if (aHead > aTail) X.arc(cx, cy, or, aTail, aHead);
+        else { X.arc(cx, cy, or, aTail, PI2); X.arc(cx, cy, or, 0, aHead); }
+        X.strokeStyle = `hsla(${200 + t * 60},100%,70%,0.9)`;
+        X.lineWidth = 3;
+        try { X.shadowColor = `hsla(${200 + t * 60},100%,70%,0.7)`; X.shadowBlur = 12; } catch(_){}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch(_){}
+      }
+    } else if (st === 'runic-circle') {
+      // Runic Circle: outer ring + evenly spaced angular rune-like marks.
+      X.beginPath(); X.arc(cx, cy, or, 0, PI2);
+      X.strokeStyle = 'rgba(180,120,255,0.6)'; X.lineWidth = 2; X.stroke();
+      const runes = 8;
+      for (let i = 0; i < runes; i++) {
+        const a = (i / runes) * PI2 + rot;
+        const nx = cx + or * Math.cos(a), ny = cy + or * Math.sin(a);
+        const perp = a + Math.PI / 2;
+        // Angular rune shape: vertical + two slashes
+        X.beginPath();
+        X.moveTo(nx + 5 * Math.cos(perp), ny + 5 * Math.sin(perp));
+        X.lineTo(nx - 5 * Math.cos(perp), ny - 5 * Math.sin(perp));
+        X.moveTo(nx + 4 * Math.cos(perp), ny + 4 * Math.sin(perp));
+        X.lineTo(nx + 7 * Math.cos(a), ny + 7 * Math.sin(a));
+        X.strokeStyle = 'rgba(200,150,255,0.9)'; X.lineWidth = 2; X.stroke();
+      }
+    } else if (st === 'neutron-star') {
+      // Neutron Star: ultra-fast spinning beam pulsar effect.
+      const pulseAngle = (rot * 8) % PI2;
+      // Base ring
+      X.beginPath(); X.arc(cx, cy, or, 0, PI2);
+      X.strokeStyle = 'rgba(180,200,255,0.3)'; X.lineWidth = 2; X.stroke();
+      // Pulsar beam (two opposite)
+      for (let side = 0; side < 2; side++) {
+        const a = pulseAngle + side * Math.PI;
+        const len = or * 0.4;
+        X.beginPath();
+        X.moveTo(cx + (or - len) * Math.cos(a), cy + (or - len) * Math.sin(a));
+        X.lineTo(cx + or * Math.cos(a), cy + or * Math.sin(a));
+        X.strokeStyle = 'rgba(200,220,255,0.9)';
+        X.lineWidth = 3;
+        try { X.shadowColor = 'rgba(150,180,255,0.9)'; X.shadowBlur = 16; } catch(_){}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch(_){}
+      }
+    } else if (st === 'particle-collider') {
+      // Particle Collider: particles racing opposite ways around the ring, colliding in flashes.
+      X.beginPath(); X.arc(cx, cy, or, 0, PI2);
+      X.strokeStyle = 'rgba(100,120,200,0.2)'; X.lineWidth = 4; X.stroke();
+      const t1 = (nowMs / 800) % 1;
+      const t2 = (1 - t1 + 0.5) % 1;
+      [[t1, 'rgba(255,100,100,0.9)'], [t2, 'rgba(100,200,255,0.9)']].forEach(([tp, col]) => {
+        const a = tp * PI2 + rot;
+        X.beginPath(); X.arc(cx + or * Math.cos(a), cy + or * Math.sin(a), 4, 0, PI2);
+        X.fillStyle = col; X.fill();
+        try { X.shadowColor = col; X.shadowBlur = 10; X.fill(); X.shadowBlur = 0; } catch(_){}
+      });
+      // Collision flash at near-overlap
+      const diff = Math.abs(t1 - t2);
+      if (diff < 0.05 || diff > 0.95) {
+        const flashA = t1 * PI2 + rot;
+        X.beginPath(); X.arc(cx + or * Math.cos(flashA), cy + or * Math.sin(flashA), 8, 0, PI2);
+        X.fillStyle = `rgba(255,255,200,${0.8 - diff * 16})`; X.fill();
+      }
+    } else if (st === 'cosmic-web') {
+      // Cosmic Web: randomized sparse nodes connected by faint filaments.
+      const nodes = 10;
+      const pts = [];
+      for (let i = 0; i < nodes; i++) {
+        const a = (i / nodes) * PI2 + Math.sin(nowMs / 1200 + i) * 0.3 + rot;
+        pts.push({ x: cx + or * Math.cos(a), y: cy + or * Math.sin(a) });
+      }
+      pts.forEach(p => { X.beginPath(); X.arc(p.x, p.y, 2, 0, PI2); X.fillStyle = 'rgba(180,180,255,0.7)'; X.fill(); });
+      for (let i = 0; i < nodes; i++) {
+        for (let j = i + 1; j < nodes; j++) {
+          const dist = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y);
+          if (dist < or * 0.9) {
+            X.beginPath(); X.moveTo(pts[i].x, pts[i].y); X.lineTo(pts[j].x, pts[j].y);
+            X.strokeStyle = `rgba(150,150,255,${(0.4 - dist / (or * 2)).toFixed(2)})`;
+            X.lineWidth = 1; X.stroke();
+          }
+        }
       }
     } else {
       // 'dash' — classic clockwise rotating dotted ring.
@@ -1399,6 +1771,7 @@
     try { X.lineDashOffset = 0; } catch (_) {}
     X.restore();
   }
+
 
   // ── Orbit-speed indicator (brief flash after Alt+scroll / slider) ──
   function drawOrbitSpeedIndicator(cx, cy, r) {
@@ -1483,7 +1856,7 @@
 
     // Check gear icon click first
         if (isClickOnGear(mx, my)) {
-            api.showPanel({style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque,todoBoxOpacity,calAnim,bgAlpha,clockScale,appPadding,pctOffset,appBorderW,appBorderR,appBorderC,appBorderA,borderAnim,borderAnimSpeed,shineAnim,shineSpeed,shineAngle,shineWidth,shineOpacity,shineColor,shineBorderOpacity,shineEasing,shineDelay,shineDirection,todoTopGap});
+            api.showPanel({style,theme,handType,opacity,sessions,blockOpacity,blockAnim,tooltipAnim,tooltipSize,orbitSpeed,orbitStyle,todoAnim,titleGap,windowFitAuto,favorites,todoOpacity,todoBoxOpaque,todoBoxOpacity,calAnim,bgAlpha,clockScale,appPadding,pctOffset,pctVisible,pctFontSize,pctColor,pctShowTime,pctTimePos,todoFadeHeight,appBorderW,appBorderR,appBorderC,appBorderA,borderAnim,borderAnimSpeed,shineAnim,shineSpeed,shineAngle,shineWidth,shineOpacity,shineColor,shineBorderOpacity,shineEasing,shineDelay,shineDirection,shineFade,shineRepeat,todoTopGap});
            return;
         }
 
@@ -1603,7 +1976,7 @@ if (interactiveMode.endsWith('-both')) {
     
     // ── Check if clicked ON a wedge or empty outer ring ──
     // (disabled while time allocations are off → falls through to drag)
-    if (SESSIONS_ENABLED && dist <= r) {
+    if (SESSIONS_ENABLED && dist <= r && dist >= 18) {
         let angle = Math.atan2(dy, dx) + (Math.PI / 2);
         if (angle < 0) angle += PI2; if (angle >= PI2) angle -= PI2;
         const MS_IN_12H = 43200000;
@@ -1635,8 +2008,8 @@ if (interactiveMode.endsWith('-both')) {
            if (lastDisarmedArm && clicked && clicked.id === lastDisarmedArm) lastDisarmedArm = null;
            else { lastDisarmedArm = null; armTodoLink(clicked); }
            return;
-        } else if (dist > r - 60) {
-           // Clicked empty space on the outer ring -> spawn new block
+        } else {
+           // Clicked empty space on the dial (including hour hand area) -> spawn new block.
            const now = new Date();
            let totalMins = Math.round((angle / PI2) * 12 * 60);
            totalMins = Math.round(totalMins / 5) * 5;
@@ -1644,21 +2017,62 @@ if (interactiveMode.endsWith('-both')) {
            let hrs12 = Math.floor(totalMins / 60);
            let mins = totalMins % 60;
            if (hrs12 >= 12) hrs12 -= 12;
-           
-           const cand1 = new Date(now);
-           cand1.setHours(hrs12, mins, 0, 0);
-           const cand2 = new Date(cand1); cand2.setHours(hrs12 + 12, mins, 0, 0);
-           let start = (cand1.getTime() > now.getTime()) ? cand1 : cand2;
-           if (start.getTime() <= now.getTime()) {
-              start = new Date(cand1);
-              start.setDate(start.getDate() + 1);
+
+           let targetYear, targetMonth, targetDay;
+           if (selectedTodoDate === TODAY_KEY) {
+             targetYear = now.getFullYear();
+             targetMonth = now.getMonth();
+             targetDay = now.getDate();
+           } else {
+             const yp = selectedTodoDate.split('-').map(Number);
+             targetYear = yp[0];
+             targetMonth = yp[1] - 1;
+             targetDay = yp[2];
            }
-           // Planning another date: keep the clicked time-of-day, swap in the viewed date.
-           if (selectedTodoDate !== TODAY_KEY) {
-              const yp = selectedTodoDate.split('-').map(Number);
-              start = new Date(yp[0], yp[1] - 1, yp[2], start.getHours(), start.getMinutes(), 0, 0);
+
+           let startHours;
+           if (selectedTodoDate === TODAY_KEY) {
+             const nowH = now.getHours();
+             const nowM = now.getMinutes();
+             const curH12 = nowH % 12;
+
+             if (hrs12 === curH12) {
+               // Click is in the current hour (over the hour hand area).
+               // Keep the block in the current hour today so it stays active/now.
+               startHours = nowH;
+             } else {
+               // Prefer upcoming time today (AM vs PM); if both are past, pick the closer one today.
+               const candAM = hrs12;
+               const candPM = hrs12 + 12;
+               const msAM = (candAM * 60 + mins) * 60000;
+               const msPM = (candPM * 60 + mins) * 60000;
+               const msNow = (nowH * 60 + nowM) * 60000;
+
+               const amFuture = msAM >= msNow;
+               const pmFuture = msPM >= msNow;
+
+               if (amFuture && !pmFuture) {
+                 startHours = candAM;
+               } else if (!amFuture && pmFuture) {
+                 startHours = candPM;
+               } else if (amFuture && pmFuture) {
+                 startHours = (msAM - msNow <= msPM - msNow) ? candAM : candPM;
+               } else {
+                 startHours = (msNow - msPM <= msNow - msAM) ? candPM : candAM;
+               }
+             }
+           } else {
+             // Viewing another date: default to daytime hours
+             if (hrs12 >= 8 && hrs12 <= 11) {
+               startHours = hrs12;
+             } else if (hrs12 === 0) {
+               startHours = 12;
+             } else {
+               startHours = hrs12 + 12;
+             }
            }
-           
+
+           const start = new Date(targetYear, targetMonth, targetDay, startHours, mins, 0, 0);
            const end = new Date(start);
            end.setHours(start.getHours() + 1);
            
@@ -1680,7 +2094,7 @@ sessions.push({
                 start: start.getTime(),
                 end: end.getTime(),
                 color: hslToHex(hue, 85, 60),
-                elapsedColor: hslToHex(hue, 60, 40),
+                elapsedColor: hslToHex((hue + 180) % 360, 70, 45),
                 type: 'custom',
                 tasks: []
             });
@@ -1802,6 +2216,26 @@ sessions.push({
   const todoList = document.getElementById('todo-list');
   const todoTabs = document.getElementById('todo-tabs');
   const todoTabAdd = document.getElementById('todo-tab-add');
+  const todoScrollHint = document.getElementById('todo-scroll-hint');
+
+  // Show/hide the scroll overflow arrow + fade mask
+  function updateScrollHint() {
+    if (!todoList || !todoScrollHint) return;
+    const overflows = todoList.scrollHeight > todoList.clientHeight + 4;
+    const atBottom = (todoList.scrollHeight - todoList.scrollTop - todoList.clientHeight) < 6;
+    const show = overflows && !atBottom;
+    todoScrollHint.classList.toggle('visible', show);
+    todoList.classList.toggle('has-overflow', show);
+  }
+  if (todoList) {
+    todoList.addEventListener('scroll', updateScrollHint, { passive: true });
+    window.addEventListener('resize', updateScrollHint);
+  }
+  if (todoScrollHint) {
+    todoScrollHint.addEventListener('click', () => {
+      if (todoList) todoList.scrollBy({ top: 90, behavior: 'smooth' });
+    });
+  }
 
   // Dot tabs: one dot per list; active dot is filled. Click switches tab.
   function renderTodoTabs() {
@@ -1810,8 +2244,15 @@ sessions.push({
     todoLists.forEach((l, i) => {
       const dot = document.createElement('button');
       dot.className = 'todo-tab' + (i === activeTodoList ? ' active' : '');
-      const n = l.todos.length;
-      dot.title = l.name + ' (' + n + ' items)';
+      // Total tasks = parents + all subtasks (recursive depth is 1 level for
+      // the count badge; subtasks of subtasks are counted via walk).
+      let n = 0;
+      const walk = arr => arr.forEach(t => {
+        n++;
+        if (Array.isArray(t.subtasks) && t.subtasks.length) walk(t.subtasks);
+      });
+      if (Array.isArray(l.todos)) walk(l.todos);
+      dot.title = l.name + ' (' + n + ' tasks incl. subtasks)';
       dot.style.setProperty('--count', n);
       const label = document.createElement('span');
       label.className = 'todo-tab-count';
@@ -1822,8 +2263,33 @@ sessions.push({
     });
   }
 
+  // Remove ONLY the empty list with the given id (never the last surviving list).
+  // Returns the index in the post-removal arrays that the previously-active
+  // list now occupies, so callers can re-point activeTodoList safely.
+  function removeEmptyListById(id) {
+    const lists = todosByDate[selectedTodoDate].lists;
+    if (lists.length <= 1) return activeTodoList;
+    const idx = lists.findIndex(l => l.id === id);
+    if (idx < 0) return activeTodoList;
+    const l = lists[idx];
+    if (l.todos && l.todos.length > 0) return activeTodoList; // not empty — don't touch
+    const kept = lists.filter((_, k) => k !== idx);
+    todosByDate[selectedTodoDate].lists = kept;
+    const newActive = activeTodoList > idx ? activeTodoList - 1 : (activeTodoList === idx ? 0 : activeTodoList);
+    activeTodoList = Math.max(0, Math.min(newActive, kept.length - 1));
+    todosByDate[selectedTodoDate].active = activeTodoList;
+    syncDateAliases();
+    return activeTodoList;
+  }
+
   function switchTodoList(i) {
-    if (i === activeTodoList) return;
+    // If the list we're currently on is empty, drop it (auto-disappears on leave).
+    const leaving = todoLists[activeTodoList];
+    if (leaving && (!leaving.todos || leaving.todos.length === 0)) {
+      removeEmptyListById(leaving.id);
+      if (i > activeTodoList) i -= 1; // account for the removed slot earlier in the array
+    }
+    if (i === activeTodoList) { renderTodoTabs(); renderTodos(); saveTodos(); return; }
     activeTodoList = i;
     todosByDate[selectedTodoDate].active = i;
     todos = todoLists[i].todos;
@@ -1841,6 +2307,39 @@ sessions.push({
     renderTodos();
     renderCalendar();
     saveTodos();
+  });
+
+  // ── Add-task box: commit on Enter (or via the + button) ──
+  const todoAddBox = document.getElementById('todo-add-box');
+  const todoAddPlus = document.getElementById('todo-add-plus');
+  function commitAddBox() {
+    if (!todoAddBox) return;
+    const text = todoAddBox.innerText.replace(/\n+$/, '').trim();
+    todoAddBox.innerHTML = '';
+    if (!text) return;
+    addTodo(text);
+    setTimeout(() => { if (todoAddBox) todoAddBox.focus(); }, 0);
+  }
+  if (todoAddBox) {
+    todoAddBox.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); commitAddBox(); }
+      else if (e.key === 'Escape') { e.preventDefault(); todoAddBox.blur(); todoAddBox.innerHTML = ''; }
+    });
+    todoAddBox.addEventListener('blur', () => {
+      const text = todoAddBox.innerText.replace(/\n+$/, '').trim();
+      if (text) commitAddBox();
+    });
+    // Paste as plain text — contenteditable otherwise keeps source markup.
+    todoAddBox.addEventListener('paste', e => {
+      e.preventDefault();
+      const t = (e.clipboardData || window.clipboardData).getData('text/plain');
+      document.execCommand('insertText', false, t);
+    });
+  }
+  if (todoAddPlus) todoAddPlus.addEventListener('click', () => {
+    const text = todoAddBox ? todoAddBox.innerText.replace(/\n+$/, '').trim() : '';
+    if (text) { commitAddBox(); }
+    else if (todoAddBox) { todoAddBox.focus(); }
   });
 
   // ── Mini calendar: toggle, per-date counts, click switches date workspace ──
@@ -1982,19 +2481,49 @@ function fmtLeft(ms) {
   // "active" today at 9am; strict per-day isolation.
   function getRelativeSessionTimes(sess, now) {
     if (!sess) return { start: 0, end: 0 };
-    return { start: sess.start, end: sess.end };
+    const dur = sess.end - sess.start;
+    if (dur <= 0) return { start: sess.start, end: sess.end };
+    const sD = new Date(sess.start);
+    const nowD = new Date(now);
+    const sToday = new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate(), sD.getHours(), sD.getMinutes(), sD.getSeconds(), sD.getMilliseconds()).getTime();
+    let diff = sToday - now;
+    let sClosest = sToday;
+    if (diff > 12 * 3600 * 1000) sClosest -= 24 * 3600 * 1000;
+    else if (diff < -12 * 3600 * 1000) sClosest += 24 * 3600 * 1000;
+    return { start: sClosest, end: sClosest + dur };
   }
   // ── Shared block-progress model (single source of truth) ──
-  // Strict per-day isolation: elapsed is linear from the block's real start,
-  // never 12h-cyclic. Yesterday's 9am block is fully elapsed at 9am today.
+  // Visual 12-hour cyclic elapsed calculation matching the analog dial and hour hand:
   function blockElapsedCyclic(sess, nowMs) {
-    if (!sess || !(sess.end > sess.start)) return { elapsedMs: 0, durationMs: 0 };
+    if (!sess || !(sess.end > sess.start)) return { elapsedMs: 0, durationMs: 0, visDuration: 0, dist: 0, isInside: false };
     const durationMs = sess.end - sess.start;
+    const visDuration = Math.min(durationMs, MS_IN_12H);
+
+    const sDate = new Date(sess.start);
+    const startMsIn12h = (sDate.getHours() % 12) * 3600000 + sDate.getMinutes() * 60000 + sDate.getSeconds() * 1000 + sDate.getMilliseconds();
+
+    const nDate = new Date(nowMs);
+    const nowMsIn12h = (nDate.getHours() % 12) * 3600000 + nDate.getMinutes() * 60000 + nDate.getSeconds() * 1000 + nDate.getMilliseconds();
+
+    let dist = nowMsIn12h - startMsIn12h;
+    if (dist < 0) dist += MS_IN_12H;
+
     let elapsedMs = 0;
-    if (nowMs >= sess.end) elapsedMs = durationMs;
-    else if (nowMs > sess.start) elapsedMs = nowMs - sess.start;
-    else elapsedMs = 0;
-    return { elapsedMs, durationMs };
+    let isInside = false;
+    if (visDuration >= MS_IN_12H || dist <= visDuration) {
+      // Hour hand is currently inside the block
+      elapsedMs = dist;
+      isInside = true;
+    } else {
+      // Hour hand is outside the block
+      const gap = MS_IN_12H - visDuration;
+      if (dist - visDuration < gap / 2) {
+        elapsedMs = visDuration; // Passed recently -> fully elapsed
+      } else {
+        elapsedMs = 0; // Upcoming soon -> fully remaining
+      }
+    }
+    return { elapsedMs, durationMs, visDuration, dist, isInside };
   }
   function etimeText(sess, now) {
     if (!sess) return '';
@@ -2024,6 +2553,22 @@ function fmtLeft(ms) {
     t.classList.add('show');
     if (linkToastTimer) clearTimeout(linkToastTimer);
     linkToastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+  function copyToClipboard(text, btn) {
+    if (!text && text !== '') return;
+    try {
+      if (api && api.copyText) api.copyText(text);
+      else if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text);
+    } catch (_) {}
+    if (btn) {
+      btn.classList.add('copied');
+      btn.innerHTML = COPY_CHECK_SVG;
+      setTimeout(() => {
+        btn.classList.remove('copied');
+        btn.innerHTML = COPY_SVG;
+      }, 1200);
+    }
+    showLinkToast('Copied to clipboard');
   }
   function unlinkBlock(id) {
     if (!id) return;
@@ -2116,6 +2661,9 @@ function toggleTodoLink(id) {
   }
   // Plus SVG for add subtask
   const SUBTASK_PLUS_SVG = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+  // Copy SVG for todo block copy button
+  const COPY_SVG = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+  const COPY_CHECK_SVG = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
   // Position weight 0..10: +/- counter per task, top-down order. The WHOLE
   // box takes the counter color, very visible: low = green, mid = yellow,
   // very high = red. Pulsing outline runs off the --wc var (see CSS).
@@ -2172,6 +2720,71 @@ function toggleTodoLink(id) {
     return (s || '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
+  // Format text with clickable shortened links and YouTube icons
+  const YT_LOGO_SVG = '<svg class="yt-icon" viewBox="0 0 28 20" width="14" height="10" aria-label="YouTube"><rect width="28" height="20" rx="5" fill="#ff0000"/><polygon points="11,5 11,15 20,10" fill="#fff"/></svg>';
+  function formatTextWithLinks(text) {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+    
+    while ((match = urlRegex.exec(text)) !== null) {
+      // Add text before the URL
+      if (match.index > lastIndex) {
+        parts.push(escapeHtml(text.slice(lastIndex, match.index)));
+      }
+      
+      const url = match[0];
+      const isYouTube = /(?:youtube\.com|youtu\.be)/i.test(url);
+      const shortened = shortenUrl(url);
+      
+      if (isYouTube) {
+        parts.push(`<a href="${escapeHtml(url)}" class="todo-link" title="${escapeHtml(url)}">${YT_LOGO_SVG}${escapeHtml(shortened)}</a>`);
+      } else {
+        parts.push(`<a href="${escapeHtml(url)}" class="todo-link" title="${escapeHtml(url)}">${escapeHtml(shortened)}</a>`);
+      }
+      
+      lastIndex = match.index + url.length;
+    }
+    
+    // Add remaining text
+    if (lastIndex < text.length) {
+      parts.push(escapeHtml(text.slice(lastIndex)));
+    }
+    
+    return parts.length > 0 ? parts.join('') : escapeHtml(text);
+  }
+
+  // Shorten URL for display (domain + dots + meaningful last segment)
+  function shortenUrl(url) {
+    try {
+      const maxLen = 36;
+      if (url.length <= maxLen) return url;
+      
+      const parsed = new URL(url);
+      const prefix = parsed.protocol + '//' + parsed.hostname.replace(/^www\./, '');
+      // For YouTube watch links the video id (query) is the meaningful part.
+      const vid = parsed.searchParams.get('v') || (parsed.hostname.includes('youtu.be') ? parsed.pathname.slice(1) : '');
+      if (vid && (prefix.length + vid.length + 5) <= 40) {
+        return prefix + '/.../' + vid;
+      }
+      const pathParts = parsed.pathname.split('/').filter(p => p);
+      let lastPart = pathParts.length > 0 ? pathParts[pathParts.length - 1] : '';
+      if (!lastPart && parsed.search) lastPart = parsed.search.slice(1, 12);
+      if (lastPart && (prefix.length + lastPart.length + 5) <= 40) {
+        return prefix + '/.../' + lastPart;
+      }
+      // Fallback: truncate with dots in the middle of the raw URL
+      const keepEnd = Math.min(10, lastPart.length || 10);
+      const keepStart = Math.max(8, Math.min(20, 35 - keepEnd - 3));
+      return url.slice(0, keepStart) + '...' + url.slice(-keepEnd);
+    } catch {
+      // Not a valid URL, just truncate with middle dots
+      if (url.length <= 35) return url;
+      return url.slice(0, 20) + '...' + url.slice(-12);
+    }
+  }
+
   // ── Subtask helpers ──
 
   function getNodeByPath(pathArr) {
@@ -2220,7 +2833,18 @@ function toggleTodoLink(id) {
     const t = getNodeByPath(pathArr);
     if (!t) return;
     t.done = !t.done;
-    saveTodos(); renderTodos();
+    saveTodos();
+    const pathStr = pathArr.join(',');
+    const card = todoList.querySelector(`.todo-item[data-path="${pathStr}"]`);
+    if (card) {
+      card.classList.toggle('st-done', !!t.done);
+      const chk = card.querySelector('.st-check');
+      if (chk) chk.classList.toggle('checked', !!t.done);
+    } else {
+      renderTodos();
+    }
+    try { renderTodoTabs(); } catch (_) {}
+    try { renderCalendar(); } catch (_) {}
   }
 
   function removeSubtask(pathArr) {
@@ -2248,35 +2872,81 @@ function toggleTodoLink(id) {
     saveTodos(); renderTodos();
   }
 
-  let dragSub = null;
-  function moveSubtask(srcPath, dstPath, pos) {
-    const src = getNodeByPath(srcPath);
-    const dst = getNodeByPath(dstPath);
-    if (!src || !dst) return;
-    
-    const srcParent = getParentByPath(srcPath);
-    if (!srcParent || !srcParent.subtasks) return;
-    
-    const fromIdx = srcParent.subtasks.findIndex(x => x.id === src.id);
-    if (fromIdx === -1) return;
-    
-    const [moving] = srcParent.subtasks.splice(fromIdx, 1);
-    
-    if (pos === 'inside-end') {
-      ensureSubtasks(dst).push(moving);
-    } else {
-      const dstParent = getParentByPath(dstPath);
-      if (!dstParent) return;
-      let toIdx = dstParent.subtasks.findIndex(x => x.id === dst.id);
-      if (toIdx === -1) { dstParent.subtasks.push(moving); }
-      else {
-        if (pos === 'after') toIdx += 1;
-        dstParent.subtasks.splice(toIdx, 0, moving);
+  function containsId(node, id) {
+    if (!node || !Array.isArray(node.subtasks)) return false;
+    return node.subtasks.some(s => s.id === id || containsId(s, id));
+  }
+
+  // Detach a todo node from wherever it lives (top-level todos or nested
+  // subtasks). Returns true when removed.
+  function detachNode(id) {
+    const ti = todos.findIndex(t => t.id === id);
+    if (ti >= 0) { todos.splice(ti, 1); return true; }
+    for (const t of todos) {
+      const stack = [t];
+      while (stack.length) {
+        const cur = stack.pop();
+        if (cur.subtasks && cur.subtasks.length) {
+          const si = cur.subtasks.findIndex(x => x.id === id);
+          if (si >= 0) { cur.subtasks.splice(si, 1); return true; }
+          cur.subtasks.forEach(x => stack.push(x));
+        }
       }
     }
+    return false;
+  }
+
+  // True when dstPath points at srcPath itself or a descendant of it
+  // (dropping a node into its own subtree would lose the whole branch).
+  function isInsideSubtree(dstPath, srcPath) {
+    if (!dstPath || dstPath.length < srcPath.length) return false;
+    for (let i = 0; i < srcPath.length; i++) if (dstPath[i] !== srcPath[i]) return false;
+    return true;
+  }
+
+  // ── Unified drag-move engine ──
+  // srcPath/dstPath are full id paths ([parentId] for top-level tasks,
+  // [parentId, subId, ...] for subtasks). pos: 'before' | 'after' |
+  // 'inside-end'. An empty dstPath means "top-level, end of list".
+  // Handles every direction: parent reorder, parent -> subtask (demote),
+  // subtask reorder between parents, subtask -> top-level (promote).
+  function moveNode(srcPath, dstPath, pos) {
+    if (!srcPath || !srcPath.length) return;
+    const srcId = srcPath[srcPath.length - 1];
+    if (isInsideSubtree(dstPath, srcPath)) return; // own subtree — ignore
+    const src = getNodeByPath(srcPath);
+    if (!src) return;
+    if (!detachNode(srcId)) return;
+
+    const dst = (dstPath && dstPath.length) ? getNodeByPath(dstPath) : null;
+    if (!dstPath || !dstPath.length) {
+      todos.push(src);                                   // top-level end
+    } else if (!dst) {
+      todos.push(src);                                   // dst vanished — safe restore
+    } else if (pos === 'inside-end') {
+      ensureSubtasks(dst).push(src);                     // become a subtask of dst
+      dst.collapsed = false;                             // expand so it's visible
+    } else if (dstPath.length === 1) {
+      let idx = todos.findIndex(t => t.id === dst.id);   // sibling among top-level
+      if (idx < 0) idx = todos.length;
+      if (pos === 'after') idx += 1;
+      todos.splice(idx, 0, src);
+    } else {
+      const parent = getParentByPath(dstPath);
+      if (!parent) { todos.push(src); }
+      else {
+        ensureSubtasks(parent);
+        let idx = parent.subtasks.findIndex(x => x.id === dst.id);
+        if (idx < 0) idx = parent.subtasks.length;
+        if (pos === 'after') idx += 1;
+        parent.subtasks.splice(idx, 0, src);
+        parent.collapsed = false;
+      }
+    }
+    todoLists[activeTodoList].todos = todos;
     saveTodos(); renderTodos(); renderTodoTabs(); renderCalendar();
   }
-  
+
   function clearDropMarks() {
     todoList.querySelectorAll('.drop-before,.drop-after,.drop-inside,.dragging')
       .forEach(el => el.classList.remove('drop-before','drop-after','drop-inside','dragging'));
@@ -2315,8 +2985,9 @@ function toggleTodoLink(id) {
       sli.innerHTML = `
         ${chev}
         <div class="st-check ${s.done ? 'checked' : ''}" data-action="st-toggle" data-path="${pathStr}"></div>
-        <div class="st-text" data-action="st-edit" data-path="${pathStr}">${escapeHtml(s.text)}</div>
+        <div class="st-text" data-action="st-edit" data-path="${pathStr}">${formatTextWithLinks(s.text)}</div>
         <button class="st-add-trigger" data-action="st-add-focus" data-path="${pathStr}" title="Add subtask">${SUBTASK_PLUS_SVG}</button>
+        <button class="st-copy" data-action="st-copy" data-path="${pathStr}" title="Copy task">${COPY_SVG}</button>
         <button class="st-del" data-action="st-del" data-path="${pathStr}" title="Remove">×</button>
         <div class="todo-weight mini" title="Position weight">
           <button data-action="sw-plus" data-path="${pathStr}" title="Move up">▲</button><button data-action="sw-minus" data-path="${pathStr}" title="Move down">▼</button><span>${s.weight || 0}</span>
@@ -2346,6 +3017,7 @@ function toggleTodoLink(id) {
       if (todoAnimEff() !== 'none') li.style.animationDelay = '0s, ' + (-(idx * 0.3)).toFixed(2) + 's';
       li.dataset.id = t.id;
       li.dataset.path = t.id;
+      li.draggable = true; // Make parent tasks draggable
       const subs = ensureSubtasks(t);
       const timeLine = timelineHtml(linkedSess, Date.now(), false, t.color, t.elapsedColor);
 
@@ -2354,8 +3026,9 @@ function toggleTodoLink(id) {
       li.innerHTML = `
         ${chev}
         <div class="todo-check ${t.done ? 'checked' : ''}" data-action="toggle" data-path="${t.id}"></div>
-        <div class="todo-text" data-action="edit" data-path="${t.id}">${escapeHtml(t.text)}</div>
+        <div class="todo-text" data-action="edit" data-path="${t.id}">${formatTextWithLinks(t.text)}</div>
         <button class="st-add-trigger" data-action="st-add-focus" data-path="${t.id}" title="Add subtask">${SUBTASK_PLUS_SVG}</button>
+        <button class="todo-copy" data-action="copy" data-path="${t.id}" title="Copy task">${COPY_SVG}</button>
         <button class="todo-del" data-action="del" data-path="${t.id}" title="Delete">×</button>
         <div class="todo-weight" title="Position weight (higher sits on top)">
           <button data-action="w-plus" data-path="${t.id}" title="Move up">▲</button><button data-action="w-minus" data-path="${t.id}" title="Move down">▼</button><span>${t.weight || 0}</span>
@@ -2374,12 +3047,16 @@ function toggleTodoLink(id) {
     // hidden past the window's bottom border. Scrolling is still allowed for
     // very long lists (capped by the work-area in the IPC handler).
     try {
-      if (windowFitAuto && api.fitWindow) {
+      if (!todoPanelCollapsed && windowFitAuto && api.fitWindow) {
         const listEl = todoList;
         const overflow = listEl.scrollHeight - listEl.clientHeight;
         if (overflow > 4) maybeFitWindow(0, overflow);
       }
     } catch (_) {}
+    // Update scroll overflow indicator after every re-render
+    try { updateScrollHint(); } catch (_) {}
+    // Keep the tab-circle numbers live (they count tasks + subtasks).
+    try { renderTodoTabs(); } catch (_) {}
   }
 
   function addTodo(text) {
@@ -2402,7 +3079,11 @@ function toggleTodoLink(id) {
     const dropFromList = () => {
       todos = todos.filter(t => t.id !== id);
       todoLists[activeTodoList].todos = todos; // keep the tab's array in sync
-      saveTodos(); renderTodos(); renderCalendar();
+      // If that emptied the active list (and it was a newly created one), drop it.
+      if (todos.length === 0 && todoLists.length > 1) {
+        removeEmptyListById(todoLists[activeTodoList].id);
+      }
+      saveTodos(); renderTodoTabs(); renderTodos(); renderCalendar();
     };
     if (li) {
       li.classList.add('removing');
@@ -2416,7 +3097,17 @@ function toggleTodoLink(id) {
     const t = todos.find(x => x.id === id);
     if (!t) return;
     t.done = !t.done;
-    saveTodos(); renderTodos();
+    saveTodos();
+    const card = todoList.querySelector(`.todo-item[data-id="${id}"]`);
+    if (card) {
+      card.classList.toggle('done', !!t.done);
+      const chk = card.querySelector('.todo-check');
+      if (chk) chk.classList.toggle('checked', !!t.done);
+    } else {
+      renderTodos();
+    }
+    try { renderTodoTabs(); } catch (_) {}
+    try { renderCalendar(); } catch (_) {}
   }
 
   function bumpWeight(id, d) {
@@ -2449,11 +3140,25 @@ function toggleTodoLink(id) {
 
   // List interactions (event delegation)
   todoList.addEventListener('click', e => {
+    // Links: open in the default browser — never start an inline edit.
+    const linkEl = e.target.closest ? e.target.closest('a.todo-link') : null;
+    if (linkEl) {
+      e.preventDefault(); e.stopPropagation();
+      const href = linkEl.getAttribute('href') || '';
+      if (api && api.openExternal) api.openExternal(href);
+      else window.open(href, '_blank');
+      return;
+    }
     // Link mode: a block is armed — parent cards attach/detach the todo,
     // subtask rows attach/detach that subtask. Delete still deletes.
     if (linkBlockId) {
-      const delBtn = e.target.closest && (e.target.closest('[data-action="del"]') || e.target.closest('[data-action="st-del"]'));
-      if (!delBtn) {
+      const actionBtn = e.target.closest && (
+        e.target.closest('[data-action="del"]') || 
+        e.target.closest('[data-action="st-del"]') ||
+        e.target.closest('[data-action="copy"]') || 
+        e.target.closest('[data-action="st-copy"]')
+      );
+      if (!actionBtn) {
         const card = e.target.closest && e.target.closest('.todo-item[data-id]');
         if (card) { e.stopPropagation(); toggleTodoLink(card.dataset.id); return; }
         const sub = e.target.closest && e.target.closest('.todo-item[data-stid]');
@@ -2479,6 +3184,12 @@ function toggleTodoLink(id) {
     if (action === 'st-del') {
       e.stopPropagation();
       removeSubtask(el.dataset.path.split(','));
+      return;
+    }
+    if (action === 'st-copy') {
+      e.stopPropagation();
+      const node = getNodeByPath(el.dataset.path.split(','));
+      if (node) copyToClipboard(node.text, el);
       return;
     }
     if (action === 'st-add-focus') {
@@ -2518,6 +3229,8 @@ function toggleTodoLink(id) {
     if (action === 'st-edit') {
       e.stopPropagation();
       const p = el.dataset.path.split(',');
+      const node = getNodeByPath(p);
+      if (node) el.textContent = node.text; // raw text, not shortened links
       el.setAttribute('contenteditable', 'true');
       el.focus();
       const range = document.createRange();
@@ -2548,11 +3261,21 @@ function toggleTodoLink(id) {
     // ── Original todo actions ──
     if (action === 'toggle') { toggleTodo(id); return; }
     if (action === 'del')    { e.stopPropagation(); removeTodo(id); return; }
+    if (action === 'copy')   {
+      e.stopPropagation();
+      const node = todos.find(t => t.id === id);
+      if (node) copyToClipboard(node.text, el);
+      return;
+    }
     if (action === 'w-plus')  { e.stopPropagation(); bumpWeight(id, 1); return; }
     if (action === 'w-minus') { e.stopPropagation(); bumpWeight(id, -1); return; }
     if (action === 'sw-plus')  { e.stopPropagation(); bumpSubWeight(el.dataset.path.split(','), 1); return; }
     if (action === 'sw-minus')  { e.stopPropagation(); bumpSubWeight(el.dataset.path.split(','), -1); return; }
     if (action === 'edit') {
+      // Swap rendered (shortened) links back to the raw text so editing never
+      // commits the truncated URL in place of the real one.
+      const node = todos.find(t => t.id === id);
+      if (node) el.textContent = node.text;
       el.setAttribute('contenteditable', 'true');
       el.focus();
       const range = document.createRange();
@@ -2576,33 +3299,41 @@ function toggleTodoLink(id) {
     }
   });
 
-  // Subtask drag & drop: reorder within parent, or move under another parent.
-  // - Drag over a subtask = insert before/after (top/bottom half).
-  // - Drag over a parent card = append to end of that parent.
+  // ── Drag & drop: any task (parent or subtask) can be repositioned,
+  // nested under another task, or promoted out of its parent. ──
+  // Over a row: top/bottom half inserts before/after that row.
+  // Over a parent card (thirds): top = before, middle = inside (becomes a
+  // subtask), bottom = after. Empty list area = top-level end.
+  let dragNode = null; // { path: [id, ...] } of the node being dragged
   todoList.addEventListener('dragstart', e => {
-    const sli = e.target.closest ? e.target.closest('.st-block') : null;
-    if (!sli) return;
-    if (sli.querySelector('[contenteditable="true"]')) { e.preventDefault(); return; }
-    dragSub = { todoId: sli.dataset.todoid, subId: sli.dataset.stid };
-    try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragSub.subId); } catch (_) {}
-    requestAnimationFrame(() => sli.classList.add('dragging'));
+    const item = e.target.closest ? e.target.closest('.todo-item') : null;
+    if (!item) return;
+    if (item.querySelector('[contenteditable="true"]')) { e.preventDefault(); return; }
+    const path = (item.dataset.path || '').split(',').filter(Boolean);
+    if (!path.length) return;
+    dragNode = { path };
+    try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', path[path.length - 1]); } catch (_) {}
+    requestAnimationFrame(() => item.classList.add('dragging'));
   });
   todoList.addEventListener('dragover', e => {
-    if (!dragSub) return;
+    if (!dragNode) return;
+    const srcPath = dragNode.path;
     const sli = e.target.closest ? e.target.closest('.st-block') : null;
     const pli = e.target.closest ? e.target.closest('.todo-item:not(.st-block)') : null;
-    if (!sli && !pli) return;
-    e.preventDefault();
-    try { e.dataTransfer.dropEffect = 'move'; } catch (_) {}
-    const overOwnCard = sli && sli.dataset.todoid === dragSub.todoId && sli.dataset.stid === dragSub.subId;
     todoList.querySelectorAll('.drop-before,.drop-after,.drop-inside')
       .forEach(el => el.classList.remove('drop-before','drop-after','drop-inside'));
-    if (sli && !overOwnCard) {
+    if (sli && isInsideSubtree(sli.dataset.path.split(','), srcPath)) return;
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = 'move'; } catch (_) {}
+    if (sli) {
       const rc = sli.getBoundingClientRect();
-      const after = (e.clientY - rc.top) > rc.height / 2;
-      sli.classList.add(after ? 'drop-after' : 'drop-before');
+      sli.classList.add((e.clientY - rc.top) > rc.height / 2 ? 'drop-after' : 'drop-before');
     } else if (pli) {
-      pli.classList.add('drop-inside');
+      const rc = pli.getBoundingClientRect();
+      const rel = (e.clientY - rc.top) / rc.height;
+      if (rel < 0.28) pli.classList.add('drop-before');
+      else if (rel > 0.72) pli.classList.add('drop-after');
+      else pli.classList.add('drop-inside');
     }
   });
   todoList.addEventListener('dragleave', e => {
@@ -2610,22 +3341,27 @@ function toggleTodoLink(id) {
     if (li) li.classList.remove('drop-before','drop-after','drop-inside');
   });
   todoList.addEventListener('drop', e => {
-    if (!dragSub) return;
+    if (!dragNode) return;
+    e.preventDefault();
+    const srcPath = dragNode.path;
     const sli = e.target.closest ? e.target.closest('.st-block') : null;
     const pli = e.target.closest ? e.target.closest('.todo-item:not(.st-block)') : null;
-    if (sli && !(sli.dataset.todoid === dragSub.todoId && sli.dataset.stid === dragSub.subId)) {
-      e.preventDefault();
+    if (sli && !isInsideSubtree(sli.dataset.path.split(','), srcPath)) {
       const rc = sli.getBoundingClientRect();
       const after = (e.clientY - rc.top) > rc.height / 2;
-      moveSubtask(dragSub.todoId, dragSub.subId, sli.dataset.todoid, sli.dataset.stid, after ? 'after' : 'before');
-    } else if (pli && !sli) {
-      e.preventDefault();
-      moveSubtask(dragSub.todoId, dragSub.subId, pli.dataset.id, null, 'inside-end');
+      moveNode(srcPath, sli.dataset.path.split(','), after ? 'after' : 'before');
+    } else if (pli && !sli && !(pli.dataset.id === srcPath[0] && srcPath.length === 1)) {
+      const rc = pli.getBoundingClientRect();
+      const rel = (e.clientY - rc.top) / rc.height;
+      const pos = rel < 0.28 ? 'before' : rel > 0.72 ? 'after' : 'inside-end';
+      moveNode(srcPath, [pli.dataset.id], pos);
+    } else if (!sli && !pli) {
+      moveNode(srcPath, [], 'top-end');
     }
-    dragSub = null;
+    dragNode = null;
     clearDropMarks();
   });
-  todoList.addEventListener('dragend', () => { dragSub = null; clearDropMarks(); });
+  todoList.addEventListener('dragend', () => { dragNode = null; clearDropMarks(); });
 
   // Live timelines + outside counters: refresh in place every second so the
   // seconds visibly tick (no re-render, never disturbs editing).
@@ -2782,7 +3518,29 @@ function toggleTodoLink(id) {
       case 'snake': return { w:3, wf:1.2 };
       case 'blink': return { a:.7, af:.4 };
       case 'tada': return { r:4, rf:.5, t:4, tf:.5 };
+      // 20 new label motion presets
+      case 'spiral':       return { r:5, rf:.6, t:5, tf:.6, w:2, wf:.8 };
+      case 'hover-glide':  return { r:2, rf:.3, t:5, tf:.3 };
+      case 'quiver':       return { t:1.5, tf:9, r:1, rf:9 };
+      case 'echo-ripple':  return { r:4, rf:.7, w:3, wf:.7, g:1 };
+      case 'roller-coaster': return { r:8, rf:.4, t:6, tf:.4 };
+      case 'bounce-drop':  return { r:7, rf:.6 };
+      case 'seesaw':       return { t:8, tf:.35, r:2, rf:.35 };
+      case 'twist-turn':   return { t:5, tf:.5, r:3, rf:.5, w:1.5, wf:.5 };
+      case 'snap-zoom':    return { r:6, rf:1.2 };
+      case 'laser-track':  return { t:10, tf:.5, a:.05, af:.5 };
+      case 'float-bob':    return { r:3, rf:.25, a:.08, af:.25 };
+      case 'magnetic-pull': return { r:5, rf:.6, t:3, tf:.6 };
+      case 'rebound':      return { r:6, rf:.8, t:4, tf:.8 };
+      case 'flutter':      return { t:2, tf:3, r:1.5, rf:3, a:.15, af:3 };
+      case 'sway-arc':     return { t:6, tf:.4, w:2, wf:.4 };
+      case 'hyper-tilt':   return { t:7, tf:.7, r:4, rf:.7 };
+      case 'pulse-glow':   return { g:2, a:.15, af:.8, r:2, rf:.8 };
+      case 'strobe-flash': return { a:.8, af:3.5, g:1 };
+      case 'shimmer-wave': return { w:4, wf:1.5, g:1.2, a:.1, af:1.5 };
+      case 'vortex-spin':  return { r:6, rf:.5, t:6, tf:.5, w:3, wf:.5 };
       default: return { r:6, rf:.5 }; // bounce
+
     }
   }
 
@@ -4156,9 +4914,31 @@ function toggleTodoLink(id) {
       case 'ember-fly': return { opMul: 0.85, rOff: 0, blur: 3 };
       case 'orbit-rings': return { opMul: 0.9, rOff: 0, blur: 2 };
       case 'strobe': return { opMul: Math.sin(t * 14) > 0 ? 1 : 0.3, rOff: 0, blur: 0 };
+      // 20 new Time Block FX modifiers
+      case 'plasma-storm': return { opMul: 0.85 + 0.15 * Math.sin(t * 4), rOff: 2 * Math.sin(t * 3), blur: 6 + 4 * Math.sin(t * 2), colorOverride: `hsl(${(t * 80) % 360},100%,65%)` };
+      case 'cyber-matrix': return { opMul: 0.9, rOff: 0, blur: 3 };
+      case 'crystal-shard': return { opMul: 0.9 + 0.1 * Math.sin(t * 5), rOff: 1.5 * Math.sin(t * 5), blur: 4 };
+      case 'fire-flame': return { opMul: 0.8 + 0.2 * Math.sin(t * 8), rOff: 2 + 2 * Math.sin(t * 4), blur: 5 + 3 * Math.sin(t * 6) };
+      case 'hyper-speed': return { opMul: 0.85, rOff: 0, blur: 8 };
+      case 'sound-wave': return { opMul: 0.85 + 0.15 * Math.abs(Math.sin(t * 5)), rOff: 3 * Math.abs(Math.sin(t * 5)), blur: 2 };
+      case 'quantum-dots': return { opMul: 0.9, rOff: 0, blur: 2 };
+      case 'dna-strand': return { opMul: 0.88, rOff: 0, blur: 3 };
+      case 'liquid-metal': return { opMul: 0.9 + 0.1 * Math.sin(t * 2), rOff: 1 * Math.sin(t * 1.5), blur: 4 + 2 * Math.sin(t * 2) };
+      case 'golden-spark': return { opMul: 0.85, rOff: 0, blur: 5, colorOverride: `hsl(${40 + 20 * Math.sin(t * 2)},100%,${60 + 10 * Math.sin(t * 3)}%)` };
+      case 'nebula-cloud': return { opMul: 0.75 + 0.2 * Math.sin(t * 1.2), rOff: 3 * Math.sin(t * 0.8), blur: 10 + 5 * Math.sin(t * 1) };
+      case 'hex-comb': return { opMul: 0.88, rOff: 0, blur: 2 };
+      case 'solar-flare': return { opMul: 0.8 + 0.25 * Math.pow(Math.max(0, Math.sin(t * 1.5)), 3), rOff: 4 * Math.pow(Math.max(0, Math.sin(t * 1.5)), 3), blur: 8 + 10 * Math.pow(Math.max(0, Math.sin(t * 1.5)), 3) };
+      case 'bubble-pop': return { opMul: 0.88, rOff: 0, blur: 2 };
+      case 'star-dust': return { opMul: 0.85, rOff: 0, blur: 3 };
+      case 'warp-drive': return { opMul: 0.88, rOff: 0, blur: 6 };
+      case 'prism-light': return { opMul: 0.9, rOff: 0, blur: 4, colorOverride: `hsl(${(t * 90) % 360},90%,65%)` };
+      case 'clockwork-cogs': return { opMul: 0.9, rOff: 0, blur: 1 };
+      case 'glitch-scan': return { opMul: 0.85 + (Math.sin(t * 25) > 0.9 ? 0.3 : 0), rOff: Math.sin(t * 25) > 0.9 ? (Math.random() - 0.5) * 6 : 0, blur: 3 };
+      case 'supernova': { const sn = Math.pow(Math.max(0, Math.sin(t * 0.8)), 8); return { opMul: 0.75 + sn * 0.5, rOff: sn * 6, blur: sn * 20 + 2, colorOverride: sn > 0.3 ? `hsl(${30 + sn * 30},100%,${60 + sn * 30}%)` : undefined }; }
       default: return { opMul: 1, rOff: 0, blur: 0 };
     }
   }
+
 
   function drawTimeBlockAnimEffect(cx, cy, r, startA, endA, color, style, t, opacity) {
     if (!style || style === 'none' || style === 'pulse' || style === 'glow' ||
@@ -4429,10 +5209,322 @@ function toggleTodoLink(id) {
         X.stroke();
       }
       X.setLineDash([]);
+    } else if (style === 'plasma-storm') {
+      // Plasma Storm: chromatic flares spiraling across the wedge.
+      const count = 20;
+      for (let i = 0; i < count; i++) {
+        const ph = ((t * 0.7 + i / count) % 1);
+        const angle = startA + angleSpan * ph;
+        const rr = r * (0.2 + 0.7 * ((i * 37) % 100) / 100);
+        const hue = (t * 80 + i * 18) % 360;
+        X.beginPath();
+        X.arc(cx + Math.cos(angle) * rr * 0.1, cy + Math.sin(angle) * rr * 0.1, 3 + 2 * Math.sin(t * 3 + i), 0, PI2);
+        X.fillStyle = `hsla(${hue},100%,70%,0.7)`;
+        X.fill();
+      }
+    } else if (style === 'cyber-matrix') {
+      // Cyber Matrix: columns of falling green glyphs inside wedge.
+      const cols = Math.max(3, Math.round(r * angleSpan / 16));
+      for (let c = 0; c < cols; c++) {
+        const angle = startA + angleSpan * (c / cols + 0.5 / cols);
+        const speed = 0.5 + ((c * 17) % 5) * 0.2;
+        const phase = ((t * speed + c * 0.3) % 1);
+        const rx = cx + Math.cos(angle) * r * phase;
+        const ry = cy + Math.sin(angle) * r * phase;
+        X.fillStyle = `rgba(0,255,70,${(0.6 - phase * 0.5).toFixed(2)})`;
+        X.font = `bold ${Math.max(6, r * 0.06)}px monospace`;
+        X.fillText('0', rx, ry);
+      }
+    } else if (style === 'crystal-shard') {
+      // Crystal Shard: faceted light reflections inside wedge.
+      const shards = 8;
+      for (let i = 0; i < shards; i++) {
+        const a1 = startA + angleSpan * (i / shards);
+        const a2 = startA + angleSpan * ((i + 0.45) / shards);
+        const midA = (a1 + a2) * 0.5;
+        const rOuter = r * (0.85 + 0.15 * Math.sin(t * 5 + i));
+        const rInner = r * (0.45 + 0.15 * Math.sin(t * 5 + i + 1));
+        X.beginPath();
+        X.moveTo(cx + rInner * Math.cos(a1), cy + rInner * Math.sin(a1));
+        X.lineTo(cx + rOuter * Math.cos(midA), cy + rOuter * Math.sin(midA));
+        X.lineTo(cx + rInner * Math.cos(a2), cy + rInner * Math.sin(a2));
+        X.closePath();
+        X.fillStyle = `rgba(200,230,255,${(0.12 + 0.12 * Math.sin(t * 3 + i)).toFixed(2)})`;
+        X.fill();
+        X.strokeStyle = 'rgba(200,230,255,0.5)'; X.lineWidth = 1; X.stroke();
+      }
+    } else if (style === 'fire-flame') {
+      // Fire Flame: rising flame tongues from block base.
+      const flames = 12;
+      const midA = (startA + endA) * 0.5;
+      for (let i = 0; i < flames; i++) {
+        const off = (i / flames - 0.5) * angleSpan;
+        const fA = midA + off;
+        const life = ((t * 1.5 + i / flames) % 1);
+        const h = 20 + 20 * (1 - life);
+        const rr = r * (0.85 - life * 0.3);
+        const alpha = Math.sin(life * Math.PI) * 0.85;
+        X.beginPath();
+        X.arc(cx + Math.cos(fA) * rr, cy + Math.sin(fA) * rr, (1 - life) * 5 + 2, 0, PI2);
+        X.fillStyle = `hsla(${h},100%,${50 + life * 30}%,${alpha.toFixed(2)})`;
+        X.fill();
+      }
+    } else if (style === 'hyper-speed') {
+      // Hyper Speed: radial streak lines across the entire wedge.
+      const streaks = 20;
+      for (let i = 0; i < streaks; i++) {
+        const phase = ((t * 2 + i / streaks) % 1);
+        const a = startA + angleSpan * (i / streaks);
+        const r1 = r * phase;
+        const r2 = r * Math.min(1, phase + 0.2);
+        X.beginPath();
+        X.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+        X.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+        X.strokeStyle = `rgba(200,220,255,${(0.7 - phase * 0.5).toFixed(2)})`;
+        X.lineWidth = 2;
+        X.stroke();
+      }
+    } else if (style === 'sound-wave') {
+      // Sound Wave: EQ bars arranged radially inside the wedge.
+      const bars = Math.max(4, Math.round(angleSpan * r / 12));
+      for (let i = 0; i < bars; i++) {
+        const a = startA + angleSpan * ((i + 0.5) / bars);
+        const barH = (0.2 + 0.5 * Math.abs(Math.sin(i * 0.9 + t * 5))) * r;
+        X.beginPath();
+        X.moveTo(cx + Math.cos(a) * (r * 0.3), cy + Math.sin(a) * (r * 0.3));
+        X.lineTo(cx + Math.cos(a) * (r * 0.3 + barH), cy + Math.sin(a) * (r * 0.3 + barH));
+        X.strokeStyle = `rgba(255,255,255,0.45)`;
+        X.lineWidth = 4;
+        X.stroke();
+      }
+    } else if (style === 'quantum-dots') {
+      // Quantum Dots: entangled pairs of dots blinking in sync.
+      const pairs = 8;
+      for (let i = 0; i < pairs; i++) {
+        const a1 = startA + angleSpan * (i / pairs);
+        const a2 = startA + angleSpan * ((i + 0.5) / pairs);
+        const phase = Math.sin(t * 3 + i * 1.3);
+        const r1 = r * (0.3 + 0.3 * ((i * 23) % 10) / 10);
+        const r2 = r * (0.5 + 0.3 * ((i * 37) % 10) / 10);
+        [[a1, r1], [a2, r2]].forEach(([a, rr]) => {
+          X.beginPath();
+          X.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, 2.5, 0, PI2);
+          X.fillStyle = `rgba(150,200,255,${(0.4 + 0.5 * Math.abs(phase)).toFixed(2)})`;
+          X.fill();
+        });
+        X.beginPath();
+        X.moveTo(cx + Math.cos(a1) * r1, cy + Math.sin(a1) * r1);
+        X.lineTo(cx + Math.cos(a2) * r2, cy + Math.sin(a2) * r2);
+        X.strokeStyle = `rgba(100,180,255,${(0.1 + 0.1 * Math.abs(phase)).toFixed(2)})`;
+        X.lineWidth = 0.8; X.stroke();
+      }
+    } else if (style === 'dna-strand') {
+      // DNA Strand: double helix projected radially inside wedge.
+      const steps = 30;
+      for (let i = 0; i < steps; i++) {
+        const a = startA + angleSpan * (i / steps);
+        const rMid = r * 0.6;
+        const wave = Math.sin(i * 0.8 + t * 4) * r * 0.12;
+        const perp = a + Math.PI / 2;
+        const x1 = cx + Math.cos(a) * rMid + Math.cos(perp) * wave;
+        const y1 = cy + Math.sin(a) * rMid + Math.sin(perp) * wave;
+        const x2 = cx + Math.cos(a) * rMid - Math.cos(perp) * wave;
+        const y2 = cy + Math.sin(a) * rMid - Math.sin(perp) * wave;
+        X.beginPath(); X.arc(x1, y1, 2, 0, PI2); X.fillStyle = 'rgba(100,220,150,0.7)'; X.fill();
+        X.beginPath(); X.arc(x2, y2, 2, 0, PI2); X.fillStyle = 'rgba(255,100,100,0.7)'; X.fill();
+        if (i % 3 === 0) {
+          X.beginPath(); X.moveTo(x1, y1); X.lineTo(x2, y2);
+          X.strokeStyle = 'rgba(255,255,255,0.25)'; X.lineWidth = 1; X.stroke();
+        }
+      }
+    } else if (style === 'liquid-metal') {
+      // Liquid Metal: reflective undulating gradient surface.
+      const midA = (startA + endA) * 0.5;
+      const grad = X.createRadialGradient(cx, cy, r * 0.2, cx, cy, r);
+      const liq = 0.5 + 0.5 * Math.sin(t * 2);
+      grad.addColorStop(0, `rgba(200,210,230,${(liq * 0.3).toFixed(2)})`);
+      grad.addColorStop(0.5, `rgba(255,255,255,${(liq * 0.18).toFixed(2)})`);
+      grad.addColorStop(1, `rgba(150,170,200,${(liq * 0.25).toFixed(2)})`);
+      X.beginPath(); X.moveTo(cx, cy); X.arc(cx, cy, r, startA, endA); X.closePath();
+      X.fillStyle = grad; X.fill();
+    } else if (style === 'golden-spark') {
+      // Golden Spark: golden particle shower across the wedge.
+      const count = 20;
+      for (let i = 0; i < count; i++) {
+        const phase = ((t * 0.8 + i / count) % 1);
+        const a = startA + angleSpan * (((i * 17) % count) / count);
+        const rr = r * (0.1 + 0.85 * phase);
+        const size = (1 - phase) * 3 + 1;
+        X.beginPath();
+        X.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, size, 0, PI2);
+        X.fillStyle = `rgba(255,${180 + 75 * (1 - phase)},50,${(0.8 - phase * 0.6).toFixed(2)})`;
+        X.fill();
+      }
+    } else if (style === 'nebula-cloud') {
+      // Nebula Cloud: soft overlapping color clouds inside the block.
+      const blobs = 5;
+      for (let i = 0; i < blobs; i++) {
+        const a = startA + angleSpan * ((i + 0.5) / blobs);
+        const rr = r * (0.3 + 0.4 * ((i * 31) % 10) / 10);
+        const hue = (t * 20 + i * 60) % 360;
+        const grad = X.createRadialGradient(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, 0, cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, r * 0.35);
+        grad.addColorStop(0, `hsla(${hue},80%,70%,0.2)`);
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        X.beginPath(); X.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, r * 0.35, 0, PI2);
+        X.fillStyle = grad; X.fill();
+      }
+    } else if (style === 'hex-comb') {
+      // Hex Comb: honeycomb grid pattern overlaid on the wedge.
+      const hexSize = r * 0.12;
+      const rows = 5, cols = 6;
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const ox = (col + (row % 2) * 0.5) * hexSize * 1.8 - r * 0.5;
+          const oy = row * hexSize * 1.56 - r * 0.5;
+          const hx = cx + ox, hy = cy + oy;
+          X.beginPath();
+          for (let k = 0; k < 6; k++) {
+            const ha = (k / 6) * PI2 - Math.PI / 6;
+            const hpx = hx + hexSize * Math.cos(ha), hpy = hy + hexSize * Math.sin(ha);
+            k === 0 ? X.moveTo(hpx, hpy) : X.lineTo(hpx, hpy);
+          }
+          X.closePath();
+          X.strokeStyle = `rgba(255,255,255,${(0.12 + 0.06 * Math.sin(t * 3 + row + col)).toFixed(2)})`;
+          X.lineWidth = 1; X.stroke();
+        }
+      }
+    } else if (style === 'solar-flare') {
+      // Solar Flare: burst of streaks from block center on pulse peak.
+      const flares = 14;
+      const midA = (startA + endA) * 0.5;
+      for (let i = 0; i < flares; i++) {
+        const a = midA + (i / flares - 0.5) * angleSpan * 0.8;
+        const intensity = Math.pow(Math.max(0, Math.sin(t * 1.5)), 3);
+        const len = r * (0.2 + intensity * 0.7);
+        X.beginPath();
+        X.moveTo(cx + Math.cos(a) * r * 0.2, cy + Math.sin(a) * r * 0.2);
+        X.lineTo(cx + Math.cos(a) * (r * 0.2 + len), cy + Math.sin(a) * (r * 0.2 + len));
+        X.strokeStyle = `rgba(255,${180 + 70 * intensity},50,${(intensity * 0.9).toFixed(2)})`;
+        X.lineWidth = 1.5 + intensity * 2;
+        X.stroke();
+      }
+    } else if (style === 'bubble-pop') {
+      // Bubble Pop: spherical bubbles rising and popping in the block.
+      const count = 12;
+      for (let i = 0; i < count; i++) {
+        const phase = ((t * 0.6 + i / count) % 1);
+        const a = startA + angleSpan * (((i * 23) % count) / count);
+        const rr = r * (0.15 + 0.7 * phase);
+        const bSize = (1 - phase) * 5 + 2;
+        const alpha = Math.sin(phase * Math.PI) * 0.6;
+        X.beginPath();
+        X.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, bSize, 0, PI2);
+        X.strokeStyle = `rgba(180,220,255,${alpha.toFixed(2)})`;
+        X.lineWidth = 1.2; X.stroke();
+        if (phase > 0.8) {
+          X.beginPath();
+          X.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, bSize * 1.5, 0, PI2);
+          X.strokeStyle = `rgba(180,220,255,${((1 - phase) * 3 * alpha).toFixed(2)})`;
+          X.lineWidth = 0.8; X.stroke();
+        }
+      }
+    } else if (style === 'star-dust') {
+      // Star Dust: twinkling star field across the wedge.
+      const stars = 25;
+      for (let i = 0; i < stars; i++) {
+        const a = startA + angleSpan * (((i * 17) % stars) / stars);
+        const rr = r * (0.1 + 0.85 * (((i * 31) % stars) / stars));
+        const twinkle = 0.3 + 0.7 * Math.abs(Math.sin(t * (2 + i * 0.3) + i));
+        X.beginPath();
+        X.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, 1.5, 0, PI2);
+        X.fillStyle = `rgba(255,255,220,${twinkle.toFixed(2)})`;
+        X.fill();
+      }
+    } else if (style === 'warp-drive') {
+      // Warp Drive: speed lines converging at block center.
+      const lines = 18;
+      for (let i = 0; i < lines; i++) {
+        const a = startA + angleSpan * (i / lines);
+        const phase = ((t * 1.5 + i / lines) % 1);
+        const r1 = r * (0.1 + phase * 0.85);
+        const r2 = r * Math.min(1, r1 / r + 0.15);
+        X.beginPath();
+        X.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+        X.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+        X.strokeStyle = `rgba(180,200,255,${(0.6 - phase * 0.5).toFixed(2)})`;
+        X.lineWidth = 1.5; X.stroke();
+      }
+    } else if (style === 'prism-light') {
+      // Prism Light: dispersed rainbow rays fanning through the block.
+      const rays = 10;
+      for (let i = 0; i < rays; i++) {
+        const a = startA + angleSpan * (i / rays);
+        const hue = (i / rays) * 360 + t * 30;
+        X.beginPath();
+        X.moveTo(cx, cy);
+        X.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+        X.strokeStyle = `hsla(${hue % 360},90%,65%,0.22)`;
+        X.lineWidth = (angleSpan * r / rays) * 0.8;
+        X.stroke();
+      }
+    } else if (style === 'clockwork-cogs') {
+      // Clockwork Cogs: rotating gear teeth circles inside the block.
+      const gears = [{ r: 0.35, teeth: 8, dir: 1 }, { r: 0.6, teeth: 14, dir: -1 }, { r: 0.82, teeth: 20, dir: 1 }];
+      const midA = (startA + endA) * 0.5;
+      gears.forEach(g => {
+        const gr = g.r * r;
+        const cx2 = cx + Math.cos(midA) * gr * 0.3, cy2 = cy + Math.sin(midA) * gr * 0.3;
+        X.beginPath(); X.arc(cx2, cy2, gr * 0.4, 0, PI2);
+        X.strokeStyle = 'rgba(200,200,200,0.25)'; X.lineWidth = 2; X.stroke();
+        for (let k = 0; k < g.teeth; k++) {
+          const ta = (k / g.teeth) * PI2 + t * g.dir * 0.5;
+          const tx1 = cx2 + Math.cos(ta) * gr * 0.4;
+          const ty1 = cy2 + Math.sin(ta) * gr * 0.4;
+          const tx2 = cx2 + Math.cos(ta) * (gr * 0.4 + 4);
+          const ty2 = cy2 + Math.sin(ta) * (gr * 0.4 + 4);
+          X.beginPath(); X.moveTo(tx1, ty1); X.lineTo(tx2, ty2);
+          X.strokeStyle = 'rgba(200,200,200,0.4)'; X.lineWidth = 3; X.stroke();
+        }
+      });
+    } else if (style === 'glitch-scan') {
+      // Glitch Scan: horizontal scan-line distortion bursting across block.
+      const scanLines = 6;
+      const trigger = Math.sin(t * 25) > 0.9;
+      if (trigger) {
+        for (let i = 0; i < scanLines; i++) {
+          const frac = (i + Math.random()) / scanLines;
+          const a1 = startA + angleSpan * frac;
+          const shift = (Math.random() - 0.5) * 0.15;
+          X.beginPath();
+          X.moveTo(cx, cy);
+          X.arc(cx, cy, r, a1 + shift, a1 + shift + angleSpan / scanLines * 0.8);
+          X.closePath();
+          X.fillStyle = `rgba(${Math.random() > 0.5 ? 255 : 0},${Math.random() > 0.5 ? 255 : 0},${Math.random() > 0.5 ? 255 : 0},0.15)`;
+          X.fill();
+        }
+      }
+    } else if (style === 'supernova') {
+      // Supernova: explosive expanding shock wave from block center.
+      const cycle = (t * 0.8) % (PI2);
+      const intensity = Math.pow(Math.max(0, Math.sin(cycle)), 8);
+      if (intensity > 0.05) {
+        const waveFront = r * (0.1 + intensity * 0.9);
+        X.beginPath(); X.moveTo(cx, cy); X.arc(cx, cy, waveFront, startA, endA); X.closePath();
+        X.fillStyle = `rgba(255,${150 + 100 * intensity},50,${(intensity * 0.35).toFixed(2)})`;
+        X.fill();
+        // Ring flash
+        X.beginPath(); X.arc(cx, cy, waveFront, startA, endA);
+        X.strokeStyle = `rgba(255,255,200,${(intensity * 0.8).toFixed(2)})`;
+        X.lineWidth = 3 + intensity * 6;
+        try { X.shadowColor = 'rgba(255,200,50,0.8)'; X.shadowBlur = 20 * intensity; } catch(_){}
+        X.stroke();
+        try { X.shadowBlur = 0; } catch(_){}
+      }
     }
 
     X.restore();
   }
+
 
   function drawSessionsOverlay(cx, cy, r) {
     if (!SESSIONS_ENABLED) return;
@@ -4456,15 +5548,15 @@ const nowTime = performance.now();
        const endAngle = startAngle + sweepAngle;
        
         // Elapsed uses the shared 12-hour cyclic model (matches the dial).
-        const { elapsedMs } = blockElapsedCyclic(sess, realNow);
+        const { elapsedMs, visDuration, isInside } = blockElapsedCyclic(sess, realNow);
         const elapsedAngle = (elapsedMs / MS_IN_12H) * PI2;
-       const currentAngle = startAngle + elapsedAngle;
-       const s = sess.anim || blockAnim.style || 'none';
-       const anim = getAnimModifier(nowTime, sess.anim || null);
-       let drawR = r + anim.rOff;
-       let activeColor = anim.colorOverride || sess.color;
+        const currentAngle = startAngle + elapsedAngle;
+        const s = sess.anim || blockAnim.style || 'none';
+        const anim = getAnimModifier(nowTime, sess.anim || null);
+        let drawR = r + anim.rOff;
+        let activeColor = anim.colorOverride || sess.color;
 
-// 1) Elapsed Portion (distinct muted color, visible opacity)
+        // 1) Elapsed Portion (distinct muted color, visible opacity)
         if (elapsedMs > 0) {
             let elColor = sess.elapsedColor || sess.color;
             let hasCustomEl = !!sess.elapsedColor;
@@ -4489,28 +5581,29 @@ const nowTime = performance.now();
             X.lineWidth = 1;
             X.stroke();
         }
-       // 2) Remaining Portion (vibrant + animated)
-       if (elapsedMs < durationMs) {
-           X.shadowBlur = anim.blur;
-           X.shadowColor = activeColor;
-           X.globalAlpha = blockOpacity * anim.opMul; 
-           X.beginPath();
-           X.moveTo(cx, cy);
-           X.arc(cx, cy, drawR, currentAngle, endAngle);
-           X.closePath();
-           X.fillStyle = activeColor;
-           X.fill();
-           
-           // Specialized animated texture/layer for advanced styles
-           drawTimeBlockAnimEffect(cx, cy, drawR, currentAngle, endAngle, activeColor, s, t, blockOpacity);
 
-           X.globalAlpha = Math.min(1, blockOpacity * anim.opMul + 0.4);
-           X.beginPath();
-           X.arc(cx, cy, drawR - 1, currentAngle, endAngle);
-           X.strokeStyle = activeColor;
-           X.lineWidth = 1.5;
-           X.stroke();
-           X.shadowBlur = 0; X.shadowColor = 'transparent';
+        // 2) Remaining Portion (vibrant + animated)
+        if (elapsedMs < visDuration) {
+            X.shadowBlur = anim.blur;
+            X.shadowColor = activeColor;
+            X.globalAlpha = blockOpacity * anim.opMul; 
+            X.beginPath();
+            X.moveTo(cx, cy);
+            X.arc(cx, cy, drawR, currentAngle, endAngle);
+            X.closePath();
+            X.fillStyle = activeColor;
+            X.fill();
+            
+            // Specialized animated texture/layer for advanced styles
+            drawTimeBlockAnimEffect(cx, cy, drawR, currentAngle, endAngle, activeColor, s, t, blockOpacity);
+
+            X.globalAlpha = Math.min(1, blockOpacity * anim.opMul + 0.4);
+            X.beginPath();
+            X.arc(cx, cy, drawR - 1, currentAngle, endAngle);
+            X.strokeStyle = activeColor;
+            X.lineWidth = 1.5;
+            X.stroke();
+            X.shadowBlur = 0; X.shadowColor = 'transparent';
         }
 
         // 3) REMAINING-percentage label: OUTSIDE the dial rim, pinned on the
@@ -4522,34 +5615,73 @@ const nowTime = performance.now();
         //   progress on the 12h dial for blocks < 12h).
         // Full-circle blocks (≥12h) use linear time since the hand laps.
         // Radial offset from the rim driven by `--pct-offset` (CSS var).
-        if (durationMs > 0 && sweepAngle > 0.12) {
-            let elapsedFraction;
-            if (sweepAngle >= PI2 - 1e-6) {
-                // Full-circle block: hour hand makes a full lap; use linear time.
-                elapsedFraction = Math.min(1, Math.max(0, elapsedMs / durationMs));
-            } else if (realNow <= sess.start) {
-                elapsedFraction = 0; // block hasn't started — hour hand not yet in arc
-            } else if (realNow >= sess.end) {
-                elapsedFraction = 1; // block ended — hour hand past the arc
+        if (pctVisible && durationMs > 0 && sweepAngle > 0.12) {
+            const effDuration = visDuration > 0 ? visDuration : durationMs;
+            const elapsedFraction = Math.min(1, Math.max(0, elapsedMs / effDuration));
+            const pct = Math.max(0, Math.min(100, Math.round((1 - elapsedFraction) * 100))); // REMAINING
+
+            // Remaining time calculation
+            const remainingMs = Math.max(0, Math.round(effDuration * (1 - elapsedFraction)));
+            const remH = Math.floor(remainingMs / 3600000);
+            const remM = Math.floor((remainingMs % 3600000) / 60000);
+            const remS = Math.floor((remainingMs % 60000) / 1000);
+            let timeStr;
+            if (remainingMs <= 0) timeStr = '0m';
+            else if (remH > 0) timeStr = remH + 'h ' + String(remM).padStart(2, '0') + 'm';
+            else if (remM > 0) timeStr = remM + 'm';
+            else timeStr = remS + 's';
+
+            // Position at the center of the REMAINING time arc (hour hand → end) while active,
+            // or at center of full block arc when fully elapsed or upcoming.
+            let midA;
+            if (isInside && elapsedFraction > 0 && elapsedFraction < 1) {
+                const remainingSweep = Math.max(0, endAngle - currentAngle);
+                midA = currentAngle + remainingSweep / 2;
             } else {
-                // Active block: hour hand is currently sweeping through this arc.
-                // Its fractional progress equals the linear elapsed fraction
-                // (both advance at the same constant rate on the 12h dial).
-                elapsedFraction = Math.min(1, Math.max(0, elapsedMs / durationMs));
+                midA = startAngle + sweepAngle / 2;
             }
-            const pct = Math.max(0, Math.min(100, Math.floor((1 - elapsedFraction) * 100))); // REMAINING
-            const midA = startAngle + sweepAngle / 2;
+
             const off = cssPx('--pct-offset', 28);
             const lr = Math.min(r + off, Math.min(wrapSize.w, wrapSize.h) / 2 - 4);   // OUTSIDE the dial rim
             const lx = cx + Math.cos(midA) * lr;
             const ly = cy + Math.sin(midA) * lr;
+
             X.save();
             X.globalAlpha = 0.92;
             X.shadowColor = 'rgba(0,0,0,0.75)'; X.shadowBlur = 4;
-            X.fillStyle = '#ffffff';
-            X.font = '700 ' + Math.max(11, Math.min(14, r * 0.10)) + 'px Inter, sans-serif';
+            X.fillStyle = pctColor || '#ffffff';
+            const fSize = Math.max(8, Math.min(24, pctFontSize || 12));
+            const bigFont = '700 ' + fSize + 'px Inter, sans-serif';
+            const smallFont = '600 ' + Math.max(7, fSize - 3) + 'px Inter, sans-serif';
             X.textAlign = 'center'; X.textBaseline = 'middle';
-            X.fillText(pct + '%', lx, ly);
+
+            const pctStr = pct + '%';
+            if (pctShowTime && remainingMs > 0 && pctTimePos === 'inline') {
+              X.font = bigFont;
+              X.fillText(pctStr + ' \u00b7 ' + timeStr, lx, ly);
+            } else if (pctShowTime && remainingMs > 0 && pctTimePos === 'right') {
+              // Both strings on one line, centered as a group on the arc mid.
+              X.font = bigFont;
+              const wPct = X.measureText(pctStr).width;
+              X.font = smallFont;
+              const wTime = X.measureText(timeStr).width;
+              const gap = 4;
+              const total = wPct + gap + wTime;
+              X.textAlign = 'left';
+              X.font = bigFont;
+              X.fillText(pctStr, lx - total / 2, ly);
+              X.font = smallFont;
+              X.fillText(timeStr, lx - total / 2 + wPct + gap, ly);
+            } else if (pctShowTime && remainingMs > 0) {
+              // 'below' (default): % on top line, time under it.
+              X.font = bigFont;
+              X.fillText(pctStr, lx, ly - fSize * 0.45);
+              X.font = smallFont;
+              X.fillText(timeStr, lx, ly + fSize * 0.55);
+            } else {
+              X.font = bigFont;
+              X.fillText(pctStr, lx, ly);
+            }
             X.restore();
         }
 

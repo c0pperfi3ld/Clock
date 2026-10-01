@@ -24,21 +24,22 @@
       <div id="link-toast" class="link-toast"></div>
       <label id="picker-wrap-start" class="floating-picker" title="Remaining Color">
          <input type="color" id="color-start">
+      </label>
       <label id="picker-wrap-end" class="floating-picker" title="Elapsed Color">
          <input type="color" id="color-end">
       </label>
     </div>
+    <button id="todo-collapse-toggle" class="todo-collapse-toggle" title="Toggle todo list" aria-label="Toggle todo list">
+       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+         <polyline points="9 6 15 12 9 18"></polyline>
+       </svg>
+     </button>
     <aside id="todo-panel">
       <div class="todo-resize-w" id="todo-resize-w" title="Resize todo list"></div>
       <div class="todo-resize-e" id="todo-resize-e" title="Resize todo list"></div>
       <div class="todo-tab-bar">
         <div class="todo-tabs" id="todo-tabs"></div>
-        <button class="todo-tab-add" id="todo-tab-add" title="New list">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-        </button>
+        <button class="todo-tab-add" id="todo-tab-add" title="New list">+</button>
         <button class="todo-cal-toggle" id="todo-cal-toggle" title="Calendar">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <rect x="3" y="4.5" width="18" height="16" rx="2.5"></rect>
@@ -63,7 +64,16 @@
         <span id="todo-link-text"></span>
         <button id="todo-link-cancel" title="Done linking">×</button>
       </div>
+      <div class="todo-add-zone" id="todo-add-zone">
+        <button class="todo-add-plus" id="todo-add-plus" title="Add task">+</button>
+        <div class="todo-add-box" id="todo-add-box" contenteditable="true" spellcheck="false" data-placeholder="Add a task…"></div>
+      </div>
       <ul id="todo-list" class="todo-list"></ul>
+      <button id="todo-scroll-hint" class="todo-scroll-hint" title="Scroll down" aria-label="Scroll down">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </button>
     </aside>
   </div>
   <script src="renderer.js"></script>

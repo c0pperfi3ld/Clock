@@ -13,7 +13,7 @@ function mkTask(i, n) {
   };
 }
 function buildTasks(n){ return Array.from({length:n},(_,i)=>mkTask(i,n)); }
-window.__seed = {
+window.__seed = window.__seed || {
   todosByDate: { [today]: { lists: [ { id:'list-1', name:'List 1', todos: buildTasks(8) } ], active: 0 } },
   selectedTodoDate: today
 };
